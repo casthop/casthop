@@ -1,0 +1,6 @@
+---
+description: Casthop agent rules. Source of truth is AGENTS.md.
+alwaysApply: true
+---
+
+Read and follow `@AGENTS.md`. When editing `crates/`, also follow `@crates/AGENTS.md`.

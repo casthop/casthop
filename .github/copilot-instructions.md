@@ -1,0 +1,3 @@
+Follow [AGENTS.md](../AGENTS.md). That file is the source of truth for this repository.
+
+When editing `crates/`, also follow [crates/AGENTS.md](../crates/AGENTS.md).

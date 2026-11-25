@@ -205,6 +205,8 @@ test("publicError strips RTMP URLs", () => {
   assert.equal(publicError(`failed ${YT}`), "failed rtmp://…");
   assert.equal(publicError("failed 127.0.0.1:1935/live/super-secret-youtube-key"), "failed rtmp://…");
   assert.equal(publicError("failed ingest.example.com/live/super-secret-youtube-key"), "failed rtmp://…");
+  assert.equal(publicError("failed mux://8e0b1b9c-50a2-d893-ec0a-102056d112ae"), "failed rtmp://…");
+  assert.equal(publicError("failed twitch://live_12345678_abcdefghijklmnop"), "failed rtmp://…");
   assert.equal(publicError(""), null);
 });
 

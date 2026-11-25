@@ -77,7 +77,12 @@ export async function drawWgpu(
 ): Promise<boolean> {
   const gpuCanvas = await ensureGpu(dest.width, dest.height);
   if (!gpuCanvas) return false;
-  const ok = gpu_compositor_draw(tiles, modeCode(mode));
+  let ok = 0;
+  try {
+    ok = gpu_compositor_draw(tiles, modeCode(mode));
+  } catch (err) {
+    console.warn("wgpu draw failed", err);
+  }
   if (!ok) {
     drawFails += 1;
     if (drawFails >= DRAW_FAIL_LIMIT) gpuFail = true;

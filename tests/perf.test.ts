@@ -3,7 +3,14 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { comparePerf, compareWorkerToMain, formatPerfTable, regressionLimit } from "../src/lib/perf-gate.ts";
+import {
+  bandLimits,
+  comparePerf,
+  compareWorkerToMain,
+  formatPerfTable,
+  regressionLimit,
+  WORKER_OUTPUT_FPS,
+} from "../src/lib/perf-gate.ts";
 import { percentile } from "../src/lib/compose-support.ts";
 import { pickComposeThreadFrom } from "../src/lib/compose-backend.ts";
 
@@ -88,6 +95,52 @@ test("compareWorkerToMain fails when worker p95 is more than 15% worse", () => {
   const table = formatPerfTable(compareWorkerToMain(worker, main).rows, "worker", "main");
   assert.match(table, /worker/);
   assert.match(table, /main/);
+  assert.match(table, /worker frames/);
+});
+
+test("compareWorkerToMain keeps 15% but a 2ms floor covers GHA VideoFrame overhead", () => {
+  const main = {
+    p50FrameMs: 6.3,
+    p95FrameMs: 8.1,
+    droppedFrames: 0,
+    longTaskCount: 0,
+    longTaskTotalMs: 0,
+    inputLatencyP95Ms: 16,
+    frames: 1793,
+    thread: "main",
+    backend: "canvas2d",
+    tiles: 6,
+    seconds: 30,
+  };
+  const worker = { ...main, thread: "worker", frames: 910, p50FrameMs: 8.5, p95FrameMs: 9.5 };
+  assert.equal(compareWorkerToMain(worker, main).ok, true);
+  assert.equal(regressionLimit(8.1, 2), 10.1);
+  assert.equal(compareWorkerToMain({ ...worker, p95FrameMs: 12 }, main).ok, false);
+});
+
+test("compareWorkerToMain fails when worker leaves the 30fps band or drops frames", () => {
+  const main = {
+    p50FrameMs: 7,
+    p95FrameMs: 10,
+    droppedFrames: 0,
+    longTaskCount: 0,
+    longTaskTotalMs: 0,
+    inputLatencyP95Ms: 16,
+    frames: 1800,
+    thread: "main",
+    backend: "canvas2d",
+    tiles: 6,
+    seconds: 30,
+  };
+  const worker = { ...main, thread: "worker", frames: WORKER_OUTPUT_FPS * 30, p95FrameMs: 11 };
+  assert.equal(WORKER_OUTPUT_FPS, 30);
+  assert.equal(compareWorkerToMain(worker, main).ok, true);
+  assert.equal(compareWorkerToMain({ ...worker, frames: 400 }, main).ok, false);
+  assert.equal(compareWorkerToMain({ ...worker, frames: 1800 }, main).ok, false);
+  assert.equal(compareWorkerToMain({ ...worker, droppedFrames: 20 }, main).ok, false);
+  const { lo, hi } = bandLimits(900, 0);
+  assert.equal(lo, 765);
+  assert.equal(hi, 1035);
 });
 
 test("perf baseline JSON has gated fields", () => {
@@ -121,6 +174,7 @@ test("offthread compose uses OffscreenCanvas and VideoFrame transfer", () => {
   assert.match(worker, /signal\.addEventListener\("abort"/);
   assert.match(worker, /reader\.cancel/);
   assert.match(worker, /OUTPUT_INTERVAL_MS/);
+  assert.match(worker, /const OUTPUT_FPS = 30/);
   assert.match(worker, /setTimeout\(tick/);
   assert.doesNotMatch(worker, /requestAnimationFrame/);
   const capAt = program.indexOf("captureStream(30)");

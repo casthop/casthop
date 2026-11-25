@@ -78,7 +78,9 @@ Takeaway: ship RNNoise in WASM because a JS gate is not the same filter. Do **no
 
 ## 7. Off-main-thread compose (this PR)
 
-`/internal/perf`, 6 canvas tiles + banner overlay, 30 s after warmup. Local Chrome 157 `--disable-gpu` compared `?thread=main` vs Worker. CI runs both paths on the same runner and fails if the worker p95 frame time or long-task total is more than 15% worse than main.
+`/internal/perf`, 6 canvas tiles + banner overlay, 30 s after warmup. Local Chrome 157 `--disable-gpu` compared `?thread=main` vs Worker. CI runs both paths on the same runner.
+
+The worker is **30 fps on purpose** (one compose per program frame, `captureStream(30)`). Main is ~60 fps rAF. ~900 vs ~1800 frames in 30 s is not a drop. CI fails if worker p95 or long tasks are more than 15% worse than main (2 ms p95 floor), if worker frames leave 30 fps ±15%, or if dropped frames exceed main. The 2 ms floor is the VideoFrame / OffscreenCanvas cost on GitHub runners (~1.4 ms on fast boxes). A 1 ms floor failed twice on unrelated commits when main p95 was ~8 ms (15% slack = 1.2 ms). Repeat runs on the same runner do not help: the miss is that floor, not sample noise.
 
 | | Main thread (local) | Worker (local) |
 |---|---|---|
@@ -88,6 +90,8 @@ Takeaway: ship RNNoise in WASM because a JS gate is not the same filter. Do **no
 | Dropped | 0 | 0 |
 | Long tasks | 0 ms | **0 ms** |
 | Input latency p95 (Tap while composing) | 17.72 ms | **15.81 ms** |
+
+GHA headless `--disable-gpu` (same Chrome 158, six recent main runs): worker 905–911 frames, 0 dropped. Main p95 7.7–17 ms. Worker p95 9.0–15.5 ms. Fast runners: worker ~1.3–1.4 ms slower (9.5 vs 8.1). Slow runners: worker faster than main because main picks up long tasks.
 
 Compose is no longer on the UI thread. The worker paints the OffscreenCanvas once per 30 fps output frame; `captureStream(30)` samples that same frame for the program track. No second compose for preview. `tests/perf-baseline.json` is the local snapshot from this machine; CI does not loosen it. Force main with `?thread=main`.
 

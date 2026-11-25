@@ -11,6 +11,7 @@ const X = "rtmp://ingest.example.com/live/super-secret-x-key";
 
 let egressStarts = 0;
 let egressStops = 0;
+let mailWebhookStatus = 503;
 const realFetch = globalThis.fetch;
 let githubEmails: { email: string; primary?: boolean; verified?: boolean }[] = [
   { email: "octo@example.com", primary: true, verified: true },
@@ -54,6 +55,7 @@ function makeEnv(overrides: Partial<Env> = {}): Env & { _db: FakeD1 } {
     RTMP_X: X,
     EGRESS_TEMPLATE_URL: "http://127.0.0.1:5173/egress-template",
     CASTHOP_ALLOW_DEV_KEYS: "1",
+    CASTHOP_TRUST_FORWARDED: "1",
     ASSETS: { fetch: async () => new Response("ok") },
     RECORDINGS: {},
     DB: db,
@@ -164,6 +166,9 @@ before(() => {
     }
     if (url.startsWith("http://127.0.0.1:7880")) {
       return new Response("ok", { status: 200 });
+    }
+    if (url.includes("https://mail.test/send")) {
+      return new Response("fail", { status: mailWebhookStatus });
     }
     return realFetch(input, init);
   }) as typeof fetch;
@@ -822,6 +827,28 @@ test("sign-in is rate limited per IP", async () => {
   assert.equal(last, 429);
 });
 
+test("spoofed forwarding headers do not bypass sign-in rate limits", async () => {
+  const env = makeEnv({ CASTHOP_TRUST_FORWARDED: "0" });
+  let last = 200;
+  for (let i = 0; i < 6; i++) {
+    const res = await app.request(
+      "https://casthop.test/api/auth/magic-link",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "cf-connecting-ip": `203.0.113.${i}`,
+          "x-forwarded-for": `198.51.100.${i}`,
+        },
+        body: JSON.stringify({ email: `spoof${i}@example.com` }),
+      },
+      env,
+    );
+    last = res.status;
+  }
+  assert.equal(last, 429);
+});
+
 test("sessions rotate and the previous cookie still works within the grace window", async () => {
   const env = makeEnv();
   const cookie = await signIn(env, "ada@example.com");
@@ -973,38 +1000,57 @@ test("devLogin is omitted on a non-loopback host even with CASTHOP_ALLOW_DEV_KEY
 test("magic link is not logged or returned outside local/dev", async () => {
   const logs: string[] = [];
   const origLog = console.log;
-  const origWarn = console.warn;
   console.log = (...args: unknown[]) => {
     logs.push(args.map(String).join(" "));
   };
-  console.warn = () => undefined;
   try {
     const env = makeEnv({
       LIVEKIT_API_KEY: "prodkey",
       LIVEKIT_API_SECRET: "prodsecretprodsecretprodsecret",
       CASTHOP_ALLOW_DEV_KEYS: "0",
     });
-    const sent = await json<{ ok: boolean; devLogin?: string }>(
-      await app.request(
-        "https://casthop.test/api/auth/magic-link",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "prod@example.com" }),
-        },
-        env,
-      ),
+    const res = await app.request(
+      "https://casthop.test/api/auth/magic-link",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "prod@example.com" }),
+      },
+      env,
     );
-    assert.equal(sent.ok, true);
+    assert.equal(res.status, 502);
+    const sent = await json<{ error?: string; devLogin?: string }>(res);
     assert.equal(sent.devLogin, undefined);
+    assert.match(sent.error ?? "", /could not send/);
     assert.equal(
       logs.some((line) => line.includes("casthop mail")),
       false,
     );
   } finally {
     console.log = origLog;
-    console.warn = origWarn;
   }
+});
+
+test("failed mail webhook returns an error instead of pretending the link was sent", async () => {
+  mailWebhookStatus = 503;
+  const env = makeEnv({
+    LIVEKIT_API_KEY: "prodkey",
+    LIVEKIT_API_SECRET: "prodsecretprodsecretprodsecret",
+    CASTHOP_ALLOW_DEV_KEYS: "0",
+    MAIL_WEBHOOK_URL: "https://mail.test/send",
+  });
+  const res = await app.request(
+    "https://casthop.test/api/auth/magic-link",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "hook@example.com" }),
+    },
+    env,
+  );
+  assert.equal(res.status, 502);
+  const body = await json<{ error: string }>(res);
+  assert.match(body.error, /could not send/);
 });
 
 test("ensureDb sweeps expired sessions, magic links, oauth states, and stale rate rows", async () => {

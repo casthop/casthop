@@ -6,13 +6,13 @@ import {
   asEmail,
   asName,
   clearCookie,
-  clientIp,
   devKeyGuardError,
   hostKeyFor,
   isHostIdentity,
   isSecureRequest,
   OAUTH_COOKIE,
   randomId,
+  requestIp,
   sha256hex,
   TOKEN_IP_MAX,
   TOKEN_IP_WINDOW_MS,
@@ -41,7 +41,7 @@ import {
   memberFor,
   membersOf,
 } from "./db";
-import { mailerFor } from "./mail";
+import { MailSendError, mailerFor } from "./mail";
 import {
   attachSessionCookie,
   consumeMagicToken,
@@ -127,6 +127,7 @@ app.post("/api/auth/magic-link", async (c) => {
     return c.json(result);
   } catch (err) {
     if (rateError(err)) return c.json({ error: "too many attempts" }, 429);
+    if (err instanceof MailSendError) return c.json({ error: "could not send sign-in email" }, 502);
     throw err;
   }
 });
@@ -235,7 +236,7 @@ app.get("/api/studios/:id/ws", async (c) => {
 
 app.post("/api/studios/:id/token", async (c) => {
   const id = c.req.param("id");
-  const ip = clientIp(c.req.raw.headers);
+  const ip = requestIp(c);
   if (!(await allowRate(c.env.DB, `token:ip:${ip}`, TOKEN_IP_MAX, TOKEN_IP_WINDOW_MS))) {
     return c.json({ error: "too many joins" }, 429);
   }
@@ -492,11 +493,16 @@ app.post("/api/studios/:id/cohosts", async (c) => {
   if (pending.some((p) => p.email === email)) return c.json({ error: "already invited" }, 409);
   await insertInvite(c.env.DB, randomId(10), id, email, Date.now());
   const origin = new URL(c.req.url).origin;
-  await mailerFor(c.env).send({
-    to: email,
-    subject: "Co-host invite for a Casthop studio",
-    text: `You were invited to co-host a studio. Sign in at ${origin} with this email, then open ${origin}/studio/${id}\n`,
-  });
+  try {
+    await mailerFor(c.env).send({
+      to: email,
+      subject: "Co-host invite for a Casthop studio",
+      text: `You were invited to co-host a studio. Sign in at ${origin} with this email, then open ${origin}/studio/${id}\n`,
+    });
+  } catch (err) {
+    if (err instanceof MailSendError) return c.json({ error: "could not send invite" }, 502);
+    throw err;
+  }
   return c.json({ ok: true, pending: true, email });
 });
 

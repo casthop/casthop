@@ -6,6 +6,7 @@ import { test } from "node:test";
 import {
   CLAIM_STALE_MS,
   claimIsHeld,
+  clientIp,
   cookieValue,
   DEV_API_KEY,
   DEV_API_SECRET,
@@ -44,6 +45,14 @@ function state(url: string): StudioState {
     createdAt: 1,
   };
 }
+
+test("clientIp ignores forwarded headers unless Cloudflare or CASTHOP_TRUST_FORWARDED", () => {
+  const forwarded = new Headers({ "x-forwarded-for": "203.0.113.9, 10.0.0.1", "cf-connecting-ip": "198.51.100.1" });
+  assert.equal(clientIp(forwarded), "local");
+  assert.equal(clientIp(forwarded, { cf: {} }), "198.51.100.1");
+  assert.equal(clientIp(new Headers({ "x-forwarded-for": "203.0.113.9" }), { cf: {} }), "local");
+  assert.equal(clientIp(new Headers({ "x-forwarded-for": "203.0.113.9" }), { trustForwarded: true }), "203.0.113.9");
+});
 
 test("cookieValue ignores malformed percent-encoding", () => {
   assert.equal(cookieValue("casthop_session=%E0%A4%A", "casthop_session"), "");

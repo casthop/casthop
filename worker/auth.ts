@@ -15,12 +15,12 @@ import {
   asEmail,
   asName,
   clearCookie,
-  clientIp,
   cookieValue,
   hostIdentityFor,
   hostKeyFor,
   isLoopbackUrl,
   isSecureRequest,
+  requestIp,
   nameFromEmail,
   randomId,
   setCookie,
@@ -183,7 +183,7 @@ export async function findOrCreateGithubAccount(env: Env, github: { id: string; 
 }
 
 export async function issueMagicLink(c: AppCtx, email: string): Promise<{ ok: true; devLogin?: string }> {
-  const ip = clientIp(c.req.raw.headers);
+  const ip = requestIp(c);
   if (!(await allowRate(c.env.DB, `signin:ip:${ip}`, SIGNIN_IP_MAX, SIGNIN_WINDOW_MS))) {
     return Promise.reject(Object.assign(new Error("too many attempts"), { status: 429 }));
   }
@@ -217,7 +217,7 @@ export async function consumeMagicToken(c: AppCtx, token: string): Promise<Accou
 
 export async function startGithub(c: AppCtx): Promise<{ url: string; cookie: string } | null> {
   if (!githubConfigured(c.env)) return null;
-  const ip = clientIp(c.req.raw.headers);
+  const ip = requestIp(c);
   if (!(await allowRate(c.env.DB, `signin:ip:${ip}`, SIGNIN_IP_MAX, SIGNIN_WINDOW_MS))) {
     throw Object.assign(new Error("too many attempts"), { status: 429 });
   }

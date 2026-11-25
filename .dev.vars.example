@@ -16,3 +16,7 @@ EGRESS_TEMPLATE_URL=http://127.0.0.1:5173/egress-template
 # POST JSON { to, subject, text }. No paid provider required.
 # MAIL_WEBHOOK_URL=
 # MAIL_WEBHOOK_TOKEN=
+
+# Trust CF-Connecting-IP / X-Forwarded-For only when a reverse proxy sets them.
+# Cloudflare sets request.cf, so this is not needed there. Do not enable for wrangler dev.
+# CASTHOP_TRUST_FORWARDED=1

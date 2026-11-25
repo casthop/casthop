@@ -269,12 +269,29 @@ export function cookieValue(header: string | undefined, name: string): string {
   return "";
 }
 
-export function clientIp(headers: { get: (name: string) => string | null | undefined }): string {
-  const cf = headers.get("cf-connecting-ip")?.trim();
-  if (cf) return cf.slice(0, 64);
-  const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  if (forwarded) return forwarded.slice(0, 64);
+/** CF-Connecting-IP is trusted on Cloudflare (`cf` set). X-Forwarded-For only with CASTHOP_TRUST_FORWARDED=1. */
+export function clientIp(
+  headers: { get: (name: string) => string | null | undefined },
+  opts: { trustForwarded?: boolean; cf?: unknown } = {},
+): string {
+  if (opts.cf) {
+    const cfip = headers.get("cf-connecting-ip")?.trim();
+    if (cfip) return cfip.slice(0, 64);
+  }
+  if (opts.trustForwarded) {
+    const cfip = headers.get("cf-connecting-ip")?.trim();
+    if (cfip) return cfip.slice(0, 64);
+    const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+    if (forwarded) return forwarded.slice(0, 64);
+  }
   return "local";
+}
+
+export function requestIp(c: { req: { raw: Request }; env: Pick<Env, "CASTHOP_TRUST_FORWARDED"> }): string {
+  return clientIp(c.req.raw.headers, {
+    trustForwarded: c.env.CASTHOP_TRUST_FORWARDED === "1",
+    cf: c.req.raw.cf,
+  });
 }
 
 export function isSecureRequest(url: string): boolean {

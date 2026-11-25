@@ -72,6 +72,7 @@ export type Env = {
   RTMP_X: string;
   EGRESS_TEMPLATE_URL: string;
   CASTHOP_ALLOW_DEV_KEYS?: string;
+  CASTHOP_TRUST_FORWARDED?: string;
   GITHUB_CLIENT_ID?: string;
   GITHUB_CLIENT_SECRET?: string;
   MAIL_WEBHOOK_URL?: string;

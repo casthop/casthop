@@ -1267,6 +1267,23 @@ test("magic link off loopback without PUBLIC_ORIGIN fails closed", async () => {
   assert.equal(res.status, 503);
 });
 
+test("devLogin is returned on loopback when CF-Connecting-IP is 127.0.0.1", async () => {
+  const env = makeEnv();
+  const sent = await json<{ ok: boolean; devLogin?: string }>(
+    await app.request(
+      "http://127.0.0.1/api/auth/magic-link",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "cf-connecting-ip": "127.0.0.1" },
+        body: JSON.stringify({ email: "e2e-loopback@example.com" }),
+      },
+      env,
+    ),
+  );
+  assert.equal(sent.ok, true);
+  assert.ok(sent.devLogin);
+});
+
 test("devLogin is omitted when Host is loopback but the client IP is not local", async () => {
   const env = makeEnv();
   const sent = await json<{ ok: boolean; devLogin?: string }>(

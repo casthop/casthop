@@ -18,6 +18,7 @@ import {
   cookieValue,
   hostIdentityFor,
   hostKeyFor,
+  isLoopbackHost,
   isLoopbackUrl,
   isSecureRequest,
   publicOrigin,
@@ -185,7 +186,8 @@ export async function findOrCreateGithubAccount(env: Env, github: { id: string; 
 }
 
 function showDevLogin(c: AppCtx, ip: string): boolean {
-  return allowDevLogin(c.env) && !c.req.raw.cf && ip === "local" && isLoopbackUrl(c.req.url);
+  // Wrangler still attaches `cf` locally. Loopback Host + loopback/local IP is the gate.
+  return allowDevLogin(c.env) && isLoopbackUrl(c.req.url) && (ip === "local" || isLoopbackHost(ip));
 }
 
 export async function issueMagicLink(c: AppCtx, email: string): Promise<{ ok: true; devLogin?: string }> {

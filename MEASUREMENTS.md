@@ -1,6 +1,6 @@
 # Measurements
 
-Prototype run on a 4 vCPU / 15 GB Linux VM, 2026-11-25. LiveKit, Egress, Redis, and MediaMTX on Docker host networking. App via `npm run dev` (Cloudflare Worker locally). Publishers: Chrome fake camera, canvas fallback, and `lk room join --publish-demo`.
+Prototype run on a 4 vCPU / 15 GB Linux VM, 2026-11-25. LiveKit, Egress, Redis, and MediaMTX on Docker host networking. App via `bun run dev` (Cloudflare Worker locally). Publishers: Chrome fake camera, canvas fallback, and `lk room join --publish-demo`.
 
 Estimates are marked **(estimate)**. Direct observations are not.
 
@@ -9,7 +9,7 @@ Estimates are marked **(estimate)**. Direct observations are not.
 1. **On-stage glass-to-glass.** Canvas flash (white 180 ms every 2.5 s) published through LiveKit, read back from the subscribed video element. Delay = `performance.now()` at flash minus first frame whose luma &gt; 180. Page: `/internal/probe`.
 2. **RTMP delay.** Time from Go Live until Egress logs `pipeline playing` and `stream started`, plus `ffprobe` on `rtmp://127.0.0.1:1935/live/youtube`. MediaMTX HLS (`/live/youtube/index.m3u8`) 404s on this image, so HLS is **not** the proof path.
 3. **CPU / memory.** `docker stats` after ~45 s of live composite. Egress also reports `avgCPU` / `maxCPU` in its own metrics.
-4. **WASM vs JS.** `npm run bench:wasm` (Node, same algorithms) and Chrome `/internal/bench`. Denoise: RNNoise (nnnoiseless) vs a JS DC-remove + gate. Compose: WASM nearest-neighbor blit vs the same blit in JS. Canvas2D/WebGPU use the GPU and are a different class of work.
+4. **WASM vs JS.** `bun run bench:wasm` (Bun, same algorithms) and Chrome `/internal/bench`. Denoise: RNNoise (nnnoiseless) vs a JS DC-remove + gate. Compose: WASM nearest-neighbor blit vs the same blit in JS. Canvas2D/WebGPU use the GPU and are a different class of work.
 
 Cost unit prices are from the attached OpenStudio model (2026-11-24): Stream delivery $1/1,000 min, Realtime SFU $0.05/GB, R2 $0.015/GB-month, Containers compositor **(model estimate)** $0.45/h + N×0.675 GB×$0.05.
 
@@ -54,7 +54,7 @@ Workers / D1 / DO stay inside the $5 account floor at this volume **(estimate, m
 
 ## 4. Rust / WASM vs JS
 
-Bundle: `src/wasm/casthop_media.wasm` is **384.0 KiB** (393,215 bytes), zero imports, loads in AudioWorklets and Workers. Chrome `/internal/bench` and Node `npm run bench:wasm` agree. The selfie-segmenter model (245 KiB, Apache-2.0) and MediaPipe vision WASM load only when blur is on.
+Bundle: `src/wasm/casthop_media.wasm` is **384.0 KiB** (393,215 bytes), zero imports, loads in AudioWorklets and Workers. Chrome `/internal/bench` and Bun `bun run bench:wasm` agree. The selfie-segmenter model (245 KiB, Apache-2.0) and MediaPipe vision WASM load only when blur is on.
 
 | Path | WASM | JS | JS/WASM | What this actually compares |
 |---|---|---|---|---|
@@ -98,6 +98,6 @@ bash scripts/check-silent-audio.sh data/recordings/<file>.mp4
 
 That runs `ffmpeg -af volumedetect` and fails if `mean_volume` is at or below −90 dB (typical of a silent AAC track). The 2026-11-25 recordings were captured before the template attached audio; re-run after this fix and store the volumedetect lines under `data/measure/silent-audio.txt`.
 
-CI asserts the template source attaches audio (`el.muted = false` on `Track.Kind.Audio`) so a regression cannot drop the attach path without failing `npm test`.
+CI asserts the template source attaches audio (`el.muted = false` on `Track.Kind.Audio`) so a regression cannot drop the attach path without failing `bun test`.
 
-Raw command output from `npm run measure` / `npm run bench:wasm` is stored under `data/measure/` (gitignored).
+Raw command output from `bun run measure` / `bun run bench:wasm` is stored under `data/measure/` (gitignored).

@@ -1,9 +1,9 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * Headless: create a studio, join as host in Chrome, Go Live to local MediaMTX,
  * fail if program audio is digital silence.
  *
- * Needs docker compose (LiveKit, Egress, MediaMTX), `npm run dev`, ffmpeg, Chrome.
+ * Needs docker compose (LiveKit, Egress, MediaMTX), `bun run dev`, ffmpeg, Chrome.
  * Skip unless CI=true or E2E=1 when the stack is not up.
  */
 import { spawn } from "node:child_process";
@@ -40,7 +40,7 @@ if (!(await health())) {
     log("stack not up; skip (set E2E=1 to require)");
     process.exit(0);
   }
-  console.error("app /api/health is not ok; start docker compose and npm run dev");
+  console.error("app /api/health is not ok; start docker compose and bun run dev");
   process.exit(1);
 }
 

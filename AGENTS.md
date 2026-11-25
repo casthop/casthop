@@ -17,25 +17,25 @@ This file is the source of truth. Nested `AGENTS.md` files add tree-specific rul
 
 ## Commands
 
-Node 20+. Linux + Docker host networking is the supported local path. Rebuild WASM only with rustc 1.83+ and `wasm32-unknown-unknown`.
+Bun is the package manager and script runner (`packageManager` in `package.json`). Do not use npm or npx. Linux + Docker host networking is the supported local path. Rebuild WASM only with rustc 1.83+ and `wasm32-unknown-unknown`.
 
 ```bash
 cp .env.example .env
 cp .dev.vars.example .dev.vars
 mkdir -p data/recordings data/rtmp && chmod 777 data/recordings
 docker compose up -d
-npm install
-npm run dev                 # http://127.0.0.1:5173
+bun install
+bun run dev                 # http://127.0.0.1:5173
 ```
 
 ```bash
-npm run build               # Vite + Worker
-npm run typecheck           # tsc --noEmit (strict)
-npm test                    # tsx --test tests/*.test.ts
-tsx --test tests/auth.test.ts
-tsx --test tests/egress.test.ts
-npm run check:wasm          # < 500 KiB, zero imports
-npm audit --audit-level=high
+bun run build               # Vite + Worker
+bun run typecheck           # tsc --noEmit (strict)
+bun run test                # bun test --max-concurrency=1
+bun test tests/auth.test.ts
+bun test tests/egress.test.ts
+bun run check:wasm          # < 500 KiB, zero imports
+bun audit --audit-level=high
 cargo audit                  # needs rustc 1.88+ (CI audit job uses stable)
 
 cargo test -p casthop-media
@@ -43,15 +43,15 @@ cargo test -p casthop-media -p casthop-post
 cargo fmt -p casthop-media -p casthop-post -- --check
 cargo clippy -p casthop-media -p casthop-post --all-targets --no-deps -- -D warnings
 
-npm run build:wasm          # crate → src/wasm/casthop_media.wasm
-npm run bench:wasm          # Node WASM vs JS
-npm run measure             # load + silent-audio check
+bun run build:wasm          # crate → src/wasm/casthop_media.wasm
+bun run bench:wasm          # Bun WASM vs JS
+bun run measure             # load + silent-audio check
 bash scripts/check-silent-audio.sh data/recordings/<file>.mp4
 cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
-E2E=1 npm run test:e2e      # headless Go Live → MediaMTX, audio not silent
+E2E=1 bun run test:e2e      # headless Go Live → MediaMTX, audio not silent
 ```
 
-CI (`.github/workflows/ci.yml`): parallel `lint` (rustfmt), `typecheck`, `test`, `rust` (test + clippy), `wasm` budget, `audit` (`npm audit` + `cargo audit`), `e2e` (compose + Chrome). No ESLint script; typecheck is the TS gate. Dependabot: `.github/dependabot.yml`.
+CI (`.github/workflows/ci.yml`): parallel `lint` (rustfmt), `typecheck`, `test`, `rust` (test + clippy), `wasm` budget, `audit` (`bun audit` + `cargo audit`), `e2e` (compose + Chrome). No ESLint script; typecheck is the TS gate. Dependabot: `.github/dependabot.yml`.
 
 ## Code
 
@@ -75,7 +75,7 @@ Budgets from `MEASUREMENTS.md`. Beat them, or record why not:
 | Durable Object write | < 50 ms | stage / live / destinations |
 | Glass-to-glass (loopback) | p50 < 80 ms | 45 ms |
 
-Hot-path change: measure before and after (`npm run bench:wasm`, `/internal/bench`, `/internal/probe`, or `npm run measure`). Put both numbers in `MEASUREMENTS.md` in the same PR. No allocations in audio/video loops. Use Rust/WASM or GPU only when it measurably wins; keep the JS fallback (`?fx=js`, `?compose=wasm` / `?compose=webgpu`).
+Hot-path change: measure before and after (`bun run bench:wasm`, `/internal/bench`, `/internal/probe`, or `bun run measure`). Put both numbers in `MEASUREMENTS.md` in the same PR. No allocations in audio/video loops. Use Rust/WASM or GPU only when it measurably wins; keep the JS fallback (`?fx=js`, `?compose=wasm` / `?compose=webgpu`).
 
 ## Security
 

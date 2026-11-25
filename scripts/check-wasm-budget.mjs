@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Fail if the committed WASM module grows past the MEASUREMENTS.md budget
 // or starts importing JS (AudioWorklet-unsafe).
 import { readFileSync } from "node:fs";

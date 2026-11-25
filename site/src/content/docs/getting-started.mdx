@@ -9,7 +9,7 @@ Linux with Docker host networking is the supported local path. Docker uses host 
 
 ## Before you start
 
-- Node 20 or newer.
+- [Bun](https://bun.sh) (the repo pins `packageManager` to Bun).
 - Docker with Compose.
 - A Linux host. Host networking is Linux-only, see [Docker Desktop](#docker-desktop-macos-and-windows) below.
 
@@ -24,18 +24,18 @@ cp .env.example .env
 cp .dev.vars.example .dev.vars   # Worker secrets, gitignored
 mkdir -p data/recordings data/rtmp && chmod 777 data/recordings
 docker compose up -d
-npm install
-npm run dev
+bun install
+bun run dev
 ```
 
-The repo root documents `npm run dev` today. The commands above are the app. The website you are reading is a separate package in `site/` and uses Bun (`bun install`, `bun run dev`).
+The website you are reading is a separate package in `site/` (`cd site && bun install && bun run dev`).
 
 `docker compose up -d` starts Redis, LiveKit, LiveKit Egress and MediaMTX. LiveKit, Redis and MediaMTX bind `127.0.0.1`, so the published `devkey` is not reachable from your LAN.
 
 ## Your first stream
 
 1. Open [http://127.0.0.1:5173](http://127.0.0.1:5173).
-2. Enter your email to get a magic link. Locally the Worker prints the link in its console, so copy it from the terminal running `npm run dev`.
+2. Enter your email to get a magic link. Locally the Worker prints the link in its console, so copy it from the terminal running `bun run dev`.
 3. Open a studio.
 4. Copy the guest link and send it to anyone who should join. See [Guests](/docs/guests).
 5. Bring people on stage. Up to six can be on stage.
@@ -59,4 +59,4 @@ Host networking is Linux-only. On Docker Desktop you need to drop `network_mode:
 
 - Health: [http://127.0.0.1:5173/api/health](http://127.0.0.1:5173/api/health)
 - Latency probe: [http://127.0.0.1:5173/internal/probe](http://127.0.0.1:5173/internal/probe)
-- Load measurement with 2, 4 and 6 publishers: `npm run measure`
+- Load measurement with 2, 4 and 6 publishers: `bun run measure`

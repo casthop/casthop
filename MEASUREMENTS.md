@@ -54,7 +54,7 @@ Workers / D1 / DO stay inside the $5 account floor at this volume **(estimate, m
 
 ## 4. Rust / WASM vs JS
 
-Bundle: `src/wasm/casthop_media.wasm` is **384.0 KiB** (393,215 bytes), zero imports, loads in AudioWorklets and Workers. Chrome `/internal/bench` and Bun `bun run bench:wasm` agree. The selfie-segmenter model (245 KiB, Apache-2.0) and MediaPipe vision WASM load only when blur is on.
+Bundle: `src/wasm/casthop_media.wasm` is **383.7 KiB** (392,879 bytes), zero imports, loads in AudioWorklets and Workers. The WebGPU compositor is a second module, `casthop_gpu_bg.wasm` **31.5 KiB** (32,260 bytes) plus `casthop_gpu.js` **26.8 KiB**, loaded only when `?compose=webgpu`. Chrome `/internal/bench` and Bun `bun run bench:wasm` agree. The selfie-segmenter model (245 KiB, Apache-2.0) and MediaPipe vision WASM load only when blur is on.
 
 | Path | WASM | JS | JS/WASM | What this actually compares |
 |---|---|---|---|---|
@@ -62,7 +62,17 @@ Bundle: `src/wasm/casthop_media.wasm` is **384.0 KiB** (393,215 bytes), zero imp
 | Denoise CPU % of one core @ realtime | **~0.9%** | **~0.03%** | — | Both fine on the publish path. |
 | Compose 1280×720, 4 tiles, nearest blit | **5.39–5.45 ms/frame** | **4.11–4.73 ms/frame** | **0.76–0.87×** | Same algorithm. V8 wins slightly; both are ~30–45 fps CPU. Production egress uses **Canvas2D + WASM layout** (GPU `drawImage`). |
 | Background blur 1280×720 (mask 256×144, box-blur + mix) | **14.16 ms/frame** | **14.08 ms/frame** | **0.99×** | Same algorithm. Both under 33 ms (30 fps). CPU 14.2 vs 14.5 ms/frame; WASM default, `?fx=js` for the fallback. Segmentation is MediaPipe (lazy), not in this number. |
-| WebGPU | `navigator.gpu` **present** in this Chrome | — | — | Default live path is Canvas2D; `?compose=webgpu` or `?compose=wasm` to force. wgpu-in-Rust is a next step (see §5). |
+| WebGPU | `navigator.gpu` **present** in this Chrome | — | — | Default live path is **Canvas2D**. Rust WebGPU is `?compose=webgpu`; TS WebGPU is `?compose=webgpu-ts`. See the compose table below. |
+
+Compose 1280×720, Chrome 157 headless + SwiftShader, `/internal/bench`, 30 frames after one warmup, reused GPU device. Canvas2D times are JS `drawImage` submit, not GPU-synced.
+
+| Tiles | Canvas2D | TS WebGPU | Rust WebGPU |
+|---|---|---|---|
+| 2 | **0.027 ms/frame** | 0.44 ms/frame | 0.26 ms/frame |
+| 4 | **0.020 ms/frame** | failed (`copyExternalImageToTexture` on this SwiftShader) | 2.30 ms/frame |
+| 6 | **0.023 ms/frame** | failed (same) | 3.05 ms/frame |
+
+Rust WebGPU is **not** the live default. It does not beat Canvas2D on this bench. Use `?compose=webgpu` to force it. Device creation stays in JS: the `wgpu` crate’s `Adapter::request_device` fails on this Chrome (`A valid external Instance reference no longer exists`). Draw/layout run in Rust against the WebGPU API.
 
 Takeaway: ship RNNoise in WASM because a JS gate is not the same filter. Do **not** put the CPU compositor on the live tab-capture path; keep it for overlays / Worker / measurement. Layout math from Rust is shared by Canvas2D and WebGPU. Camera blur mix is WASM by default (~14 ms/frame @ 720p, holds 30 fps); `?fx=js` is the same algorithm.
 
@@ -80,13 +90,12 @@ What broke / was hard:
 
 What next (called out by the product-owner Rust/WASM direction, not done in v0):
 
-- **wgpu** compositor inside the crate (today WebGPU is TypeScript + WASM layout rects).
 - Audio **VAD-driven** UI (worklet already posts VAD; studio chrome doesn’t show it yet).
 - **workers-rs** for hot Worker endpoints (`/api/token`, live start) instead of Hono/TS.
 - Dedicated Rust **RTMP fan-out** if we leave Cloudflare Stream unused in production (`casthop-post` is inspect/remux only).
 - Destination chat ingest, R2 replay viewer, TURN.
 
-Camera background blur ships: WASM mix + lazy MediaPipe selfie segmenter (toggle in the studio; `?fx=js` for the JS mix).
+Camera background blur ships: WASM mix + lazy MediaPipe selfie segmenter (toggle in the studio; `?fx=js` for the JS mix). Rust WebGPU compositor ships behind `?compose=webgpu`; Canvas2D stays the live default.
 
 ## 6. Silent-audio check (H3)
 

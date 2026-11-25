@@ -12,7 +12,21 @@ type GPUShaderStage = { FRAGMENT: number };
 type GPUTextureUsage = { TEXTURE_BINDING: number; COPY_DST: number; RENDER_ATTACHMENT: number };
 type GPUBufferUsage = { VERTEX: number; COPY_DST: number };
 
+interface GPUSupportedLimits {
+  maxTextureDimension2D: number;
+  maxBufferSize: number;
+  maxBindGroups: number;
+  maxBindingsPerBindGroup: number;
+  maxSampledTexturesPerShaderStage: number;
+  maxSamplersPerShaderStage: number;
+  maxVertexBuffers: number;
+  maxVertexAttributes: number;
+  maxVertexBufferArrayStride: number;
+  maxColorAttachments: number;
+}
+
 interface GPUDevice {
+  limits: GPUSupportedLimits;
   createShaderModule(desc: { code: string }): GPUShaderModule;
   createBindGroupLayout(desc: unknown): GPUBindGroupLayout;
   createPipelineLayout(desc: unknown): GPUPipelineLayout;
@@ -23,6 +37,8 @@ interface GPUDevice {
   createBindGroup(desc: unknown): GPUBindGroup;
   createCommandEncoder(): GPUCommandEncoder;
   queue: GPUQueue;
+  lost: Promise<{ reason: string; message: string }>;
+  destroy(): void;
 }
 
 interface GPUShaderModule {}
@@ -32,13 +48,16 @@ interface GPURenderPipeline {}
 interface GPUSampler {}
 interface GPUTexture {
   createView(): GPUTextureView;
+  destroy(): void;
 }
 interface GPUTextureView {}
-interface GPUBuffer {}
+interface GPUBuffer {
+  destroy(): void;
+}
 interface GPUBindGroup {}
 interface GPUQueue {
   copyExternalImageToTexture(src: { source: CanvasImageSource }, dst: { texture: GPUTexture }, size: { width: number; height: number }): void;
-  writeBuffer(buffer: GPUBuffer, offset: number, data: BufferSource): void;
+  writeBuffer(buffer: GPUBuffer, offset: number, data: ArrayBufferView): void;
   submit(cmds: GPUCommandBuffer[]): void;
 }
 interface GPUCommandBuffer {}

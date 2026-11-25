@@ -13,6 +13,8 @@ import { jsBlurComposite } from "../src/lib/js-pipeline.ts";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const wasmPath = join(root, "src/wasm/casthop_media.wasm");
 const bytes = readFileSync(wasmPath);
+const gpuWasmPath = join(root, "src/wasm/casthop_gpu_bg.wasm");
+const gpuBytes = readFileSync(gpuWasmPath);
 const { instance } = await WebAssembly.instantiate(bytes, {});
 const exp = instance.exports;
 
@@ -177,6 +179,8 @@ const cpuJsBlur = cpuUsage(cpu5);
 const out = {
   wasmBytes: bytes.length,
   wasmKiB: +(bytes.length / 1024).toFixed(1),
+  gpuWasmBytes: gpuBytes.length,
+  gpuWasmKiB: +(gpuBytes.length / 1024).toFixed(1),
   denoise: {
     frames: denoiseFrames,
     wasmMsPerFrame: wasmDenoiseMs / denoiseFrames,

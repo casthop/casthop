@@ -69,13 +69,13 @@ Budgets from `MEASUREMENTS.md`. Beat them, or record why not:
 |---|---|---|
 | Denoise | < 1 ms / 10 ms frame | WASM RNNoise 0.088 ms |
 | CPU compose blit | not on the live path if ≥ 8 ms/frame @ 1280×720 | WASM ~5.4 ms, JS ~4.1 ms; live is Canvas2D |
-| WASM binary | < 500 KiB, zero imports | ~385 KiB |
+| WASM binary | < 500 KiB, zero imports | ~384 KiB |
 | Camera blur 1280×720 | < 33 ms/frame (30 fps) | WASM 14.2 ms, JS 14.1 ms |
 | Worker HTTP glue | < 10 ms CPU | Cloudflare Worker CPU |
 | Durable Object write | < 50 ms | stage / live / destinations |
 | Glass-to-glass (loopback) | p50 < 80 ms | 45 ms |
 
-Hot-path change: measure before and after (`bun run bench:wasm`, `/internal/bench`, `/internal/probe`, or `bun run measure`). Put both numbers in `MEASUREMENTS.md` in the same PR. No allocations in audio/video loops. Use Rust/WASM or GPU only when it measurably wins; keep the JS fallback (`?fx=js`, `?compose=wasm` / `?compose=webgpu`).
+Hot-path change: measure before and after (`bun run bench:wasm`, `/internal/bench`, `/internal/probe`, or `bun run measure`). Put both numbers in `MEASUREMENTS.md` in the same PR. No allocations in audio/video loops. Use Rust/WASM or GPU only when it measurably wins; keep the JS fallback (`?fx=js`, `?compose=wasm` / `?compose=webgpu` / `?compose=webgpu-ts`).
 
 ## Security
 

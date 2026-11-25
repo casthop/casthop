@@ -32,9 +32,12 @@ interface GPURenderPipeline {}
 interface GPUSampler {}
 interface GPUTexture {
   createView(): GPUTextureView;
+  destroy(): void;
 }
 interface GPUTextureView {}
-interface GPUBuffer {}
+interface GPUBuffer {
+  destroy(): void;
+}
 interface GPUBindGroup {}
 interface GPUQueue {
   copyExternalImageToTexture(src: { source: CanvasImageSource }, dst: { texture: GPUTexture }, size: { width: number; height: number }): void;

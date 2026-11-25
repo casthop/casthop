@@ -7,6 +7,8 @@ export type GpuTile = HTMLVideoElement | HTMLCanvasElement;
 let initPromise: Promise<void> | null = null;
 let cached: { key: string; canvas: HTMLCanvasElement } | null = null;
 let gpuFail = false;
+let drawFails = 0;
+const DRAW_FAIL_LIMIT = 3;
 
 async function ensureGpu(width: number, height: number): Promise<HTMLCanvasElement | null> {
   if (gpuFail) return null;
@@ -50,9 +52,11 @@ export async function drawWgpu(
   if (!gpuCanvas) return false;
   const ok = gpu_compositor_draw(tiles, modeCode(mode));
   if (!ok) {
-    gpuFail = true;
+    drawFails += 1;
+    if (drawFails >= DRAW_FAIL_LIMIT) gpuFail = true;
     return false;
   }
+  drawFails = 0;
   const ctx = dest.getContext("2d");
   if (!ctx) return false;
   ctx.drawImage(gpuCanvas, 0, 0);

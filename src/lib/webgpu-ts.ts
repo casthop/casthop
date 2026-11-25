@@ -7,7 +7,18 @@ function tileSize(tile: GpuTile): { w: number; h: number } {
   return { w: tile.width, h: tile.height };
 }
 
-type TsTile = { width: number; height: number; texture: GPUTexture; bindGroup: GPUBindGroup };
+type TsTile = {
+  width: number;
+  height: number;
+  texture: GPUTexture;
+  bindGroup: GPUBindGroup;
+  rectBuf: GPUBuffer;
+};
+
+function dropTile(slot: TsTile): void {
+  slot.texture.destroy();
+  slot.rectBuf.destroy();
+}
 
 type TsGpu = {
   device: GPUDevice;
@@ -118,14 +129,18 @@ export async function drawWebGpuTs(
   try {
     const api = await loadWasm();
     const rects = layoutRects(api, Math.max(1, tiles.length), mode, 1, 1);
-    const ready: { slot: TsTile; rect: { x: number; y: number; w: number; h: number } }[] = [];
+    const ready: TsTile[] = [];
     for (let i = 0; i < tiles.length; i++) {
       const tile = tiles[i]!;
       const r = rects[i];
       const { w, h } = tileSize(tile);
       if (!r || !w) continue;
       let slot = gpu.tiles[i];
-      if (!slot || slot.width !== w || slot.height !== h) {
+      if (slot && (slot.width !== w || slot.height !== h)) {
+        dropTile(slot);
+        slot = null;
+      }
+      if (!slot) {
         const texture = gpu.device.createTexture({
           size: { width: w, height: h },
           format: "rgba8unorm",
@@ -142,20 +157,17 @@ export async function drawWebGpuTs(
               { binding: 1, resource: texture.createView() },
             ],
           }),
+          rectBuf: gpu.device.createBuffer({
+            size: 16,
+            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+          }),
         };
         gpu.tiles[i] = slot;
       }
       gpu.device.queue.copyExternalImageToTexture({ source: tile }, { texture: slot.texture }, { width: w, height: h });
-      ready.push({ slot, rect: r });
+      gpu.device.queue.writeBuffer(slot.rectBuf, 0, new Float32Array([r.x, r.y, r.w, r.h]));
+      ready.push(slot);
     }
-    const draws = ready.map(({ slot, rect }) => {
-      const buf = gpu.device.createBuffer({
-        size: 16,
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-      });
-      gpu.device.queue.writeBuffer(buf, 0, new Float32Array([rect.x, rect.y, rect.w, rect.h]));
-      return { slot, buf };
-    });
     const encoder = gpu.device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
       colorAttachments: [
@@ -168,9 +180,9 @@ export async function drawWebGpuTs(
       ],
     });
     pass.setPipeline(gpu.pipeline);
-    for (const { slot, buf } of draws) {
+    for (const slot of ready) {
       pass.setBindGroup(0, slot.bindGroup);
-      pass.setVertexBuffer(0, buf);
+      pass.setVertexBuffer(0, slot.rectBuf);
       pass.draw(6, 1, 0, 0);
     }
     pass.end();

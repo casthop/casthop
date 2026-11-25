@@ -40,6 +40,20 @@ test("casthop_gpu_bg.wasm is a separate compositor module with JS imports", () =
   assert.ok(exports.some((e) => e.name.includes("gpu_compositor")));
 });
 
+test("webgpu draw only disables after several failed frames", () => {
+  const src = readFileSync(join(root, "src/lib/gpu-compositor.ts"), "utf8");
+  assert.match(src, /DRAW_FAIL_LIMIT = 3/);
+  assert.match(src, /drawFails >= DRAW_FAIL_LIMIT/);
+  assert.doesNotMatch(src, /if \(!ok\) \{\s*gpuFail = true/);
+});
+
+test("webgpu-ts reuses per-tile buffers and destroys old textures", () => {
+  const src = readFileSync(join(root, "src/lib/webgpu-ts.ts"), "utf8");
+  assert.match(src, /rectBuf/);
+  assert.match(src, /texture\.destroy\(\)/);
+  assert.match(src, /rectBuf\.destroy\(\)/);
+});
+
 test("egress template still falls back through pickComposeBackend", () => {
   const src = readFileSync(join(root, "src/pages/EgressTemplate.tsx"), "utf8");
   assert.match(src, /pickComposeBackend/);

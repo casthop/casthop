@@ -310,7 +310,7 @@ export function clientIp(
   if (opts.trustForwarded) {
     const cfip = headers.get("cf-connecting-ip")?.trim();
     if (cfip) return cfip.slice(0, 64);
-    const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+    const forwarded = headers.get("x-forwarded-for")?.split(",").at(-1)?.trim();
     if (forwarded) return forwarded.slice(0, 64);
   }
   return "local";

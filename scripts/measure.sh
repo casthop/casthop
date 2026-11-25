@@ -41,7 +41,7 @@ if [[ -z "$login" ]]; then
   log "magic link did not return devLogin; sign in first or use local default keys"
   exit 1
 fi
-curl -sf -c "$cookie_jar" -b "$cookie_jar" -o /dev/null "$APP$login"
+curl -sf -c "$cookie_jar" -b "$cookie_jar" -o /dev/null -X POST "$APP$login"
 create=$(curl -sf -c "$cookie_jar" -b "$cookie_jar" -X POST "$APP/api/studios" -H 'content-type: application/json' \
   -d '{"title":"Measurement session"}')
 id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$create")

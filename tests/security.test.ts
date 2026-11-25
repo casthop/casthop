@@ -54,6 +54,10 @@ test("clientIp ignores forwarded headers unless Cloudflare or CASTHOP_TRUST_FORW
   assert.equal(clientIp(forwarded, { cf: {} }), "198.51.100.1");
   assert.equal(clientIp(new Headers({ "x-forwarded-for": "203.0.113.9" }), { cf: {} }), "local");
   assert.equal(clientIp(new Headers({ "x-forwarded-for": "203.0.113.9" }), { trustForwarded: true }), "203.0.113.9");
+  assert.equal(
+    clientIp(new Headers({ "x-forwarded-for": "203.0.113.9, 10.0.0.1" }), { trustForwarded: true }),
+    "10.0.0.1",
+  );
 });
 
 test("cookieValue ignores malformed percent-encoding", () => {

@@ -1258,6 +1258,44 @@ test("failed mail webhook returns an error instead of pretending the link was se
   assert.match(body.error, /could not send/);
 });
 
+test("failed co-host invite mail does not leave a stuck pending invite", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "owner-invite@example.com");
+  const { id } = await createStudio(env, cookie);
+  mailWebhookStatus = 503;
+  env.MAIL_WEBHOOK_URL = "https://mail.test/send";
+  try {
+    const first = await app.request(
+      `https://casthop.test/api/studios/${id}/cohosts`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: cookie },
+        body: JSON.stringify({ email: "stuck@example.com" }),
+      },
+      env,
+    );
+    assert.equal(first.status, 502, await first.clone().text());
+    const listed = await json<{ pending: { email: string }[] }>(
+      await app.request(`https://casthop.test/api/studios/${id}/cohosts`, { headers: { Cookie: cookie } }, env),
+    );
+    assert.equal(listed.pending.length, 0);
+    mailWebhookStatus = 200;
+    const second = await app.request(
+      `https://casthop.test/api/studios/${id}/cohosts`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: cookie },
+        body: JSON.stringify({ email: "stuck@example.com" }),
+      },
+      env,
+    );
+    assert.equal(second.status, 200, await second.clone().text());
+  } finally {
+    mailWebhookStatus = 503;
+    delete env.MAIL_WEBHOOK_URL;
+  }
+});
+
 test("ensureDb sweeps expired sessions, magic links, oauth states, and stale rate rows", async () => {
   const env = makeEnv();
   env._db.rows("sessions").push({

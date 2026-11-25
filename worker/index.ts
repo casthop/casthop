@@ -520,11 +520,11 @@ app.post("/api/studios/:id/cohosts", async (c) => {
     await insertMember(c.env.DB, id, existingAccount.id, "cohost", Date.now());
     return c.json({ ok: true, member: { accountId: existingAccount.id, email, name: existingAccount.name, role: "cohost" } });
   }
+  const origin = publicOrigin(c.env, c.req.url);
+  if (!origin) return c.json({ error: "PUBLIC_ORIGIN required" }, 503);
   const pending = await invitesForStudio(c.env.DB, id);
   if (pending.some((p) => p.email === email)) return c.json({ error: "already invited" }, 409);
   await insertInvite(c.env.DB, randomId(10), id, email, Date.now());
-  const origin = publicOrigin(c.env, c.req.url);
-  if (!origin) return c.json({ error: "PUBLIC_ORIGIN required" }, 503);
   try {
     await mailerFor(c.env).send({
       to: email,
@@ -532,6 +532,7 @@ app.post("/api/studios/:id/cohosts", async (c) => {
       text: `You were invited to co-host a studio. Sign in at ${origin} with this email, then open ${origin}/studio/${id}\n`,
     });
   } catch (err) {
+    await deleteInvite(c.env.DB, id, email);
     if (err instanceof MailSendError) return c.json({ error: "could not send invite" }, 502);
     throw err;
   }

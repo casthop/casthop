@@ -1,11 +1,32 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BrowserLease, BrowserProvider } from "@e2e-dev/web";
 import { chromium } from "playwright-core";
 
-const procs = new Map<string, ChildProcess>();
+type Held = { child: ChildProcess; userDataDir: string };
+
+const held = new Map<string, Held>();
+
+function removeProfile(userDataDir: string): void {
+  rmSync(userDataDir, { recursive: true, force: true });
+}
+
+async function stopChild(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null) return;
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      resolve();
+    }, 3000);
+    child.once("exit", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    child.kill("SIGTERM");
+  });
+}
 
 function waitForCdp(child: ChildProcess, signal: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -69,26 +90,24 @@ export function fakeMediaChromium(): BrowserProvider {
         ],
         { stdio: ["ignore", "pipe", "pipe"] },
       );
-      const cdpEndpoint = await waitForCdp(child, request.signal);
-      const id = `${request.runId}-${request.slot}-${child.pid}`;
-      procs.set(id, child);
-      return { id, cdpEndpoint };
+      try {
+        const cdpEndpoint = await waitForCdp(child, request.signal);
+        const id = `${request.runId}-${request.slot}-${child.pid}`;
+        held.set(id, { child, userDataDir });
+        return { id, cdpEndpoint };
+      } catch (error) {
+        child.kill("SIGKILL");
+        await stopChild(child);
+        removeProfile(userDataDir);
+        throw error;
+      }
     },
     async release(lease: BrowserLease) {
-      const child = procs.get(lease.id);
-      procs.delete(lease.id);
-      if (!child || child.exitCode !== null) return;
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(() => {
-          child.kill("SIGKILL");
-          resolve();
-        }, 3000);
-        child.once("exit", () => {
-          clearTimeout(timer);
-          resolve();
-        });
-        child.kill("SIGTERM");
-      });
+      const rec = held.get(lease.id);
+      held.delete(lease.id);
+      if (!rec) return;
+      await stopChild(rec.child);
+      removeProfile(rec.userDataDir);
     },
   };
 }

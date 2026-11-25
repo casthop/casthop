@@ -9,6 +9,7 @@ import {
   compareWorkerToMain,
   formatPerfTable,
   regressionLimit,
+  WORKER_FRAME_BUDGET_MS,
   WORKER_OUTPUT_FPS,
 } from "../src/lib/perf-gate.ts";
 import { percentile } from "../src/lib/compose-support.ts";
@@ -74,7 +75,7 @@ test("comparePerf fails only on gated metrics beyond 15%", () => {
   assert.match(table, /long task total ms/);
 });
 
-test("compareWorkerToMain fails when worker p95 is more than 15% worse", () => {
+test("compareWorkerToMain gates p50 vs main, 30fps slot, frames, and drops", () => {
   const main = {
     p50FrameMs: 7,
     p95FrameMs: 10,
@@ -88,34 +89,46 @@ test("compareWorkerToMain fails when worker p95 is more than 15% worse", () => {
     tiles: 6,
     seconds: 30,
   };
-  const worker = { ...main, thread: "worker", frames: 900, p95FrameMs: 11, longTaskTotalMs: 0 };
+  const worker = { ...main, thread: "worker", frames: 900, p50FrameMs: 9, p95FrameMs: 11, longTaskTotalMs: 0 };
   assert.equal(compareWorkerToMain(worker, main).ok, true);
-  assert.equal(compareWorkerToMain({ ...worker, p95FrameMs: 20 }, main).ok, false);
+  assert.equal(compareWorkerToMain({ ...worker, p50FrameMs: 20 }, main).ok, false);
+  assert.equal(compareWorkerToMain({ ...worker, p95FrameMs: 40 }, main).ok, false);
   assert.equal(compareWorkerToMain({ ...worker, longTaskTotalMs: 400 }, main).ok, false);
   const table = formatPerfTable(compareWorkerToMain(worker, main).rows, "worker", "main");
   assert.match(table, /worker/);
   assert.match(table, /main/);
   assert.match(table, /worker frames/);
+  assert.match(table, /p95 30fps slot/);
 });
 
-test("compareWorkerToMain keeps 15% but a 2ms floor covers GHA VideoFrame overhead", () => {
+test("compareWorkerToMain passes GHA fast-main tails that still hold 30fps", () => {
   const main = {
-    p50FrameMs: 6.3,
-    p95FrameMs: 8.1,
+    p50FrameMs: 6.5,
+    p95FrameMs: 8.6,
     droppedFrames: 0,
     longTaskCount: 0,
     longTaskTotalMs: 0,
-    inputLatencyP95Ms: 16,
-    frames: 1793,
+    inputLatencyP95Ms: 17,
+    frames: 1795,
     thread: "main",
     backend: "canvas2d",
     tiles: 6,
     seconds: 30,
   };
-  const worker = { ...main, thread: "worker", frames: 910, p50FrameMs: 8.5, p95FrameMs: 9.5 };
+  const worker = { ...main, thread: "worker", frames: 902, p50FrameMs: 9.4, p95FrameMs: 13.64 };
   assert.equal(compareWorkerToMain(worker, main).ok, true);
-  assert.equal(regressionLimit(8.1, 2), 10.1);
-  assert.equal(compareWorkerToMain({ ...worker, p95FrameMs: 12 }, main).ok, false);
+  assert.ok(WORKER_FRAME_BUDGET_MS > 33 && WORKER_FRAME_BUDGET_MS < 34);
+  assert.equal(compareWorkerToMain({ ...worker, p50FrameMs: 12 }, main).ok, false);
+  const flake = {
+    ...main,
+    p50FrameMs: 6.3,
+    p95FrameMs: 8.1,
+    frames: 1793,
+  };
+  assert.equal(
+    compareWorkerToMain({ ...worker, frames: 910, p50FrameMs: 8.5, p95FrameMs: 9.5 }, flake).ok,
+    true,
+  );
 });
 
 test("compareWorkerToMain fails when worker leaves the 30fps band or drops frames", () => {

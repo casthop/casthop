@@ -19,6 +19,7 @@ let githubEmails: { email: string; primary?: boolean; verified?: boolean }[] = [
   { email: "octo@example.com", primary: true, verified: true },
 ];
 let githubUserEmail: string | null = null;
+let githubUserId = 99;
 
 function jwtPayload(token: string): { sub: string; name: string; exp: number; video: Record<string, unknown> } {
   const payload = token.split(".")[1];
@@ -66,6 +67,7 @@ function makeEnv(overrides: Partial<Env> = {}): Env & { _db: FakeD1 } {
     EGRESS_TEMPLATE_URL: "http://127.0.0.1:5173/egress-template",
     CASTHOP_ALLOW_DEV_KEYS: "1",
     CASTHOP_TRUST_FORWARDED: "1",
+    PUBLIC_ORIGIN: "https://casthop.test",
     ASSETS: { fetch: async () => new Response("ok") },
     RECORDINGS: {},
     DB: db,
@@ -163,7 +165,7 @@ before(() => {
       return new Response(JSON.stringify(githubEmails), { status: 200 });
     }
     if (url.includes("api.github.com/user")) {
-      return new Response(JSON.stringify({ id: 99, login: "octo", name: "Octo Cat", email: githubUserEmail }), { status: 200 });
+      return new Response(JSON.stringify({ id: githubUserId, login: "octo", name: "Octo Cat", email: githubUserEmail }), { status: 200 });
     }
     if (url.includes("StartRoomCompositeEgress")) {
       egressStarts += 1;
@@ -1058,6 +1060,112 @@ test("GitHub OAuth is optional and creates a session when configured", async () 
   );
   assert.equal(me.email, "octo@example.com");
   assert.equal(me.name, "Octo Cat");
+  assert.match(location, /redirect_uri=https%3A%2F%2Fcasthop\.test%/);
+});
+
+test("GitHub OAuth does not overwrite an email already linked to another GitHub user", async () => {
+  const env = makeEnv({ GITHUB_CLIENT_ID: "client", GITHUB_CLIENT_SECRET: "secret" });
+  githubEmails = [{ email: "shared@example.com", primary: true, verified: true }];
+  githubUserId = 11;
+  try {
+    async function oauthSession(): Promise<Response> {
+      const start = await app.request("https://casthop.test/api/auth/github", { redirect: "manual" }, env);
+      const state = new URL(start.headers.get("location") ?? "").searchParams.get("state") ?? "";
+      const oauthCookie = cookieNamed(start, "casthop_oauth");
+      return app.request(
+        `https://casthop.test/api/auth/github/callback?code=abc&state=${state}`,
+        { redirect: "manual", headers: { Cookie: oauthCookie } },
+        env,
+      );
+    }
+    const first = await oauthSession();
+    assert.equal(first.status, 302);
+    const session = cookieNamed(first, SESSION_COOKIE);
+    const me = await json<{ email: string; githubId: string | null }>(
+      await app.request("https://casthop.test/api/auth/me", { headers: { Cookie: session } }, env),
+    );
+    assert.equal(me.email, "shared@example.com");
+    assert.equal(me.githubId, "11");
+    githubUserId = 22;
+    const second = await oauthSession();
+    assert.equal(second.status, 302);
+    assert.equal(second.headers.get("location"), "/?auth=invalid");
+    const still = await json<{ githubId: string | null }>(
+      await app.request("https://casthop.test/api/auth/me", { headers: { Cookie: session } }, env),
+    );
+    assert.equal(still.githubId, "11");
+  } finally {
+    githubEmails = [{ email: "octo@example.com", primary: true, verified: true }];
+    githubUserId = 99;
+  }
+});
+
+test("POST magic callback rejects a cross-site Origin and does not consume the token", async () => {
+  const env = makeEnv();
+  const sent = await json<{ devLogin: string }>(
+    await app.request(
+      `${DEV_ORIGIN}/api/auth/magic-link`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "csrf@example.com" }),
+      },
+      env,
+    ),
+  );
+  const csrf = await app.request(
+    `${DEV_ORIGIN}${sent.devLogin}`,
+    { method: "POST", redirect: "manual", headers: { Origin: "https://evil.example" } },
+    env,
+  );
+  assert.equal(csrf.status, 403);
+  const ok = await app.request(
+    `${DEV_ORIGIN}${sent.devLogin}`,
+    { method: "POST", redirect: "manual", headers: { Origin: DEV_ORIGIN } },
+    env,
+  );
+  assert.equal(ok.status, 302);
+  assert.ok(cookieNamed(ok, SESSION_COOKIE));
+});
+
+test("magic link mail uses PUBLIC_ORIGIN, not the Host header", async () => {
+  const logs: string[] = [];
+  const origLog = console.log;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map(String).join(" "));
+  };
+  try {
+    const env = makeEnv({ PUBLIC_ORIGIN: "https://casthop.test" });
+    const res = await app.request(
+      "https://evil.example/api/auth/magic-link",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "host-spoof@example.com" }),
+      },
+      env,
+    );
+    assert.equal(res.status, 200, await res.clone().text());
+    const mail = logs.join("\n");
+    assert.match(mail, /https:\/\/casthop\.test\/api\/auth\/callback/);
+    assert.equal(mail.includes("evil.example"), false);
+  } finally {
+    console.log = origLog;
+  }
+});
+
+test("magic link off loopback without PUBLIC_ORIGIN fails closed", async () => {
+  const env = makeEnv({ PUBLIC_ORIGIN: "" });
+  const res = await app.request(
+    "https://casthop.test/api/auth/magic-link",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "no-origin@example.com" }),
+    },
+    env,
+  );
+  assert.equal(res.status, 503);
 });
 
 test("devLogin is omitted when Host is loopback but the client IP is not local", async () => {

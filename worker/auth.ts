@@ -20,6 +20,7 @@ import {
   hostKeyFor,
   isLoopbackUrl,
   isSecureRequest,
+  publicOrigin,
   requestIp,
   nameFromEmail,
   randomId,
@@ -155,7 +156,7 @@ export async function findOrCreateEmailAccount(env: Env, email: string, name?: s
   return account;
 }
 
-export async function findOrCreateGithubAccount(env: Env, github: { id: string; email: string | null; name: string }): Promise<Account> {
+export async function findOrCreateGithubAccount(env: Env, github: { id: string; email: string | null; name: string }): Promise<Account | null> {
   const byGithub = await accountByGithub(env.DB, github.id);
   if (byGithub) {
     await applyInvites(env.DB, byGithub);
@@ -164,6 +165,7 @@ export async function findOrCreateGithubAccount(env: Env, github: { id: string; 
   if (github.email) {
     const byEmail = await accountByEmail(env.DB, github.email);
     if (byEmail) {
+      if (byEmail.githubId) return null;
       await updateAccountGithub(env.DB, byEmail.id, github.id, github.name || byEmail.name);
       const linked = { ...byEmail, githubId: github.id, name: github.name || byEmail.name };
       await applyInvites(env.DB, linked);
@@ -198,7 +200,8 @@ export async function issueMagicLink(c: AppCtx, email: string): Promise<{ ok: tr
   const tokenHash = await sha256hex(token);
   const now = Date.now();
   await insertMagic(c.env.DB, tokenHash, email, now + MAGIC_TTL_MS, now);
-  const origin = new URL(c.req.url).origin;
+  const origin = publicOrigin(c.env, c.req.url);
+  if (!origin) throw Object.assign(new Error("PUBLIC_ORIGIN required"), { status: 503 });
   const loginPath = `/api/auth/callback?token=${encodeURIComponent(token)}`;
   const loginUrl = `${origin}${loginPath}`;
   await mailerFor(c.env).send({
@@ -259,7 +262,8 @@ export async function startGithub(c: AppCtx): Promise<{ url: string; cookie: str
   }
   const state = randomId(24);
   await insertOauth(c.env.DB, state, Date.now() + OAUTH_TTL_MS);
-  const origin = new URL(c.req.url).origin;
+  const origin = publicOrigin(c.env, c.req.url);
+  if (!origin) throw Object.assign(new Error("PUBLIC_ORIGIN required"), { status: 503 });
   const redirect = `${origin}/api/auth/github/callback`;
   const url = new URL("https://github.com/login/oauth/authorize");
   url.searchParams.set("client_id", c.env.GITHUB_CLIENT_ID!.trim());
@@ -282,7 +286,8 @@ export async function finishGithub(c: AppCtx, code: string, state: string): Prom
   const row = await oauthByState(c.env.DB, state);
   await deleteOauth(c.env.DB, state);
   if (!row || row.expires_at < Date.now()) return null;
-  const origin = new URL(c.req.url).origin;
+  const origin = publicOrigin(c.env, c.req.url);
+  if (!origin) return null;
   const tokenRes = await fetch("https://github.com/login/oauth/access_token", {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json" },

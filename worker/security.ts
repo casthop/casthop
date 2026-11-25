@@ -53,6 +53,35 @@ export function isLoopbackUrl(raw: string | undefined): boolean {
   }
 }
 
+/** Public site origin for mail and OAuth. Falls back to the request only on loopback. */
+export function publicOrigin(env: Pick<Env, "PUBLIC_ORIGIN">, requestUrl: string): string | null {
+  const configured = env.PUBLIC_ORIGIN?.trim();
+  if (configured) {
+    try {
+      return new URL(configured).origin;
+    } catch {
+      return null;
+    }
+  }
+  try {
+    if (isLoopbackUrl(requestUrl)) return new URL(requestUrl).origin;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/** Missing Origin is allowed (same-document form). A present Origin must match the request. */
+export function originAllowed(request: Request): boolean {
+  const origin = request.headers.get("Origin");
+  if (!origin) return true;
+  try {
+    return origin === new URL(request.url).origin;
+  } catch {
+    return false;
+  }
+}
+
 export function claimIsHeld(startedAt: number | undefined, now = Date.now()): boolean {
   return typeof startedAt === "number" && now - startedAt < CLAIM_STALE_MS;
 }

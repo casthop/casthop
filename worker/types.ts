@@ -75,6 +75,7 @@ export type Env = {
   EGRESS_TEMPLATE_URL: string;
   CASTHOP_ALLOW_DEV_KEYS?: string;
   CASTHOP_TRUST_FORWARDED?: string;
+  PUBLIC_ORIGIN?: string;
   GITHUB_CLIENT_ID?: string;
   GITHUB_CLIENT_SECRET?: string;
   MAIL_WEBHOOK_URL?: string;

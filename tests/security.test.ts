@@ -12,6 +12,8 @@ import {
   DEV_API_SECRET,
   devKeyGuardError,
   isLoopbackUrl,
+  originAllowed,
+  publicOrigin,
   maskRtmpUrl,
   parseRtmpUrl,
   publicDestinations,
@@ -124,6 +126,20 @@ test("sanitizeDestinations merges omitted urls onto existing keys", () => {
   );
   assert.ok(cleared);
   assert.equal(cleared[0]?.url, "");
+});
+
+test("publicOrigin uses PUBLIC_ORIGIN and only falls back on loopback", () => {
+  assert.equal(publicOrigin({ PUBLIC_ORIGIN: "https://casthop.example" }, "https://evil.example/"), "https://casthop.example");
+  assert.equal(publicOrigin({ PUBLIC_ORIGIN: "https://casthop.example/app" }, "http://127.0.0.1/"), "https://casthop.example");
+  assert.equal(publicOrigin({}, "https://127.0.0.1/api/auth/magic-link"), "https://127.0.0.1");
+  assert.equal(publicOrigin({ PUBLIC_ORIGIN: "" }, "https://casthop.test/api/auth/magic-link"), null);
+});
+
+test("originAllowed rejects a cross-site Origin", () => {
+  const url = "https://casthop.test/api/auth/callback";
+  assert.equal(originAllowed(new Request(url, { method: "POST" })), true);
+  assert.equal(originAllowed(new Request(url, { method: "POST", headers: { Origin: "https://casthop.test" } })), true);
+  assert.equal(originAllowed(new Request(url, { method: "POST", headers: { Origin: "https://evil.example" } })), false);
 });
 
 test("claimIsHeld expires after 30s", () => {

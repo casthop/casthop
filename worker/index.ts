@@ -12,6 +12,8 @@ import {
   isHostIdentity,
   isSecureRequest,
   OAUTH_COOKIE,
+  originAllowed,
+  publicOrigin,
   randomId,
   requestIp,
   sha256hex,
@@ -78,8 +80,15 @@ async function doAction(env: Env, id: string, action: string, body: unknown, met
   });
 }
 
+function errorStatus(err: unknown): number | undefined {
+  if (err instanceof Error && "status" in err) {
+    const status = (err as Error & { status: unknown }).status;
+    if (typeof status === "number") return status;
+  }
+}
+
 function rateError(err: unknown): err is Error & { status: number } {
-  return err instanceof Error && "status" in err && (err as Error & { status: number }).status === 429;
+  return errorStatus(err) === 429;
 }
 
 app.use("/api/*", async (c, next) => {
@@ -133,6 +142,7 @@ app.post("/api/auth/magic-link", async (c) => {
     return c.json(result);
   } catch (err) {
     if (rateError(err)) return c.json({ error: "too many attempts" }, 429);
+    if (errorStatus(err) === 503) return c.json({ error: "PUBLIC_ORIGIN required" }, 503);
     if (err instanceof MailSendError) return c.json({ error: "could not send sign-in email" }, 502);
     throw err;
   }
@@ -145,6 +155,7 @@ app.get("/api/auth/callback", async (c) => {
 });
 
 app.post("/api/auth/callback", async (c) => {
+  if (!originAllowed(c.req.raw)) return c.json({ error: "bad origin" }, 403);
   let token = c.req.query("token") ?? "";
   if (!token) {
     const form = await c.req.parseBody().catch(() => ({}) as Record<string, unknown>);
@@ -166,6 +177,7 @@ app.get("/api/auth/github", async (c) => {
     return c.redirect(started.url);
   } catch (err) {
     if (rateError(err)) return c.json({ error: "too many attempts" }, 429);
+    if (errorStatus(err) === 503) return c.json({ error: "PUBLIC_ORIGIN required" }, 503);
     throw err;
   }
 });
@@ -511,7 +523,8 @@ app.post("/api/studios/:id/cohosts", async (c) => {
   const pending = await invitesForStudio(c.env.DB, id);
   if (pending.some((p) => p.email === email)) return c.json({ error: "already invited" }, 409);
   await insertInvite(c.env.DB, randomId(10), id, email, Date.now());
-  const origin = new URL(c.req.url).origin;
+  const origin = publicOrigin(c.env, c.req.url);
+  if (!origin) return c.json({ error: "PUBLIC_ORIGIN required" }, 503);
   try {
     await mailerFor(c.env).send({
       to: email,

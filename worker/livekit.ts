@@ -1,5 +1,6 @@
 import type { Env, LayoutId } from "./types";
 import { layoutToEgress } from "./types";
+import { publicError } from "./egress";
 import { bytesToB64Url, hmacSha256B64Url, randomId, sha256hex, timingSafeEqual } from "./security";
 
 export { randomId, sha256hex };
@@ -87,7 +88,7 @@ export async function guestSecretOk(env: Env, studioId: string, identity: string
   return timingSafeEqual(expected, secret);
 }
 
-export async function mintApiToken(env: Env): Promise<string> {
+export async function mintApiToken(env: Env, room?: string): Promise<string> {
   return signJwt(
     env.LIVEKIT_API_KEY,
     env.LIVEKIT_API_SECRET,
@@ -98,13 +99,19 @@ export async function mintApiToken(env: Env): Promise<string> {
       roomList: true,
       roomAdmin: true,
       roomRecord: true,
+      ...(room ? { room } : {}),
     },
     API_TOKEN_TTL_SEC,
   );
 }
 
-async function twirp<T>(env: Env, path: string, body: unknown): Promise<T> {
-  const token = await mintApiToken(env);
+function twirpTimeoutMs(path: string): number {
+  if (path.includes("StartRoomComposite") || path.includes("StopEgress")) return 30_000;
+  return 8_000;
+}
+
+async function twirp<T>(env: Env, path: string, body: unknown, room?: string): Promise<T> {
+  const token = await mintApiToken(env, room);
   const res = await fetch(`${env.LIVEKIT_HTTP_URL}${path}`, {
     method: "POST",
     headers: {
@@ -112,10 +119,12 @@ async function twirp<T>(env: Env, path: string, body: unknown): Promise<T> {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(twirpTimeoutMs(path)),
   });
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`LiveKit ${path} ${res.status}: ${text.slice(0, 400)}`);
+    const detail = publicError(text.slice(0, 400)) ?? "request failed";
+    throw new Error(`LiveKit ${path} ${res.status}: ${detail}`);
   }
   return text ? (JSON.parse(text) as T) : ({} as T);
 }
@@ -130,16 +139,21 @@ export async function livekitHealth(env: Env): Promise<{ ok: boolean; detail: st
 }
 
 export async function updateParticipantPublish(env: Env, room: string, identity: string, canPublish: boolean): Promise<void> {
-  await twirp(env, "/twirp/livekit.RoomService/UpdateParticipant", {
-    room,
-    identity,
-    permission: {
-      can_subscribe: true,
-      can_publish: canPublish,
-      can_publish_data: false,
-      can_update_metadata: false,
+  await twirp(
+    env,
+    "/twirp/livekit.RoomService/UpdateParticipant",
+    {
+      room,
+      identity,
+      permission: {
+        can_subscribe: true,
+        can_publish: canPublish,
+        can_publish_data: false,
+        can_update_metadata: false,
+      },
     },
-  });
+    room,
+  );
 }
 
 export async function removeParticipant(env: Env, room: string, identity: string): Promise<void> {
@@ -179,6 +193,7 @@ export async function startRoomComposite(opts: {
     opts.env,
     "/twirp/livekit.Egress/StartRoomCompositeEgress",
     body,
+    opts.room,
   );
   const egressId = started.egress_id || started.egressId;
   if (!egressId) throw new Error("Egress started but no egress_id in response");
@@ -196,6 +211,90 @@ export async function updateEgressLayout(env: Env, egressId: string, layout: Lay
   });
 }
 
-export async function listEgress(env: Env, room: string): Promise<unknown> {
-  return twirp(env, "/twirp/livekit.Egress/ListEgress", { room_name: room });
+export async function listEgressRaw(env: Env, room: string): Promise<unknown> {
+  return twirp(env, "/twirp/livekit.Egress/ListEgress", { room_name: room }, room);
+}
+
+export async function listRoomParticipantsRaw(env: Env, room: string): Promise<unknown> {
+  return twirp(env, "/twirp/livekit.RoomService/ListParticipants", { room }, room);
+}
+
+export async function updateStream(env: Env, egressId: string, add: string[], remove: string[]): Promise<void> {
+  if (!add.length && !remove.length) return;
+  await twirp(env, "/twirp/livekit.Egress/UpdateStream", {
+    egress_id: egressId,
+    add_output_urls: add,
+    remove_output_urls: remove,
+  });
+}
+
+function bytesToB64(bytes: Uint8Array): string {
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s);
+}
+
+async function sha256b64(body: string): Promise<string> {
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
+  return bytesToB64(new Uint8Array(d));
+}
+
+function bearerToken(header: string): string {
+  const trimmed = header.trim();
+  if (trimmed.toLowerCase().startsWith("bearer ")) return trimmed.slice(7).trim();
+  return trimmed;
+}
+
+function b64UrlToBytes(raw: string): Uint8Array {
+  const pad = raw.length % 4 === 0 ? "" : "=".repeat(4 - (raw.length % 4));
+  const b64 = (raw + pad).replaceAll("-", "+").replaceAll("_", "/");
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function timingEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+export async function verifyLivekitWebhook(env: Env, authorization: string | undefined, body: string): Promise<boolean> {
+  if (!authorization) return false;
+  const token = bearerToken(authorization);
+  const parts = token.split(".");
+  if (parts.length !== 3 || !parts[0] || !parts[1] || !parts[2]) return false;
+  const unsigned = `${parts[0]}.${parts[1]}`;
+  const expected = await hmacSha256B64Url(env.LIVEKIT_API_SECRET, unsigned);
+  const got = parts[2].replace(/=+$/, "");
+  if (!timingEqual(expected, got)) return false;
+  let claims: { iss?: unknown; exp?: unknown; nbf?: unknown; sha256?: unknown };
+  try {
+    claims = JSON.parse(new TextDecoder().decode(b64UrlToBytes(parts[1]))) as typeof claims;
+  } catch {
+    return false;
+  }
+  if (claims.iss !== env.LIVEKIT_API_KEY) return false;
+  if (typeof claims.exp !== "number") return false;
+  const now = Math.floor(Date.now() / 1000);
+  if (claims.exp + 10 < now) return false;
+  if (typeof claims.nbf === "number" && claims.nbf - 10 > now) return false;
+  if (typeof claims.sha256 !== "string" || !claims.sha256) return false;
+  const digest = await sha256b64(body);
+  return timingEqual(claims.sha256, digest);
+}
+
+export async function signLivekitWebhook(env: Env, body: string): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: "HS256", typ: "JWT" };
+  const claims = {
+    iss: env.LIVEKIT_API_KEY,
+    nbf: now - 10,
+    exp: now + 60 * 10,
+    sha256: await sha256b64(body),
+  };
+  const unsigned = `${jsonToB64Url(header)}.${jsonToB64Url(claims)}`;
+  return `${unsigned}.${await hmacSha256B64Url(env.LIVEKIT_API_SECRET, unsigned)}`;
 }

@@ -68,7 +68,7 @@ fn grid(n: u32, g: f32) -> Vec<Rect> {
 }
 
 fn screen(n: u32, g: f32) -> Vec<Rect> {
-    let cams = n.saturating_sub(1).min(3).max(1);
+    let cams = n.saturating_sub(1).clamp(1, 3);
     let main_w = 0.72;
     let mut out = vec![Rect {
         x: 0.0,

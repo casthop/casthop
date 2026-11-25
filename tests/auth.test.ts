@@ -179,6 +179,9 @@ before(() => {
       egressStops += 1;
       return new Response("{}", { status: 200 });
     }
+    if (url.includes("ListParticipants")) {
+      return new Response(JSON.stringify({ participants: [{ identity: "host" }] }), { status: 200 });
+    }
     if (url.includes("RemoveParticipant")) {
       const raw = typeof init?.body === "string" ? init.body : "";
       const parsed = raw ? (JSON.parse(raw) as { identity?: string }) : {};
@@ -815,6 +818,16 @@ test("chat requires host session or guest secret and uses the participant name",
   assert.equal(hostChat.chat.at(-1)?.name, "Ada");
 });
 
+test("unsigned LiveKit webhook is rejected", async () => {
+  const env = makeEnv();
+  const res = await app.request("https://casthop.test/api/livekit/webhook", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ event: "egress_ended" }),
+  }, env);
+  assert.equal(res.status, 401);
+});
+
 test("token minting is rate limited; host can still join a full studio", async () => {
   const env = makeEnv();
   const cookie = await signIn(env, "ada@example.com");
@@ -1252,6 +1265,23 @@ test("magic link off loopback without PUBLIC_ORIGIN fails closed", async () => {
     env,
   );
   assert.equal(res.status, 503);
+});
+
+test("devLogin is returned on loopback when CF-Connecting-IP is 127.0.0.1", async () => {
+  const env = makeEnv();
+  const sent = await json<{ ok: boolean; devLogin?: string }>(
+    await app.request(
+      "http://127.0.0.1/api/auth/magic-link",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "cf-connecting-ip": "127.0.0.1" },
+        body: JSON.stringify({ email: "e2e-loopback@example.com" }),
+      },
+      env,
+    ),
+  );
+  assert.equal(sent.ok, true);
+  assert.ok(sent.devLogin);
 });
 
 test("devLogin is omitted when Host is loopback but the client IP is not local", async () => {

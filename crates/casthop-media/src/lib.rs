@@ -4,6 +4,19 @@
 //! without wasm-bindgen glue. Handles live in thread-local storage (one
 //! WASM instance per worklet/worker).
 
+#![expect(
+    clippy::missing_safety_doc,
+    reason = "C ABI exports; null pointers already return 0"
+)]
+#![expect(
+    clippy::too_many_arguments,
+    reason = "blit geometry is explicit x/y/w/h, not a struct on the hot path"
+)]
+#![expect(
+    clippy::needless_range_loop,
+    reason = "glyph rows are bitmaps indexed by row and column"
+)]
+
 mod compose;
 mod denoise;
 mod layout;
@@ -99,7 +112,12 @@ pub extern "C" fn casthop_denoise_free(handle: u32) {
 
 /// RMS (0..10_000), peak (0..10_000), VAD flag packed: rms | peak<<16, vad in return via out ptr.
 #[no_mangle]
-pub unsafe extern "C" fn casthop_meter(ptr: *const f32, len: u32, out_rms: *mut f32, out_peak: *mut f32) -> u32 {
+pub unsafe extern "C" fn casthop_meter(
+    ptr: *const f32,
+    len: u32,
+    out_rms: *mut f32,
+    out_peak: *mut f32,
+) -> u32 {
     if ptr.is_null() || len == 0 {
         return 0;
     }
@@ -120,7 +138,7 @@ pub unsafe extern "C" fn casthop_layout(n: u32, mode: u32, out: *mut f32, cap: u
     if out.is_null() || cap < 4 {
         return 0;
     }
-    let rects = layout::layout(n.max(1).min(6), mode);
+    let rects = layout::layout(n.clamp(1, 6), mode);
     let wrote = rects.len().min((cap as usize) / 4);
     for (i, r) in rects.iter().take(wrote).enumerate() {
         *out.add(i * 4) = r.x;
@@ -134,7 +152,8 @@ pub unsafe extern "C" fn casthop_layout(n: u32, mode: u32, out: *mut f32, cap: u
 #[no_mangle]
 pub extern "C" fn casthop_compose_new(width: u32, height: u32) -> u32 {
     with_world(|w| {
-        w.compositors.push(Compositor::new(width.max(16), height.max(16)));
+        w.compositors
+            .push(Compositor::new(width.max(16), height.max(16)));
         w.compositors.len() as u32
     })
 }
@@ -223,7 +242,8 @@ pub unsafe extern "C" fn casthop_compose_banner(
     let subtitle = if subtitle.is_null() {
         ""
     } else {
-        std::str::from_utf8(std::slice::from_raw_parts(subtitle, subtitle_len as usize)).unwrap_or("")
+        std::str::from_utf8(std::slice::from_raw_parts(subtitle, subtitle_len as usize))
+            .unwrap_or("")
     };
     with_world(|w| {
         if let Some(c) = w.compositors.get_mut(handle.wrapping_sub(1) as usize) {

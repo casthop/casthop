@@ -8,6 +8,17 @@ insecure: true
 health_port: 9090
 template_port: 7980
 enable_chrome_sandbox: false
+# GHA runners are 2 vCPU; the default room-composite cost is 3.0 and would refuse Go Live.
+cpu_cost:
+  max_cpu_utilization: 0.95
+  room_composite_cpu_cost: 0.8
+  web_cpu_cost: 0.8
+  track_composite_cpu_cost: 0.8
+# Chromium hides host IPs behind mDNS; LiveKit then filters the empty candidate and ICE fails on loopback.
+# Include the stock egress disable-features list so this override does not drop them.
+chrome_flags:
+  disable-features: AudioServiceOutOfProcess,site-per-process,Translate,TranslateUI,BlinkGenPropertyTrees,WebRtcHideLocalIpsWithMdns
+  force-webrtc-ip-handling-policy: default_public_and_private_interfaces
 redis:
   address: 127.0.0.1:6379
 logging:

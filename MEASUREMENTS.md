@@ -54,7 +54,7 @@ Workers / D1 / DO stay inside the $5 account floor at this volume **(estimate, m
 
 ## 4. Rust / WASM vs JS
 
-Bundle: `src/wasm/casthop_media.wasm` is **383.7 KiB** (392,879 bytes), zero imports, loads in AudioWorklets and Workers. The WebGPU compositor is a second module, `casthop_gpu_bg.wasm` **31.5 KiB** (32,260 bytes) plus `casthop_gpu.js` **26.8 KiB**, loaded only when `?compose=webgpu`. Chrome `/internal/bench` and Bun `bun run bench:wasm` agree. The selfie-segmenter model (245 KiB, Apache-2.0) and MediaPipe vision WASM load only when blur is on.
+Bundle: `src/wasm/casthop_media.wasm` is **383.7 KiB** (392,879 bytes), zero imports, loads in AudioWorklets and Workers. The WebGPU compositor is a second module, `casthop_gpu_bg.wasm` **33.0 KiB** (33,777 bytes) plus `casthop_gpu.js` **29.1 KiB**, loaded only when `?compose=webgpu`. Chrome `/internal/bench` and Bun `bun run bench:wasm` agree. The selfie-segmenter model (245 KiB, Apache-2.0) and MediaPipe vision WASM load only when blur is on.
 
 | Path | WASM | JS | JS/WASM | What this actually compares |
 |---|---|---|---|---|
@@ -74,7 +74,22 @@ Compose 1280×720, Chrome 157 headless + SwiftShader, `/internal/bench`, 30 fram
 
 Rust WebGPU is **not** the live default. It does not beat Canvas2D on this bench. Use `?compose=webgpu` to force it. Device creation stays in JS: the `wgpu` crate’s `Adapter::request_device` fails on this Chrome (`A valid external Instance reference no longer exists`). Draw/layout run in Rust against the WebGPU API.
 
-Takeaway: ship RNNoise in WASM because a JS gate is not the same filter. Do **not** put the CPU compositor on the live tab-capture path; keep it for overlays / Worker / measurement. Layout math from Rust is shared by Canvas2D and WebGPU. Camera blur mix is WASM by default (~14 ms/frame @ 720p, holds 30 fps); `?fx=js` is the same algorithm.
+Takeaway: ship RNNoise in WASM because a JS gate is not the same filter. Do **not** put the CPU compositor on the live tab-capture path; keep it for overlays / Worker / measurement. Live Canvas2D compose runs in a dedicated Worker with OffscreenCanvas when WebCodecs is present (`?thread=main` to force the old path). Layout math from Rust is shared by Canvas2D and WebGPU. Camera blur mix is WASM by default (~14 ms/frame @ 720p, holds 30 fps); `?fx=js` is the same algorithm.
+
+## 7. Off-main-thread compose (this PR)
+
+`/internal/perf`, 6 canvas tiles + banner overlay, 30 s after warmup. Local Chrome 157 `--disable-gpu` compared `?thread=main` vs Worker. CI runs both paths on the same runner and fails if the worker p95 frame time or long-task total is more than 15% worse than main.
+
+| | Main thread (local) | Worker (local) |
+|---|---|---|
+| Compose p50 | **5.40 ms** | 7.60 ms |
+| Compose p95 | **7.20 ms** | 11.60 ms |
+| Produced frames | 1800 (~60 fps rAF) | 901 (~30 fps) |
+| Dropped | 0 | 0 |
+| Long tasks | 0 ms | **0 ms** |
+| Input latency p95 (Tap while composing) | 17.72 ms | **15.81 ms** |
+
+Compose is no longer on the UI thread. The worker paints the OffscreenCanvas once per 30 fps output frame; `captureStream(30)` samples that same frame for the program track. No second compose for preview. `tests/perf-baseline.json` is the local snapshot from this machine; CI does not loosen it. Force main with `?thread=main`.
 
 ## 5. What broke, what’s hard, what next
 
@@ -95,7 +110,7 @@ What next (called out by the product-owner Rust/WASM direction, not done in v0):
 - Dedicated Rust **RTMP fan-out** if we leave Cloudflare Stream unused in production (`casthop-post` is inspect/remux only).
 - Destination chat ingest, R2 replay viewer, TURN.
 
-Camera background blur ships: WASM mix + lazy MediaPipe selfie segmenter (toggle in the studio; `?fx=js` for the JS mix). Rust WebGPU compositor ships behind `?compose=webgpu`; Canvas2D stays the live default.
+Camera background blur ships: WASM mix + lazy MediaPipe selfie segmenter (toggle in the studio; `?fx=js` for the JS mix). Rust WebGPU compositor ships behind `?compose=webgpu`; Canvas2D stays the live default and runs in a Worker when `OffscreenCanvas` + `MediaStreamTrackProcessor` are present.
 
 ## 6. Silent-audio check (H3)
 

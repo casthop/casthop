@@ -69,6 +69,43 @@ jobs:
           tool: cargo-audit
       - run: cargo audit
 
+  perf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+      - run: bun install --frozen-lockfile
+      - run: |
+          cp .env.example .env
+          cp .dev.vars.example .dev.vars
+      - name: Start app
+        run: bun run dev > /tmp/casthop-dev.log 2>&1 &
+      - name: Wait for app
+        run: |
+          for i in $(seq 1 90); do
+            if curl -sf http://127.0.0.1:5173/internal/perf >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "timeout waiting for app"
+          cat /tmp/casthop-dev.log || true
+          exit 1
+      - name: Compositor perf main vs worker
+        env:
+          CI: "true"
+          PERF: "1"
+          CHROME: ${{ steps.chrome.outputs.chrome-path }}
+        run: bun run test:perf
+      - if: failure()
+        run: cat /tmp/casthop-dev.log || true
+
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 20

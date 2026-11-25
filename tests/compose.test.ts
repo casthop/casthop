@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { pickComposeBackendFrom } from "../src/lib/compose-backend.ts";
+import { pickComposeBackendFrom, pickComposeThreadFrom } from "../src/lib/compose-backend.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -114,5 +114,17 @@ test("wasm build requires wasm-bindgen 0.2.100 before cargo", () => {
 test("egress template still falls back through pickComposeBackend", () => {
   const src = readFileSync(join(root, "src/pages/EgressTemplate.tsx"), "utf8");
   assert.match(src, /pickComposeBackend/);
-  assert.match(src, /composeFrame/);
+  assert.match(src, /startProgramCompose/);
+});
+
+test("gpu compositor accepts OffscreenCanvas and VideoFrame", () => {
+  const src = readFileSync(join(root, "crates/casthop-media/src/gpu_web.rs"), "utf8");
+  assert.match(src, /OffscreenCanvas/);
+  assert.match(src, /VideoFrame/);
+  assert.match(src, /display_width/);
+  assert.match(src, /canvas must be HTMLCanvasElement or OffscreenCanvas/);
+});
+
+test("compose thread query is opt-out of the worker path", () => {
+  assert.equal(pickComposeThreadFrom("?thread=main"), "main");
 });

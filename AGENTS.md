@@ -51,9 +51,10 @@ bash scripts/check-silent-audio.sh data/recordings/<file>.mp4
 cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
 E2E=1 bun run test:e2e      # headless Go Live → MediaMTX, audio not silent
 bun run test:e2e-ui         # studio UI flows (e2e, locators, --strict-cache, no model)
+PERF=1 bun run test:perf    # headless main vs worker p95 / long tasks (~30 s each)
 ```
 
-CI (`.github/workflows/ci.yml`): parallel `lint` (rustfmt), `typecheck`, `test`, `rust` (test + clippy), `wasm` budget, `audit` (`bun audit` + `cargo audit`), `e2e` (compose + Chrome, Go Live → MediaMTX release gate), `e2e-studio` (compose + e2e UI flows, no secrets, no model). No ESLint script; typecheck is the TS gate. Dependabot: `.github/dependabot.yml`.
+CI (`.github/workflows/ci.yml`): parallel `lint` (rustfmt), `typecheck`, `test`, `rust` (test + clippy), `wasm` budget, `audit` (`bun audit` + `cargo audit`), `perf` (Chrome compositor budget), `e2e` (compose + Chrome, Go Live → MediaMTX release gate), `e2e-studio` (compose + e2e UI flows, no secrets, no model). No ESLint script; typecheck is the TS gate. Dependabot: `.github/dependabot.yml`.
 
 ## Code
 
@@ -70,8 +71,8 @@ Budgets from `MEASUREMENTS.md`. Beat them, or record why not:
 | Path | Budget | Measured |
 |---|---|---|
 | Denoise | < 1 ms / 10 ms frame | WASM RNNoise 0.088 ms |
-| CPU compose blit | not on the live path if ≥ 8 ms/frame @ 1280×720 | WASM ~5.4 ms, JS ~4.1 ms; live is Canvas2D |
-| WASM binary | < 500 KiB, zero imports | ~384 KiB |
+| CPU compose blit | not on the live path if ≥ 8 ms/frame @ 1280×720 | WASM ~5.4 ms, JS ~4.1 ms; live is Canvas2D in a Worker |
+| WASM binary | < 500 KiB, zero imports | ~384 KiB (+ 33 KiB GPU wasm, lazy) |
 | Camera blur 1280×720 | < 33 ms/frame (30 fps) | WASM 14.2 ms, JS 14.1 ms |
 | Worker HTTP glue | < 10 ms CPU | Cloudflare Worker CPU |
 | Durable Object write | < 50 ms | stage / live / destinations |

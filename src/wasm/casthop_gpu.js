@@ -138,8 +138,9 @@ function getDataViewMemory0() {
 }
 /**
  * Build pipelines on a JS-created `GPUDevice`.
+ * `canvas` is an `HTMLCanvasElement` or `OffscreenCanvas`.
  * @param {GPUDevice} device
- * @param {HTMLCanvasElement} canvas
+ * @param {any} canvas
  * @param {number} width
  * @param {number} height
  * @param {string} format
@@ -162,7 +163,7 @@ export function gpu_compositor_create(device, canvas, width, height, format) {
 }
 
 /**
- * Draw `sources` (HTMLVideoElement or HTMLCanvasElement) using layout `mode`.
+ * Draw `sources` (video, canvas, `OffscreenCanvas`, `VideoFrame`, or `ImageBitmap`).
  * Returns 1 on success, 0 if the frame could not be submitted.
  * @param {Array<any>} sources
  * @param {number} mode
@@ -275,6 +276,14 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_destroy_c1bd9f1fd447bebf = function(arg0) {
         getObject(arg0).destroy();
     };
+    imports.wbg.__wbg_displayHeight_a6ff7964b6182d84 = function(arg0) {
+        const ret = getObject(arg0).displayHeight;
+        return ret;
+    };
+    imports.wbg.__wbg_displayWidth_d82e7b620f6f4189 = function(arg0) {
+        const ret = getObject(arg0).displayWidth;
+        return ret;
+    };
     imports.wbg.__wbg_draw_16c9e979e94486d4 = function(arg0, arg1, arg2) {
         getObject(arg0).draw(arg1 >>> 0, arg2 >>> 0);
     };
@@ -293,6 +302,10 @@ function __wbg_get_imports() {
         const ret = getObject(arg0).getContext(getStringFromWasm0(arg1, arg2));
         return isLikeNone(ret) ? 0 : addHeapObject(ret);
     }, arguments) };
+    imports.wbg.__wbg_getContext_f65a0debd1e8f8e8 = function() { return handleError(function (arg0, arg1, arg2) {
+        const ret = getObject(arg0).getContext(getStringFromWasm0(arg1, arg2));
+        return isLikeNone(ret) ? 0 : addHeapObject(ret);
+    }, arguments) };
     imports.wbg.__wbg_getCurrentTexture_cf3b91d12114ffcb = function() { return handleError(function (arg0) {
         const ret = getObject(arg0).getCurrentTexture();
         return addHeapObject(ret);
@@ -302,6 +315,14 @@ function __wbg_get_imports() {
         return addHeapObject(ret);
     };
     imports.wbg.__wbg_height_838cee19ba8597db = function(arg0) {
+        const ret = getObject(arg0).height;
+        return ret;
+    };
+    imports.wbg.__wbg_height_df1aa98dfbbe11ad = function(arg0) {
+        const ret = getObject(arg0).height;
+        return ret;
+    };
+    imports.wbg.__wbg_height_e3c322f23d99ad2f = function(arg0) {
         const ret = getObject(arg0).height;
         return ret;
     };
@@ -335,10 +356,40 @@ function __wbg_get_imports() {
         const ret = result;
         return ret;
     };
+    imports.wbg.__wbg_instanceof_ImageBitmap_d093d508663e313d = function(arg0) {
+        let result;
+        try {
+            result = getObject(arg0) instanceof ImageBitmap;
+        } catch (_) {
+            result = false;
+        }
+        const ret = result;
+        return ret;
+    };
     imports.wbg.__wbg_instanceof_Object_7f2dcef8f78644a4 = function(arg0) {
         let result;
         try {
             result = getObject(arg0) instanceof Object;
+        } catch (_) {
+            result = false;
+        }
+        const ret = result;
+        return ret;
+    };
+    imports.wbg.__wbg_instanceof_OffscreenCanvas_d55760945f91bf51 = function(arg0) {
+        let result;
+        try {
+            result = getObject(arg0) instanceof OffscreenCanvas;
+        } catch (_) {
+            result = false;
+        }
+        const ret = result;
+        return ret;
+    };
+    imports.wbg.__wbg_instanceof_VideoFrame_f362406fe1355687 = function(arg0) {
+        let result;
+        try {
+            result = getObject(arg0) instanceof VideoFrame;
         } catch (_) {
             result = false;
         }
@@ -488,6 +539,9 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_setheight_1e158913ddc793af = function(arg0, arg1) {
         getObject(arg0).height = arg1 >>> 0;
     };
+    imports.wbg.__wbg_setheight_433680330c9420c3 = function(arg0, arg1) {
+        getObject(arg0).height = arg1 >>> 0;
+    };
     imports.wbg.__wbg_setheight_da683a33fa99843c = function(arg0, arg1) {
         getObject(arg0).height = arg1 >>> 0;
     };
@@ -563,6 +617,9 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_setview_451a1441471a69db = function(arg0, arg1) {
         getObject(arg0).view = getObject(arg1);
     };
+    imports.wbg.__wbg_setwidth_660ca581e3fbe279 = function(arg0, arg1) {
+        getObject(arg0).width = arg1 >>> 0;
+    };
     imports.wbg.__wbg_setwidth_6cc268cef8245a36 = function(arg0, arg1) {
         getObject(arg0).width = arg1 >>> 0;
     };
@@ -581,6 +638,14 @@ function __wbg_get_imports() {
         return ret;
     };
     imports.wbg.__wbg_width_5dde457d606ba683 = function(arg0) {
+        const ret = getObject(arg0).width;
+        return ret;
+    };
+    imports.wbg.__wbg_width_8fe4e8f77479c2a6 = function(arg0) {
+        const ret = getObject(arg0).width;
+        return ret;
+    };
+    imports.wbg.__wbg_width_f54c7178d3c78f16 = function(arg0) {
         const ret = getObject(arg0).width;
         return ret;
     };

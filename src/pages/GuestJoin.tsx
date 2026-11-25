@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Aperture, Check, Mic, MicOff, Video, VideoOff } from "lucide-react";
 import { Logo } from "../components/Logo";
@@ -30,6 +30,8 @@ export function GuestJoin() {
   const [resLabel, setResLabel] = useState("—");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Canvas preview tracks have no deviceId; keep the real camera's.
+  const rawCameraIdRef = useRef("");
 
   useEffect(() => {
     getStudio(id)
@@ -57,15 +59,15 @@ export function GuestJoin() {
         return;
       }
       let preview: MediaStream = media;
-      if (blurOn) {
-        const videoTrack = media.getVideoTracks()[0];
-        if (videoTrack) {
-          try {
-            blurHandle = await startCameraBlur(videoTrack);
-            preview = new MediaStream([blurHandle.track, ...media.getAudioTracks()]);
-          } catch (err) {
-            console.warn("casthop blur", err);
-          }
+      const videoTrack = media.getVideoTracks()[0];
+      const rawId = videoTrack?.getSettings().deviceId ?? "";
+      if (rawId) rawCameraIdRef.current = rawId;
+      if (blurOn && videoTrack) {
+        try {
+          blurHandle = await startCameraBlur(videoTrack);
+          preview = new MediaStream([blurHandle.track, ...media.getAudioTracks()]);
+        } catch (err) {
+          console.warn("casthop blur", err);
         }
       }
       if (cancelled) {
@@ -74,9 +76,8 @@ export function GuestJoin() {
         return;
       }
       setStream(preview);
-      const video = media.getVideoTracks()[0];
-      const settings = video?.getSettings();
-      setCamOk(Boolean(video));
+      const settings = videoTrack?.getSettings();
+      setCamOk(Boolean(videoTrack));
       setResLabel(settings?.height ? `${settings.height}p` : "720p");
       const audio = media.getAudioTracks()[0];
       setMicOk(Boolean(audio));
@@ -166,8 +167,7 @@ export function GuestJoin() {
                 aria-pressed={blurOn}
                 onClick={() => {
                   const next = !blurOn;
-                  const trackId = stream?.getVideoTracks()[0]?.getSettings().deviceId ?? "";
-                  saveBlurPrefPair(cameraId, trackId, next);
+                  saveBlurPrefPair(cameraId, rawCameraIdRef.current, next);
                   setBlurOn(next);
                 }}
               >

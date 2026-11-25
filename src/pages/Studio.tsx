@@ -297,6 +297,8 @@ export function Studio() {
             publishVideo = handle.track;
           } catch (err) {
             console.warn("casthop blur", err);
+            setBlurOn(false);
+            setError(err instanceof Error ? err.message : "Blur failed");
           }
         }
         if (!studioOpen(lk)) return;

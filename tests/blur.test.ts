@@ -47,6 +47,11 @@ test("blur preference is off by default and stored per device", () => {
   saveBlurPrefPair("cam-e", "cam-f", false);
   assert.equal(loadBlurPref("cam-e"), false);
   assert.equal(loadBlurPref("cam-f"), false);
+  saveBlurPrefPair("", "cam-g", true);
+  saveBlurPrefPair("", "", false);
+  assert.equal(loadBlurPref("cam-g"), true);
+  saveBlurPrefPair("", "cam-g", false);
+  assert.equal(loadBlurPref("cam-g"), false);
 });
 
 test("casthop_media.wasm stays under 500 KiB with zero imports", () => {

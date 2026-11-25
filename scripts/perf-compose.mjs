@@ -20,7 +20,6 @@ const chromePath = process.env.CHROME || process.env.CHROME_PATH || "/usr/local/
 const cdpPort = Number(process.env.CDP_PORT || 9335);
 const seconds = Math.max(5, Number(process.env.PERF_SECONDS || 30) || 30);
 const tiles = Math.max(4, Math.min(6, Number(process.env.PERF_TILES || 6) || 6));
-void root;
 
 function log(msg) {
   console.log(`[perf] ${msg}`);

@@ -12,6 +12,7 @@ This file is the source of truth. Nested `AGENTS.md` files add tree-specific rul
 - `crates/casthop-post` — inspect / remux recordings
 - `tests/auth.test.ts` — owner / co-host / guest / signed-out / expired session matrix for every Worker route
 - `tests/egress.test.ts` — start/stop, crash retry, RTMP dest status, empty-studio cleanup
+- `tests/studio/*.e2e.ts` — studio UI flows (e2e / Playwright locators; no model)
 - `MEASUREMENTS.md` — recorded numbers; update on hot-path changes
 - `PRODUCT.md` — product intent
 
@@ -49,9 +50,10 @@ bun run measure             # load + silent-audio check
 bash scripts/check-silent-audio.sh data/recordings/<file>.mp4
 cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
 E2E=1 bun run test:e2e      # headless Go Live → MediaMTX, audio not silent
+bun run test:e2e-ui         # studio UI flows (e2e, locators, --strict-cache, no model)
 ```
 
-CI (`.github/workflows/ci.yml`): parallel `lint` (rustfmt), `typecheck`, `test`, `rust` (test + clippy), `wasm` budget, `audit` (`bun audit` + `cargo audit`), `e2e` (compose + Chrome). No ESLint script; typecheck is the TS gate. Dependabot: `.github/dependabot.yml`.
+CI (`.github/workflows/ci.yml`): parallel `lint` (rustfmt), `typecheck`, `test`, `rust` (test + clippy), `wasm` budget, `audit` (`bun audit` + `cargo audit`), `e2e` (compose + Chrome, Go Live → MediaMTX release gate), `e2e-studio` (compose + e2e UI flows, no secrets, no model). No ESLint script; typecheck is the TS gate. Dependabot: `.github/dependabot.yml`.
 
 ## Code
 
@@ -88,6 +90,10 @@ Hot-path change: measure before and after (`bun run bench:wasm`, `/internal/benc
 ## Tests
 
 Every change ships tests. The owner / co-host / guest / signed-out / expired matrix in `tests/auth.test.ts` must stay green. CI must pass. Extend that matrix for new API or auth rules.
+
+Studio UI flows: `tests/studio/*.e2e.ts`, run with `bun run test:e2e-ui`. Write locators and `expect` (no `agent.act` unless a control has no accessible name). If you do use `agent.act`, commit `.e2e/cache/` so CI can `--strict-cache` with no model and no API key. Keep `bun run test:e2e` as the Go Live → MediaMTX release gate.
+
+Coding agents: `.cursor/mcp.json` registers `e2e mcp`. With `bun run dev` up, open a session, drive the studio with `run_code` / locators, and write tests from that. Do not start a second app on port 5173; the config uses `reuseExisting` locally. In CI, `reuseExisting` is ignored and the job starts its own `bun run dev`.
 
 ## Git and PRs
 

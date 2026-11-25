@@ -1,0 +1,39 @@
+import type { Browser, WebApp } from "@e2e-dev/web";
+import type { Screen } from "e2e";
+import { expect } from "e2e";
+
+export function uniqueEmail(prefix: string): string {
+  return `${prefix}-${Date.now()}@example.com`;
+}
+
+type MagicLinkBody = {
+  ok?: boolean;
+  devLogin?: string;
+};
+
+function isMagicLinkBody(value: unknown): value is MagicLinkBody {
+  return typeof value === "object" && value !== null;
+}
+
+/** Loopback magic-link: POST returns `devLogin`, confirm page sets the session cookie. */
+export async function signInWithDevMagicLink(
+  app: WebApp,
+  screen: Screen,
+  browser: Browser,
+  email: string,
+): Promise<void> {
+  await app.open("/");
+  await expect(screen.getByRole("heading", "Sign in")).toBeVisible();
+  await screen.getByLabel("Email").fill(email);
+  const pending = browser.waitForResponse({ method: "POST", url: "**/api/auth/magic-link" });
+  await screen.getByRole("button", "Email me a link").click();
+  const res = await pending;
+  expect(res).toBeOK();
+  const body: unknown = await res.json();
+  if (!isMagicLinkBody(body) || !body.devLogin) {
+    throw new Error("magic link did not return a local login path");
+  }
+  await app.open(body.devLogin);
+  await screen.getByRole("button", "Sign in").click();
+  await expect(screen.getByRole("heading", "Open a studio")).toBeVisible();
+}

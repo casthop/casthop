@@ -115,3 +115,61 @@ jobs:
         run: |
           cat /tmp/casthop-dev.log || true
           docker compose logs || true
+
+  e2e-studio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      # Vite + Wrangler/Miniflare spawn workerd through Node, not Bun.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: bun install --frozen-lockfile
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+      - name: Install Chromium
+        run: bunx --bun @e2e-dev/web install chromium --with-deps
+      - run: |
+          cp .env.example .env
+          cp .dev.vars.example .dev.vars
+          mkdir -p data/recordings data/rtmp
+          chmod 777 data/recordings
+      - run: docker compose up -d
+      - name: Start app
+        run: bun run dev > /tmp/casthop-dev.log 2>&1 &
+      - name: Wait for app and media plane
+        run: |
+          for i in $(seq 1 90); do
+            if curl -sf http://127.0.0.1:5173/api/health >/dev/null \
+              && curl -s -o /dev/null --max-time 2 http://127.0.0.1:7880 \
+              && curl -s -o /dev/null --max-time 2 http://127.0.0.1:9090; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "timeout waiting for app/livekit"
+          cat /tmp/casthop-dev.log || true
+          docker compose logs || true
+          exit 1
+      - name: Studio UI flows
+        env:
+          CI: "true"
+          E2E_TELEMETRY_DISABLED: "1"
+        run: bun run test:e2e-ui
+      - if: failure()
+        run: |
+          cat /tmp/casthop-dev.log || true
+          docker compose logs || true
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-studio-results
+          path: |
+            .e2e/report.json
+            .e2e/results
+          if-no-files-found: ignore
+          retention-days: 7

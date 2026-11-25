@@ -1,0 +1,47 @@
+---
+title: Destinations
+description: RTMP destinations, local stand-ins, status, recordings, and who sees full URLs.
+group: Operate
+order: 5
+---
+
+A destination is an RTMP URL. Casthop sends the same composite to every destination at once, using one transcode in Egress.
+
+## Local stand-ins
+
+Out of the box, the destinations are MediaMTX stand-ins for YouTube, LinkedIn and X:
+
+| Destination | Ingest | Watch |
+|---|---|---|
+| YouTube stand-in | `rtmp://127.0.0.1:1935/live/youtube` | `ffprobe rtmp://127.0.0.1:1935/live/youtube` |
+| LinkedIn stand-in | `rtmp://127.0.0.1:1935/live/linkedin` | same, `/live/linkedin` |
+| X stand-in | `rtmp://127.0.0.1:1935/live/x` | same, `/live/x` |
+
+## Real destinations
+
+For production, replace these with real YouTube, LinkedIn and X ingest URLs. Casthop validates destinations: only `rtmp:` URLs are accepted from clients, and private-network (RFC 1918) targets are rejected.
+
+## Status and recovery
+
+Each destination row shows its own RTMP status. If Egress or a stream drops, the studio retries with backoff. This relies on signed LiveKit webhooks, see [Self-hosting](/docs/self-hosting).
+
+## Recordings
+
+| Where | What |
+|---|---|
+| `data/recordings/` | Egress MP4 of the composite. |
+| `data/rtmp/` | MediaMTX fMP4 from the local RTMP edge. |
+
+Inspect a recording with the Rust helper:
+
+```bash
+cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
+```
+
+To check that a recording is not silent, run `bash scripts/check-silent-audio.sh data/recordings/<file>.mp4`.
+
+## Who sees what
+
+- **Owners and co-hosts** receive full destination URLs when signed in (session cookie).
+- **Guests and public requests** get a masked suffix only, and a `hasKey` flag. This applies to `GET /api/studios/:id` and the WebSocket `state` frame.
+- Stream keys are stored in Durable Object storage, not in the repo.

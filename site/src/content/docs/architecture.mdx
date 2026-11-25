@@ -1,0 +1,56 @@
+---
+title: Architecture
+description: How the browser, LiveKit, Egress and the Cloudflare Worker fit together.
+group: Concepts
+order: 6
+---
+
+```
+Browser (host + guests)  TypeScript UI
+    │  WebRTC simulcast
+    │  Rust/WASM in AudioWorklet: RNNoise + VAD/meters
+    │  Rust/WASM layout; Canvas2D (default) / WebGPU / WASM-CPU compositor
+    ▼
+LiveKit SFU (Go)  ─────────────────────────────────────────┐
+    │                                                      │
+    │  full-quality subscribe                              │
+    ▼                                                      ▼
+LiveKit Egress (custom /egress-template)             Durable Object
+    │  one transcode, N RTMP URLs                    (stage, layout,
+    ├──────────────┬──────────────┐                   chat, destinations)
+    ▼              ▼              ▼
+ MediaMTX       MediaMTX       MediaMTX              Cloudflare Worker
+ youtube        linkedin       x                     + D1 (studio index)
+    │              │              │                  + R2 seam (replays)
+    ▼              ▼              ▼                  Rust casthop-post
+ local RTMP    local RTMP     local RTMP             (inspect / remux)
+ + Egress MP4 at ./data/recordings
+```
+
+## Browser
+
+The UI is TypeScript. Media hot paths are Rust compiled to WebAssembly in `crates/casthop-media`, with no JS imports so it is safe in an AudioWorklet.
+
+- **Audio:** RNNoise noise suppression and VAD/meters run in an AudioWorklet before the mic is published to LiveKit. `?fx=js` or `?fx=off` lets you compare.
+- **Layout and compositing:** WASM computes the layout. The compositor page draws it with Canvas2D by default. `?compose=wasm` uses the CPU compositor and `?compose=webgpu` the GPU path.
+- **Camera blur:** uses MediaPipe Selfie Segmenter. `@mediapipe/tasks-vision` and its model load only when blur is on, from this origin, with no CDN.
+
+## LiveKit stays the SFU
+
+LiveKit (Go) is already the fast path, so Casthop does not replace it. Browsers publish with WebRTC simulcast, and Egress subscribes at full quality.
+
+## Why Egress fan-out
+
+Cloudflare Stream Live needs a Cloudflare account with Stream enabled, and Stream storage is prepaid. This prototype does not sign up for paid services. Egress already transcodes once and can emit many RTMP URLs from that one encode, which is the self-host path. Hosted Casthop could still put a single RTMP into Stream later if the delivery math wins. See [`MEASUREMENTS.md`](https://github.com/casthop/casthop/blob/main/MEASUREMENTS.md) in the repo.
+
+## Control plane
+
+The app is a Hono Worker with one Durable Object per studio (stage, layout, chat, destinations) and D1 for the studio index. R2 is bound as a seam for replays, and version 0 recordings stay on the Egress volume. Hot Worker endpoints are TypeScript for now, and a workers-rs port is a next step.
+
+## casthop-post
+
+`crates/casthop-post` inspects and remuxes recordings. See [Destinations](/docs/destinations).
+
+## Measurements
+
+Numbers from the prototype are in `MEASUREMENTS.md` in the repo. Check them there rather than here, since they change with the code.

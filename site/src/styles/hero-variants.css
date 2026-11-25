@@ -1,0 +1,205 @@
+/* Official home (Broadcast grid). Docs still use global.css. */
+.hv {
+  --bg: #07080b; --fg: #f5f6f8; --body: #b4b8c2; --muted: #8d92a0; --line: #1c1e25;
+  --sans: "Space Grotesk Variable", "Space Grotesk Fallback", Arial, system-ui, sans-serif;
+  --display: "Space Grotesk Variable", "Space Grotesk Display Fallback", Arial, system-ui, sans-serif;
+  --mono: "Geist Mono Variable", ui-monospace, monospace;
+  margin: 0; background: var(--bg); color: var(--body);
+  font-family: var(--sans);
+  line-height: 1.6; -webkit-font-smoothing: antialiased; overflow-x: hidden;
+  font-synthesis: none;
+}
+.hv *, .hv *::before, .hv *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
+:where(.hv) h1, :where(.hv) h2, :where(.hv) h3, :where(.hv) p { margin: 0; }
+:where(.hv) a { color: inherit; }
+.hv :focus-visible { outline: 2px solid #8aa4ff; outline-offset: 3px; border-radius: 4px; }
+.hv-skip { position: absolute; left: -999px; top: 0.5rem; background: #fff; color: #000; padding: 0.5rem 1rem; z-index: 100; }
+.hv-skip:focus { left: 0.5rem; }
+.hv-wrap { max-width: 70rem; margin: 0 auto; padding: 0 1.5rem; }
+.hv-muted { color: var(--muted); }
+.hv-small { font-size: 0.85rem; }
+
+.hv-nav { position: sticky; top: 0; z-index: 20; background: rgba(7, 8, 11, 0.8); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+.hv-nav-in { max-width: 70rem; margin: 0 auto; padding: 0.9rem 1.5rem; display: flex; justify-content: space-between; align-items: center; }
+.hv-nav-links { display: flex; align-items: center; gap: 1.5rem; font-size: 0.95rem; }
+.hv-nav-links a:not(.hv-btn) { text-decoration: none; transition: color 0.2s; }
+.hv-nav-links a:not(.hv-btn):hover { color: var(--fg); }
+.hv-logo { display: inline-flex; align-items: center; gap: 0.55rem; color: var(--fg); font-weight: 600; font-size: 1.1rem; letter-spacing: -0.02em; text-decoration: none; font-family: var(--display); }
+/* .hv-dot mark is in fonts.css (recording-on light). */
+
+.hv-btn { display: inline-flex; align-items: center; padding: 0.7rem 1.25rem; border-radius: 999px; font-weight: 500; font-size: 0.95rem; text-decoration: none; transition: background 0.2s, border-color 0.2s; }
+.hv-btn-primary { background: var(--fg); color: #0a0b0f; font-weight: 600; }
+.hv-btn-primary:hover { background: #fff; }
+.hv-btn-quiet { padding: 0.4rem 0.9rem; border: 1px solid #2b2e38; color: var(--fg); }
+.hv-btn-quiet:hover, .hv-btn-outline:hover { background: #14161c; border-color: #454957; }
+.hv-btn-outline { border: 1px solid #373a46; color: var(--fg); }
+.hv-link { display: inline-block; color: var(--fg); text-decoration: none; border-bottom: 1px solid #454957; padding-bottom: 1px; transition: border-color 0.2s; }
+.hv-link:hover { border-color: var(--fg); }
+.hv-cta { display: flex; align-items: center; gap: 1.75rem; flex-wrap: wrap; }
+
+.hv-hero { position: relative; overflow: hidden; padding: 5rem 0 0; isolation: isolate; }
+.hv-canvas { position: absolute; top: 0; left: 0; width: 100%; height: min(100%, 56rem); z-index: -2; pointer-events: none; display: block;
+  -webkit-mask-image: linear-gradient(#000 55%, transparent); mask-image: linear-gradient(#000 55%, transparent); }
+.hv-scrim { position: absolute; top: 0; left: 0; width: 100%; height: min(100%, 56rem); z-index: -1; pointer-events: none;
+  background: radial-gradient(ellipse 60% 55% at 28% 30%, rgba(7, 8, 11, 0.6), transparent 80%); }
+.hv-hero-copy { position: relative; }
+.hv-eyebrow { font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; display: flex; align-items: center; gap: 0.7rem; margin-bottom: 1.75rem; }
+.hv-pip { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: #8aa4ff; }
+.hv-display { color: var(--fg); font-family: var(--display); font-weight: 600; font-size: clamp(2.5rem, 6.8vw, 6.5rem); line-height: 1.03; letter-spacing: -0.035em; max-width: 18ch; }
+.hv-display-sm { font-size: clamp(2.25rem, 3vw + 1rem, 4.25rem); max-width: 20ch; }
+/* Breathing room: headline → description → buttons → screenshot. */
+.hv-lede { max-width: 36rem; font-size: clamp(1.15rem, 1.05rem + 0.35vw, 1.375rem); line-height: 1.6; color: #c9ccd4; margin: 2rem 0 2.5rem; }
+.hv-shot-wrap { position: relative; max-width: 68rem; margin: 5.5rem auto 0; padding: 0 1.5rem 4.5rem; }
+.hv-shot-stage { transform-origin: 50% 100%; }
+.hv-shot { margin: 0; border-radius: 16px; border: 1px solid #2a2d38; overflow: hidden; background: #121316; box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.9); }
+.hv-shot img { display: block; width: 100%; height: auto; }
+
+/* Continuing grid behind the lower page — same cool blue, very quiet. */
+.hv-rest { position: relative; isolation: isolate; }
+.hv-rest::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background-image:
+    linear-gradient(rgba(80, 110, 230, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(80, 110, 230, 0.055) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: linear-gradient(transparent, #000 8%, #000 88%, transparent);
+  -webkit-mask-image: linear-gradient(transparent, #000 8%, #000 88%, transparent);
+}
+.hv-rest::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background: repeating-linear-gradient(to bottom, transparent 0 7px, rgba(138, 164, 255, 0.03) 7px 8px);
+  animation: hv-scan 12s linear infinite;
+  mask-image: linear-gradient(transparent, #000 10%, #000 90%, transparent);
+  -webkit-mask-image: linear-gradient(transparent, #000 10%, #000 90%, transparent);
+}
+@keyframes hv-scan { to { background-position: 0 56px; } }
+
+.hv-features { padding: 7rem 1.5rem 3rem; position: relative; }
+/* Signal line down the index column, with a pulse traveling along it. */
+.hv-features::before { content: ""; position: absolute; left: calc(1.5rem + 1.35rem); top: 5.5rem; bottom: 2rem; width: 1px;
+  background: linear-gradient(180deg, transparent, rgba(138, 164, 255, 0.35), transparent); pointer-events: none; }
+.hv-features::after { content: ""; position: absolute; left: calc(1.5rem + 1.35rem - 3px); top: 5.5rem; width: 7px; height: 7px;
+  border-radius: 50%; background: #8aa4ff; box-shadow: 0 0 14px 4px rgba(138, 164, 255, 0.55);
+  offset-path: none; pointer-events: none; animation: hv-pulse-y 7s linear infinite; }
+@keyframes hv-pulse-y {
+  0% { top: 5.5rem; opacity: 0; }
+  8% { opacity: 1; }
+  92% { opacity: 1; }
+  100% { top: calc(100% - 2.5rem); opacity: 0; }
+}
+
+.hv-section-title { font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500; color: var(--body); margin-bottom: 2rem; }
+.hv-feature { display: grid; grid-template-columns: 5rem 1fr; gap: 1rem; padding: 3rem 0; border-top: 1px solid var(--line); }
+.hv-feature-n { font-family: var(--mono); font-size: 0.85rem; padding-top: 0.6rem; color: #8aa4ff; }
+.hv-feature-t { font-family: var(--display); font-weight: 600; color: var(--fg); font-size: clamp(1.85rem, 2.8vw + 0.8rem, 3.25rem); line-height: 1.12; letter-spacing: -0.03em; margin-bottom: 1rem; }
+.hv-feature-b { max-width: 40rem; margin-bottom: 1rem; line-height: 1.6; font-size: clamp(1.05rem, 0.95rem + 0.2vw, 1.2rem); }
+.hv-oss { padding: 6rem 1.5rem; border-top: 1px solid var(--line); }
+.hv-oss .hv-display { margin-bottom: 2.5rem; }
+.hv-oss-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 3rem; margin-bottom: 2.5rem; max-width: 56rem; font-size: clamp(1.05rem, 0.95rem + 0.2vw, 1.2rem); }
+
+.hv-footer { border-top: 1px solid var(--line); padding: 3rem 0 2rem; position: relative; background: var(--bg); }
+.hv-footer-in { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 2rem; }
+.hv-footer-col { display: flex; flex-direction: column; gap: 0.4rem; }
+.hv-footer-col a { text-decoration: none; }
+.hv-footer-col a:hover { color: var(--fg); }
+.hv-label { color: var(--fg); margin-bottom: 0.3rem; }
+.hv-footer-lic { margin-top: 2.5rem; }
+
+/* Immediate first-paint intro on hero copy. Opacity/transform only, layout reserved.
+   No wait for fonts, load, or JS. First item has no delay; stagger ≤ 60ms. */
+@media (prefers-reduced-motion: no-preference) {
+  .hv-hero-copy .hv-eyebrow,
+  .hv-hero-copy .hv-display,
+  .hv-hero-copy .hv-lede,
+  .hv-hero-copy .hv-cta {
+    animation: hv-intro 0.65s ease both;
+  }
+  .hv-hero-copy .hv-display { animation-delay: 20ms; }
+  .hv-hero-copy .hv-lede { animation-delay: 40ms; }
+  .hv-hero-copy .hv-cta { animation-delay: 60ms; }
+}
+@keyframes hv-intro {
+  from { opacity: 0; transform: translateY(0.7rem); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Shot is linked to root scroll so it starts moving as soon as the user scrolls.
+   Default (no support, no JS) stays at the final flat layout. */
+@supports (animation-timeline: scroll(root)) {
+  @media (prefers-reduced-motion: no-preference) {
+    .hv-shot-stage {
+      transform-origin: 50% 100%;
+      animation-name: hv-untilt;
+      animation-duration: auto;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: scroll(root);
+      animation-range: 0 50vh;
+    }
+  }
+}
+@keyframes hv-untilt {
+  from { transform: perspective(1800px) rotateX(22deg) scale(0.92); }
+  to { transform: perspective(1800px) rotateX(0deg) scale(1); }
+}
+
+/* rAF fallback for the studio shot when scroll(root) is missing. */
+html.js-scroll .hv-shot-stage {
+  transform: perspective(1800px) rotateX(22deg) scale(0.92);
+  transform-origin: 50% 100%;
+  will-change: transform;
+}
+
+/* Play-once section reveals. Hidden state is applied only when the head script
+   adds html.js-io (before paint). No JS or reduced-motion: content stays visible. */
+html.js-io .hv-reveal { opacity: 0; transform: translateY(32px); }
+html.js-io .hv-feature.hv-reveal,
+html.js-io .hv-oss.hv-reveal { opacity: 1; transform: none; }
+html.js-io .hv-feature .hv-feature-n,
+html.js-io .hv-feature .hv-feature-t,
+html.js-io .hv-feature .hv-feature-b,
+html.js-io .hv-feature .hv-link,
+html.js-io .hv-oss > * {
+  opacity: 0;
+  transform: translateY(32px);
+}
+html.js-io .hv-feature .hv-feature-n { transform: translateY(16px) scale(0.86); }
+
+html.js-io .hv-reveal.is-in,
+html.js-io .hv-feature.is-in .hv-feature-n,
+html.js-io .hv-feature.is-in .hv-feature-t,
+html.js-io .hv-feature.is-in .hv-feature-b,
+html.js-io .hv-feature.is-in .hv-link,
+html.js-io .hv-oss.is-in > * {
+  opacity: 1;
+  transform: none;
+  transition: opacity 0.65s ease-out, transform 0.65s ease-out;
+}
+/* h3 first, then body, then link (~90ms steps). Number draws in with the title. */
+html.js-io .hv-feature.is-in .hv-feature-n { transition-delay: 0ms; }
+html.js-io .hv-feature.is-in .hv-feature-t { transition-delay: 0ms; }
+html.js-io .hv-feature.is-in .hv-feature-b { transition-delay: 90ms; }
+html.js-io .hv-feature.is-in .hv-link { transition-delay: 180ms; }
+html.js-io .hv-oss.is-in > *:nth-child(1) { transition-delay: 0ms; }
+html.js-io .hv-oss.is-in > *:nth-child(2) { transition-delay: 90ms; }
+html.js-io .hv-oss.is-in > *:nth-child(3) { transition-delay: 180ms; }
+html.js-io .hv-oss.is-in > *:nth-child(4) { transition-delay: 270ms; }
+
+@media (max-width: 800px) {
+  .hv-hero { padding-top: 3.25rem; }
+  .hv-lede { margin: 1.75rem 0 2.25rem; }
+  .hv-shot-wrap { margin-top: 4.5rem; }
+  .hv-oss-cols, .hv-footer-in { grid-template-columns: 1fr; gap: 1.25rem; }
+  .hv-feature { grid-template-columns: 1fr; gap: 0.25rem; }
+  .hv-nav-links { gap: 1rem; }
+  .hv-scrim { background: radial-gradient(ellipse 90% 40% at 40% 25%, rgba(7, 8, 11, 0.65), transparent 85%); }
+  .hv-features::before, .hv-features::after { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .hv *, .hv *::before, .hv *::after { transition: none !important; animation: none !important; }
+  .hv-shot-stage, .hv-reveal, .hv-feature .hv-feature-n, .hv-feature .hv-feature-t,
+  .hv-feature .hv-feature-b, .hv-feature .hv-link, .hv-oss > *,
+  .hv-hero-copy .hv-eyebrow, .hv-hero-copy .hv-display, .hv-hero-copy .hv-lede, .hv-hero-copy .hv-cta {
+    opacity: 1 !important; transform: none !important; animation: none !important;
+  }
+}

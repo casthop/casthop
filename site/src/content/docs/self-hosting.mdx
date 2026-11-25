@@ -1,0 +1,71 @@
+---
+title: Self-hosting
+description: Run the media plane yourself and deploy the Worker as the control plane.
+group: Operate
+order: 3
+---
+
+Casthop has two halves that talk over the LiveKit Twirp API.
+
+- **Media plane:** LiveKit, Egress, Redis and an RTMP edge.
+- **Control plane:** a Cloudflare Worker with Durable Objects and D1.
+
+The [`docker-compose.yml`](https://github.com/casthop/casthop/blob/main/docker-compose.yml) in the repo is the media plane for local use. Its config files live in [`infra/`](https://github.com/casthop/casthop/tree/main/infra).
+
+## 1. Media plane
+
+Run LiveKit, Egress and Redis, plus an RTMP edge. The edge can be MediaMTX (what the compose file uses), nginx-rtmp, or a real destination such as YouTube.
+
+## 2. Real API keys
+
+The repo ships the published `devkey` pair for local use only. Generate real keys:
+
+```bash
+lk generate-keys
+```
+
+Replace the local defaults in `infra/livekit.yaml` and `infra/egress.yaml`.
+
+The Worker returns 503 if the published `devkey` is used with a non-loopback LiveKit URL. This is on purpose.
+
+## 3. Webhooks
+
+Point LiveKit `webhook.urls` at:
+
+```
+https://<worker>/api/livekit/webhook
+```
+
+The webhooks are signed. This is how Egress crashes and RTMP drops reach the studio so it can retry.
+
+## 4. Deploy the Worker
+
+```bash
+wrangler deploy
+```
+
+Put secrets in Worker secrets, never in git:
+
+```bash
+wrangler secret put LIVEKIT_API_SECRET
+wrangler secret put HOST_KEY_SECRET
+```
+
+Set a dedicated `HOST_KEY_SECRET`. Host keys fall back to the LiveKit secret if it is unset, so rotating LiveKit keys would lock out existing studios.
+
+## 5. Public origin and proxies
+
+- Set `PUBLIC_ORIGIN` to your public site URL. It is used in magic-link mail, co-host invites and the GitHub callback. If it is unset, the loopback Host is used, so set it in production so a spoofed Host cannot mint links to an attacker.
+- Behind a reverse proxy, set `CASTHOP_TRUST_FORWARDED=1` so per-IP sign-in limits use the real client address. Without it every client shares one `local` bucket. Cloudflare sets `request.cf`, so you do not need it there. Do not enable it for `wrangler dev`.
+
+## 6. Sign-in
+
+Sign-in is an email magic link. By default the link is logged to the Worker console. Set `MAIL_WEBHOOK_URL` to POST JSON `{ to, subject, text }` to your own mailer. GitHub OAuth is optional. See [Configuration](/docs/configuration).
+
+## 7. Destinations and recordings
+
+Point destination URLs at real YouTube, LinkedIn and X ingest. See [Destinations](/docs/destinations). Optionally, run `casthop-post normalize` and copy finished MP4s to R2 for replay. R2 is bound as a seam for that. Version 0 recordings stay on the Egress volume.
+
+## What this prototype does not cover
+
+This is a working prototype. TURN, a replay viewer and chat ingest are on the roadmap, not shipped. Measure your own setup before relying on it.

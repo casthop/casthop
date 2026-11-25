@@ -1,0 +1,89 @@
+---
+import ExtLink from "../ExtLink.astro";
+import { GITHUB } from "../../lib/site";
+import { features } from "./content";
+---
+<header class="hv-nav">
+  <div class="hv-nav-in">
+    <a href="/" class="hv-logo" aria-label="Casthop home"><span class="hv-dot" aria-hidden="true"></span>Casthop</a>
+    <nav aria-label="Main" class="hv-nav-links">
+      <a href="/docs">Docs</a>
+      <ExtLink href={GITHUB}>GitHub</ExtLink>
+      <a class="hv-btn hv-btn-quiet" href="/docs/getting-started">Get started</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hv-hero">
+    <canvas id="hero-canvas" class="hv-canvas" aria-hidden="true"></canvas>
+    <div class="hv-scrim" aria-hidden="true"></div>
+    <div class="hv-wrap hv-hero-copy">
+      <p class="hv-eyebrow"><span class="hv-pip" aria-hidden="true"></span>Open source · AGPL-3.0</p>
+      <h1 class="hv-display">Go live from a browser tab, everywhere at once.</h1>
+      <p class="hv-lede">Casthop is a live studio you run yourself. Bring guests in from a link, put up to six on stage, and send one composite to YouTube, LinkedIn and X.</p>
+      <div class="hv-cta">
+        <ExtLink href={GITHUB} class="hv-btn hv-btn-primary">Open the repo</ExtLink>
+        <a class="hv-link" href="/docs/getting-started">Read the docs <span aria-hidden="true">→</span></a>
+      </div>
+    </div>
+    <div class="hv-shot-wrap">
+      <div class="hv-shot-stage">
+        <figure class="hv-shot">
+          <img src="/studio.png" width="1440" height="813" alt="The Casthop host studio: a dark booth with the stage, a list of RTMP destinations and a Go Live button." fetchpriority="high" />
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <div class="hv-rest">
+    <section class="hv-wrap hv-features" aria-labelledby="features-h">
+      <h2 id="features-h" class="hv-section-title hv-reveal">What it does today</h2>
+      {features.map((s) => (
+        <article class="hv-feature hv-reveal">
+          <p class="hv-feature-n">{s.n}</p>
+          <div>
+            <h3 class="hv-feature-t">{s.title}</h3>
+            <p class="hv-feature-b">{s.body}</p>
+            <a class="hv-link" href={s.link.href}>{s.link.label} <span aria-hidden="true">→</span></a>
+          </div>
+        </article>
+      ))}
+    </section>
+
+    <section class="hv-wrap hv-oss hv-reveal" aria-labelledby="oss-h">
+      <p class="hv-eyebrow">Self-host</p>
+      <h2 id="oss-h" class="hv-display hv-display-sm">You run the media plane.</h2>
+      <div class="hv-oss-cols">
+        <p>LiveKit, Egress, Redis and an RTMP edge run in Docker on your machine or server. The control plane is a Cloudflare Worker with Durable Objects and D1. Stream keys stay in Durable Object storage and are never returned to guests.</p>
+        <p>The server is licensed AGPL-3.0-only, so hosted forks must share their changes. This is a working prototype: prove the core, measure it, then polish. Expect rough edges, and read the measurements in the repo rather than taking our word for it.</p>
+      </div>
+      <div class="hv-cta">
+        <ExtLink href={GITHUB} class="hv-btn hv-btn-outline">View on GitHub</ExtLink>
+        <a class="hv-link" href="/docs/self-hosting">Self-hosting docs <span aria-hidden="true">→</span></a>
+      </div>
+    </section>
+  </div>
+</main>
+
+<footer class="hv-footer hv-reveal">
+  <div class="hv-wrap hv-footer-in">
+    <div>
+      <a href="/" class="hv-logo" aria-label="Casthop home"><span class="hv-dot" aria-hidden="true"></span>Casthop</a>
+      <p class="hv-muted hv-small">Open-source browser live studio.</p>
+    </div>
+    <nav aria-label="Docs" class="hv-footer-col">
+      <p class="hv-small hv-label">Docs</p>
+      <a href="/docs/getting-started">Getting started</a>
+      <a href="/docs/self-hosting">Self-hosting</a>
+      <a href="/docs/configuration">Configuration</a>
+      <a href="/docs/architecture">Architecture</a>
+    </nav>
+    <nav aria-label="Project" class="hv-footer-col">
+      <p class="hv-small hv-label">Project</p>
+      <ExtLink href={GITHUB}>GitHub</ExtLink>
+      <ExtLink href={`${GITHUB}/blob/main/LICENSE`}>AGPL-3.0-only</ExtLink>
+    </nav>
+  </div>
+  <p class="hv-wrap hv-muted hv-small hv-footer-lic">Casthop is licensed under AGPL-3.0-only.</p>
+</footer>

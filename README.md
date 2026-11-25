@@ -125,6 +125,10 @@ The app falls back to a generated canvas+silent-audio track so a VM without `/de
 
 The local compose file is the media plane. The Worker is the control plane. They talk over the LiveKit Twirp API.
 
+## Website
+
+The marketing site and docs live in [`site/`](site/) (Astro, Bun). Run `cd site && bun install && bun run dev`.
+
 ## License
 
 [AGPL-3.0-only](LICENSE). The server is the product. Hosted forks must share their changes. A client SDK, if we split one out, could be Apache-2.0 later without weakening the server copyleft.

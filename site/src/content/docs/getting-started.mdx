@@ -1,0 +1,62 @@
+---
+title: Getting started
+description: Run Casthop on your own machine with Docker, then go live to local RTMP stand-ins.
+group: Start
+order: 1
+---
+
+Linux with Docker host networking is the supported local path. Docker uses host networking so the browser, LiveKit ICE, Egress and RTMP all see `127.0.0.1`.
+
+## Before you start
+
+- [Bun](https://bun.sh) (the repo pins `packageManager` to Bun).
+- Docker with Compose.
+- A Linux host. Host networking is Linux-only, see [Docker Desktop](#docker-desktop-macos-and-windows) below.
+
+You do not need a Rust toolchain. A prebuilt `src/wasm/casthop_media.wasm` is committed, so the dev server works without one. Rebuild it only if you change the Rust crate (needs rustc 1.83+ and the `wasm32-unknown-unknown` target).
+
+## Run it
+
+From the root of the [Casthop repository](https://github.com/casthop/casthop):
+
+```bash
+cp .env.example .env
+cp .dev.vars.example .dev.vars   # Worker secrets, gitignored
+mkdir -p data/recordings data/rtmp && chmod 777 data/recordings
+docker compose up -d
+bun install
+bun run dev
+```
+
+The website you are reading is a separate package in `site/` (`cd site && bun install && bun run dev`).
+
+`docker compose up -d` starts Redis, LiveKit, LiveKit Egress and MediaMTX. LiveKit, Redis and MediaMTX bind `127.0.0.1`, so the published `devkey` is not reachable from your LAN.
+
+## Your first stream
+
+1. Open [http://127.0.0.1:5173](http://127.0.0.1:5173).
+2. Enter your email to get a magic link. Locally the Worker prints the link in its console, so copy it from the terminal running `bun run dev`.
+3. Open a studio.
+4. Copy the guest link and send it to anyone who should join. See [Guests](/docs/guests).
+5. Bring people on stage. Up to six can be on stage.
+6. Press **Go Live**. Each destination row shows its own RTMP status.
+
+By default the destinations are local MediaMTX stand-ins for YouTube, LinkedIn and X. See [Destinations](/docs/destinations) to watch them and to point at real ingest.
+
+## Optional: GitHub sign-in
+
+Set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `.dev.vars`. Leave them unset and the GitHub button is hidden. Email magic link works either way.
+
+## Without cameras
+
+If there is no camera, the app falls back to a generated canvas and a silent audio track, so a VM without `/dev/video0` can still join. Chrome can also be launched with `--use-fake-device-for-media-stream`.
+
+## Docker Desktop (macOS and Windows)
+
+Host networking is Linux-only. On Docker Desktop you need to drop `network_mode: host`, publish `127.0.0.1:7880-7882`, `127.0.0.1:1935`, `127.0.0.1:8888`, `127.0.0.1:6379` and `127.0.0.1:9090`, set LiveKit `rtc.node_ip` to `host.docker.internal`, and point Egress `ws_url` and Redis at that host. ICE from a browser on the same machine is fiddly. Linux is the supported path for now.
+
+## Check that it works
+
+- Health: [http://127.0.0.1:5173/api/health](http://127.0.0.1:5173/api/health)
+- Latency probe: [http://127.0.0.1:5173/internal/probe](http://127.0.0.1:5173/internal/probe)
+- Load measurement with 2, 4 and 6 publishers: `bun run measure`

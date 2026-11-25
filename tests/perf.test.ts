@@ -130,6 +130,7 @@ test("offthread compose uses OffscreenCanvas and VideoFrame transfer", () => {
   assert.match(program, /worker\.terminate\(\)/);
   assert.match(program, /outputTrack\?\.stop\(\)/);
   assert.match(egress, /startProgramCompose/);
+  assert.match(egress, /sendEgressBeat\(studioId, token, egressId\)/);
   assert.match(egress, /el\.muted = false/);
 });
 

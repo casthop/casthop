@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import { pickComposeBackend } from "../lib/compositor";
 import { startProgramCompose, type ProgramCompose } from "../lib/program-compose";
-import { getStudio } from "../lib/api";
+import { getStudio, sendEgressBeat } from "../lib/api";
 import type { LayoutMode } from "../lib/wasm";
 
 /**
@@ -95,13 +95,16 @@ export function EgressTemplate() {
       }
     })();
 
-    const studioId = roomFromToken(token);
+    const fromToken = templateFromToken(token);
+    const studioId = fromToken.room;
+    const egressId = q.get("egressId") || fromToken.egressId;
     const pullMeta = () => {
       if (!studioId) return;
       void getStudio(studioId).then((s) => {
         const next: LayoutMode = s.layout === "solo" || s.layout === "side" || s.layout === "screen" ? s.layout : "grid";
         compose?.setMeta(next, s.bannerTitle || s.title || "Casthop", s.bannerSubtitle || "live");
       });
+      if (token && egressId) void sendEgressBeat(studioId, token, egressId).catch(() => undefined);
     };
     pullMeta();
     const metaTimer = window.setInterval(pullMeta, 2000);
@@ -132,14 +135,19 @@ export function EgressTemplate() {
   );
 }
 
-function roomFromToken(token: string | null): string | null {
-  if (!token) return null;
+function templateFromToken(token: string | null): { room: string | null; egressId: string | null } {
+  if (!token) return { room: null, egressId: null };
   try {
     const payload = token.split(".")[1];
-    if (!payload) return null;
-    const json = JSON.parse(atob(payload.replaceAll("-", "+").replaceAll("_", "/"))) as { video?: { room?: string } };
-    return json.video?.room ?? null;
+    if (!payload) return { room: null, egressId: null };
+    const json = JSON.parse(atob(payload.replaceAll("-", "+").replaceAll("_", "/"))) as {
+      sub?: unknown;
+      video?: { room?: unknown };
+    };
+    const room = typeof json.video?.room === "string" ? json.video.room : null;
+    const egressId = typeof json.sub === "string" && json.sub ? json.sub : null;
+    return { room, egressId };
   } catch {
-    return null;
+    return { room: null, egressId: null };
   }
 }

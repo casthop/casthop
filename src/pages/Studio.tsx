@@ -36,10 +36,10 @@ import { isHostIdentity } from "../../worker/security";
 import type { LayoutId, ParticipantInfo, PublicDestination } from "../../worker/types";
 
 function destStatusLabel(status: PublicStudio["destinations"][number]["status"] | undefined, error: string | null | undefined): string {
-  if (status === "connecting") return " · connecting";
-  if (status === "live") return " · live";
-  if (status === "retrying") return error ? ` · retrying · ${error}` : " · retrying";
-  if (status === "failed") return error ? ` · failed · ${error}` : " · failed";
+  if (status === "connecting") return " · Starting…";
+  if (status === "live") return " · Live";
+  if (status === "retrying") return error ? ` · Reconnecting · ${error}` : " · Reconnecting…";
+  if (status === "failed") return error ? ` · Live failed · ${error}` : " · Live failed";
   if (status === "stopped") return " · stopped";
   return "";
 }
@@ -510,7 +510,7 @@ export function Studio() {
     );
   }
 
-  const liveMs = studio.live && studio.liveStartedAt ? now - studio.liveStartedAt : 0;
+  const liveMs = studio.live && studio.liveStartedAt ? Math.max(0, now - studio.liveStartedAt) : 0;
   const phase = studio.livePhase ?? (studio.live ? "live" : "idle");
   const liveOn = phase === "live";
   const liveBusy = phase === "live" || phase === "starting" || phase === "retrying" || phase === "stopping";

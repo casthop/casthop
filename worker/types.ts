@@ -71,6 +71,8 @@ export type StudioState = {
   egressRecoveringSince?: number | null;
   /** Dead egress ids we already gave up on; do not re-adopt from ListEgress. */
   abandonedEgressIds?: string[];
+  /** Last compositor page beat; used to drop Live as soon as Chrome dies. */
+  egressHeartbeatAt?: number | null;
   emptySince: number | null;
   egressId: string | null;
   recordingPath: string | null;
@@ -103,6 +105,7 @@ export type Env = {
   CASTHOP_COMPOSITOR_GRACE_MS?: string;
   CASTHOP_BACKOFF_MS?: string;
   CASTHOP_RECOVERY_MS?: string;
+  CASTHOP_HEARTBEAT_MS?: string;
   CASTHOP_TRUST_FORWARDED?: string;
   PUBLIC_ORIGIN?: string;
   GITHUB_CLIENT_ID?: string;
@@ -159,6 +162,9 @@ export type PublicStudio = Omit<
   | "egressRetryAt"
   | "emptySince"
   | "kickedIdentities"
+  | "egressHeartbeatAt"
+  | "abandonedEgressIds"
+  | "egressRecoveringSince"
 > & {
   destinations: PublicDestination[];
   egressId?: string | null;

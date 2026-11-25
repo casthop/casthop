@@ -30,8 +30,9 @@ import {
   removeParticipant,
   updateParticipantPublish,
   verifyLivekitWebhook,
+  verifyParticipantToken,
 } from "./livekit";
-import { webhookRoomName } from "./egress";
+import { isComposerIdentity, webhookRoomName } from "./egress";
 import {
   accountByEmail,
   accountById,
@@ -431,6 +432,20 @@ app.post("/api/livekit/webhook", async (c) => {
   if (!room) return c.json({ ok: true });
   const res = await doAction(c.env, room, "webhook", body);
   if (res.status === 404) return c.json({ ok: true });
+  return new Response(res.body, { status: res.status, headers: res.headers });
+});
+
+app.post("/api/studios/:id/egress-beat", async (c) => {
+  const id = c.req.param("id");
+  const claims = await verifyParticipantToken(c.env, c.req.header("Authorization"));
+  if (!claims) return c.json({ error: "unauthorized" }, 401);
+  if (claims.room !== id || !isComposerIdentity(claims.identity)) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+  const body = (await c.req.json().catch(() => ({}))) as { egressId?: unknown };
+  const egressId = typeof body.egressId === "string" ? body.egressId : "";
+  const res = await doAction(c.env, id, "egress-beat", { identity: claims.identity, egressId });
+  if (res.status === 404) return c.json({ error: "Studio not found" }, 404);
   return new Response(res.body, { status: res.status, headers: res.headers });
 });
 

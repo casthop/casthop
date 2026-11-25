@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { app, StudioDurableObject } from "../worker/index.ts";
-import { DEV_API_KEY, DEV_API_SECRET, HOST_KEY_HEADER } from "../worker/security.ts";
+import { DEV_API_KEY, DEV_API_SECRET, SESSION_COOKIE } from "../worker/security.ts";
+import { FakeD1 } from "./fake-d1.ts";
 import { mintApiToken, signLivekitWebhook, startRoomComposite } from "../worker/livekit.ts";
 import {
   applyStreamResults,
@@ -62,6 +63,7 @@ function fakeCtx(): DurableObjectState {
 
 function makeEnv(overrides: Partial<Env> = {}): Env {
   const rooms = new Map<string, StudioDurableObject>();
+  const db = new FakeD1();
   const env = {
     LIVEKIT_API_KEY: DEV_API_KEY,
     LIVEKIT_API_SECRET: DEV_API_SECRET,
@@ -74,19 +76,11 @@ function makeEnv(overrides: Partial<Env> = {}): Env {
     CASTHOP_ALLOW_DEV_KEYS: "1",
     CASTHOP_EMPTY_GRACE_MS: "0",
     CASTHOP_BACKOFF_MS: "0",
+    CASTHOP_TRUST_FORWARDED: "1",
+    PUBLIC_ORIGIN: "https://casthop.test",
     ASSETS: { fetch: async () => new Response("ok") },
     RECORDINGS: {},
-    DB: {
-      prepare() {
-        const stmt = {
-          run: async () => ({ success: true }),
-          bind() {
-            return stmt;
-          },
-        };
-        return stmt;
-      },
-    },
+    DB: db,
     ...overrides,
   } as Env;
 
@@ -117,22 +111,57 @@ async function json<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
+function headerCookies(res: Response): string[] {
+  if (typeof res.headers.getSetCookie === "function") return res.headers.getSetCookie();
+  const one = res.headers.get("set-cookie");
+  return one ? [one] : [];
+}
+
+function cookieNamed(res: Response, name: string): string {
+  const hit = headerCookies(res).find((c) => c.startsWith(`${name}=`));
+  return hit ? hit.split(";")[0] : "";
+}
+
+const DEV_ORIGIN = "https://127.0.0.1";
+
+async function signIn(env: Env, email = "owner@example.com"): Promise<string> {
+  const sent = await app.request(
+    `${DEV_ORIGIN}/api/auth/magic-link`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    },
+    env,
+  );
+  assert.equal(sent.status, 200, await sent.clone().text());
+  const body = await json<{ ok: boolean; devLogin?: string }>(sent);
+  assert.ok(body.devLogin);
+  const login = await app.request(`${DEV_ORIGIN}${body.devLogin}`, { method: "POST", redirect: "manual" }, env);
+  assert.equal(login.status, 302);
+  const cookie = cookieNamed(login, SESSION_COOKIE);
+  assert.ok(cookie.startsWith(`${SESSION_COOKIE}=`));
+  return cookie;
+}
+
 async function createStudio(env: Env) {
+  const cookie = await signIn(env);
   const res = await app.request(
     "https://casthop.test/api/studios",
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Cookie: cookie },
       body: JSON.stringify({ title: "Weekly product update" }),
     },
     env,
   );
   assert.equal(res.status, 200, await res.clone().text());
-  return json<{ id: string; hostKey: string }>(res);
+  const created = await json<{ id: string }>(res);
+  return { id: created.id, cookie };
 }
 
-function liveHeaders(hostKey: string): HeadersInit {
-  return { "Content-Type": "application/json", [HOST_KEY_HEADER]: hostKey };
+function liveHeaders(cookie: string): HeadersInit {
+  return { "Content-Type": "application/json", Cookie: cookie };
 }
 
 before(() => {
@@ -344,7 +373,7 @@ test("two overlapping go-live calls start only one compositor", async () => {
   listedParticipants = [{ identity: "host" }];
   listedEgress = { items: [] };
   const env = makeEnv();
-  const { id, hostKey } = await createStudio(env);
+  const { id, cookie } = await createStudio(env);
   const starts = egressStarts;
   let release!: () => void;
   listEgressHold = new Promise<void>((resolve) => {
@@ -356,14 +385,14 @@ test("two overlapping go-live calls start only one compositor", async () => {
   holdNextListEgress = true;
   const first = app.request(
     `https://casthop.test/api/studios/${id}/live`,
-    { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+    { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
     env,
   );
   try {
     await sawList;
     const second = await app.request(
       `https://casthop.test/api/studios/${id}/live`,
-      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
       env,
     );
     assert.equal(second.status, 409, await second.clone().text());
@@ -382,7 +411,7 @@ test("stop during go-live list does not start egress", async () => {
   listedParticipants = [{ identity: "host" }];
   listedEgress = { items: [] };
   const env = makeEnv();
-  const { id, hostKey } = await createStudio(env);
+  const { id, cookie } = await createStudio(env);
   const starts = egressStarts;
   let release!: () => void;
   listEgressHold = new Promise<void>((resolve) => {
@@ -394,14 +423,14 @@ test("stop during go-live list does not start egress", async () => {
   holdNextListEgress = true;
   const first = app.request(
     `https://casthop.test/api/studios/${id}/live`,
-    { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+    { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
     env,
   );
   try {
     await sawList;
     const stop = await app.request(
       `https://casthop.test/api/studios/${id}/live`,
-      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: false }) },
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: false }) },
       env,
     );
     assert.equal(stop.status, 200, await stop.clone().text());
@@ -423,13 +452,13 @@ test("list egress failure does not start a second compositor", async () => {
   listedParticipants = [{ identity: "host" }];
   listedEgress = { items: [] };
   const env = makeEnv();
-  const { id, hostKey } = await createStudio(env);
+  const { id, cookie } = await createStudio(env);
   const starts = egressStarts;
   listEgressFail = true;
   try {
     const go = await app.request(
       `https://casthop.test/api/studios/${id}/live`,
-      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
       env,
     );
     assert.equal(go.status, 200, await go.clone().text());
@@ -474,12 +503,12 @@ test("go-live start failure does not put the LiveKit body in liveError", async (
   listedParticipants = [{ identity: "host" }];
   listedEgress = { items: [] };
   const env = makeEnv();
-  const { id, hostKey } = await createStudio(env);
+  const { id, cookie } = await createStudio(env);
   startRoomCompositeFail = true;
   try {
     const go = await app.request(
       `https://casthop.test/api/studios/${id}/live`,
-      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
       env,
     );
     assert.equal(go.status, 200, await go.clone().text());
@@ -500,11 +529,11 @@ test("go live waits until someone is in the LiveKit room", async () => {
   listedParticipants = [];
   listedEgress = { items: [] };
   const env = makeEnv({ CASTHOP_EMPTY_GRACE_MS: "60000" });
-  const { id, hostKey } = await createStudio(env);
+  const { id, cookie } = await createStudio(env);
   const starts = egressStarts;
   const go = await app.request(
     `https://casthop.test/api/studios/${id}/live`,
-    { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+    { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
     env,
   );
   assert.equal(go.status, 200, await go.clone().text());
@@ -525,11 +554,11 @@ test("go live fans out enabled destinations and stop tears down egress", async (
   listedParticipants = [{ identity: "host" }];
   listedEgress = { items: [] };
   const env = makeEnv();
-  const { id, hostKey } = await createStudio(env);
+  const { id, cookie } = await createStudio(env);
   const starts = egressStarts;
   const go = await app.request(
     `https://casthop.test/api/studios/${id}/live`,
-    { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+    { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
     env,
   );
   assert.equal(go.status, 200, await go.clone().text());
@@ -545,7 +574,7 @@ test("go live fans out enabled destinations and stop tears down egress", async (
 
   const stop = await app.request(
     `https://casthop.test/api/studios/${id}/live`,
-    { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: false }) },
+    { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: false }) },
     env,
   );
   assert.equal(stop.status, 200);
@@ -559,18 +588,18 @@ test("ending webhook after host stop does not flip live back on", async () => {
   listedParticipants = [{ identity: "host" }];
   listedEgress = { items: [] };
   const env = makeEnv();
-  const { id, hostKey } = await createStudio(env);
+  const { id, cookie } = await createStudio(env);
   const started = await json<PublicStudio>(
     await app.request(
       `https://casthop.test/api/studios/${id}/live`,
-      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
       env,
     ),
   );
   assert.ok(started.egressId);
   const stop = await app.request(
     `https://casthop.test/api/studios/${id}/live`,
-    { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: false }) },
+    { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: false }) },
     env,
   );
   assert.equal(stop.status, 200);
@@ -585,7 +614,7 @@ test("ending webhook after host stop does not flip live back on", async () => {
   );
   assert.equal(res.status, 200, await res.clone().text());
   const snap = await json<PublicStudio>(
-    await app.request(`https://casthop.test/api/studios/${id}`, { headers: liveHeaders(hostKey) }, env),
+    await app.request(`https://casthop.test/api/studios/${id}`, { headers: liveHeaders(cookie) }, env),
   );
   assert.equal(snap.live, false);
   assert.equal(snap.livePhase, "idle");
@@ -596,11 +625,11 @@ test("unsigned webhook is 401; signed egress_ended retries start", async () => {
   listedParticipants = [{ identity: "host" }];
   listedEgress = { items: [] };
   const env = makeEnv();
-  const { id, hostKey } = await createStudio(env);
+  const { id, cookie } = await createStudio(env);
   const started = await json<PublicStudio>(
     await app.request(
       `https://casthop.test/api/studios/${id}/live`,
-      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
       env,
     ),
   );
@@ -648,11 +677,11 @@ test("terminal webhook after crash does not markRetry while egressId is empty", 
   listedParticipants = [{ identity: "host" }];
   listedEgress = { items: [] };
   const env = makeEnv();
-  const { id, hostKey } = await createStudio(env);
+  const { id, cookie } = await createStudio(env);
   const started = await json<PublicStudio>(
     await app.request(
       `https://casthop.test/api/studios/${id}/live`,
-      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
       env,
     ),
   );
@@ -690,11 +719,11 @@ test("late egress_ended for a previous compositor does not retry the live one", 
   listedParticipants = [{ identity: "host" }];
   listedEgress = { items: [] };
   const env = makeEnv();
-  const { id, hostKey } = await createStudio(env);
+  const { id, cookie } = await createStudio(env);
   const started = await json<PublicStudio>(
     await app.request(
       `https://casthop.test/api/studios/${id}/live`,
-      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
       env,
     ),
   );
@@ -718,7 +747,7 @@ test("late egress_ended for a previous compositor does not retry the live one", 
   );
   assert.equal(res.status, 200, await res.clone().text());
   const snap = await json<PublicStudio>(
-    await app.request(`https://casthop.test/api/studios/${id}`, { headers: liveHeaders(hostKey) }, env),
+    await app.request(`https://casthop.test/api/studios/${id}`, { headers: liveHeaders(cookie) }, env),
   );
   assert.equal(snap.live, true);
   assert.equal(snap.livePhase, "live");
@@ -730,11 +759,11 @@ test("egress_updated with redacted stream URLs marks destinations live", async (
   listedParticipants = [{ identity: "host" }, { identity: "EG_abc" }];
   listedEgress = { items: [] };
   const env = makeEnv();
-  const { id, hostKey } = await createStudio(env);
+  const { id, cookie } = await createStudio(env);
   const started = await json<PublicStudio>(
     await app.request(
       `https://casthop.test/api/studios/${id}/live`,
-      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
       env,
     ),
   );
@@ -767,11 +796,11 @@ test("egress_updated marks a dropped RTMP destination and reattaches it", async 
   listedParticipants = [{ identity: "host" }];
   listedEgress = { items: [] };
   const env = makeEnv();
-  const { id, hostKey } = await createStudio(env);
+  const { id, cookie } = await createStudio(env);
   const started = await json<PublicStudio>(
     await app.request(
       `https://casthop.test/api/studios/${id}/live`,
-      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
       env,
     ),
   );
@@ -807,11 +836,11 @@ test("a failed RTMP destination is not reattached forever", async () => {
   listedParticipants = [{ identity: "host" }];
   listedEgress = { items: [] };
   const env = makeEnv();
-  const { id, hostKey } = await createStudio(env);
+  const { id, cookie } = await createStudio(env);
   const started = await json<PublicStudio>(
     await app.request(
       `https://casthop.test/api/studios/${id}/live`,
-      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
       env,
     ),
   );
@@ -848,11 +877,11 @@ test("missing compositor while ListEgress is still active retries start", async 
   listedParticipants = [{ identity: "host" }, { identity: "EG_abc" }];
   listedEgress = { items: [] };
   const env = makeEnv({ CASTHOP_COMPOSITOR_GRACE_MS: "0" });
-  const { id, hostKey } = await createStudio(env);
+  const { id, cookie } = await createStudio(env);
   const started = await json<PublicStudio>(
     await app.request(
       `https://casthop.test/api/studios/${id}/live`,
-      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
       env,
     ),
   );
@@ -879,10 +908,10 @@ test("empty LiveKit room stops stale egress after grace", async () => {
   listedParticipants = [{ identity: "host" }];
   listedEgress = { items: [] };
   const env = makeEnv();
-  const { id, hostKey } = await createStudio(env);
+  const { id, cookie } = await createStudio(env);
   await app.request(
     `https://casthop.test/api/studios/${id}/live`,
-    { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+    { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
     env,
   );
   const stops = egressStops;
@@ -901,11 +930,11 @@ test("toggling a destination while live calls UpdateStream", async () => {
   listedParticipants = [{ identity: "host" }];
   listedEgress = { items: [] };
   const env = makeEnv();
-  const { id, hostKey } = await createStudio(env);
+  const { id, cookie } = await createStudio(env);
   const started = await json<PublicStudio>(
     await app.request(
       `https://casthop.test/api/studios/${id}/live`,
-      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
       env,
     ),
   );
@@ -915,7 +944,7 @@ test("toggling a destination while live calls UpdateStream", async () => {
   const next = started.destinations.map((d) => (d.id === "x" ? { ...d, enabled: false } : d));
   const res = await app.request(
     `https://casthop.test/api/studios/${id}/destinations`,
-    { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ hostKey, destinations: next }) },
+    { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ destinations: next }) },
     env,
   );
   assert.equal(res.status, 200, await res.clone().text());
@@ -926,11 +955,11 @@ test("stop during destination UpdateStream keeps live off", async () => {
   listedParticipants = [{ identity: "host" }];
   listedEgress = { items: [] };
   const env = makeEnv();
-  const { id, hostKey } = await createStudio(env);
+  const { id, cookie } = await createStudio(env);
   const started = await json<PublicStudio>(
     await app.request(
       `https://casthop.test/api/studios/${id}/live`,
-      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
       env,
     ),
   );
@@ -945,14 +974,14 @@ test("stop during destination UpdateStream keeps live off", async () => {
   const next = started.destinations.map((d) => (d.id === "x" ? { ...d, enabled: false } : d));
   const toggle = app.request(
     `https://casthop.test/api/studios/${id}/destinations`,
-    { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ hostKey, destinations: next }) },
+    { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ destinations: next }) },
     env,
   );
   try {
     await sawUpdate;
     const stop = await app.request(
       `https://casthop.test/api/studios/${id}/live`,
-      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: false }) },
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: false }) },
       env,
     );
     assert.equal(stop.status, 200, await stop.clone().text());
@@ -973,11 +1002,11 @@ test("stop during RTMP reattach UpdateStream keeps live off", async () => {
   listedParticipants = [{ identity: "host" }];
   listedEgress = { items: [] };
   const env = makeEnv();
-  const { id, hostKey } = await createStudio(env);
+  const { id, cookie } = await createStudio(env);
   const started = await json<PublicStudio>(
     await app.request(
       `https://casthop.test/api/studios/${id}/live`,
-      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
       env,
     ),
   );
@@ -1011,7 +1040,7 @@ test("stop during RTMP reattach UpdateStream keeps live off", async () => {
     await sawUpdate;
     const stop = await app.request(
       `https://casthop.test/api/studios/${id}/live`,
-      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: false }) },
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: false }) },
       env,
     );
     assert.equal(stop.status, 200, await stop.clone().text());
@@ -1019,7 +1048,7 @@ test("stop during RTMP reattach UpdateStream keeps live off", async () => {
     const res = await webhook;
     assert.equal(res.status, 200, await res.clone().text());
     const ended = await json<PublicStudio>(
-      await app.request(`https://casthop.test/api/studios/${id}`, { headers: liveHeaders(hostKey) }, env),
+      await app.request(`https://casthop.test/api/studios/${id}`, { headers: liveHeaders(cookie) }, env),
     );
     assert.equal(ended.live, false);
     assert.equal(ended.livePhase, "idle");

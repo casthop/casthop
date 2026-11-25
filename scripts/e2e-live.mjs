@@ -64,9 +64,43 @@ function run(cmd, args, opts = {}) {
   });
 }
 
-const created = await fetch(`${app}/api/studios`, {
+function cookieHeader(res) {
+  const list =
+    typeof res.headers.getSetCookie === "function"
+      ? res.headers.getSetCookie()
+      : [res.headers.get("set-cookie")].filter(Boolean);
+  const hit = list.find((c) => c.startsWith("casthop_session="));
+  return hit ? hit.split(";")[0] : "";
+}
+
+const magic = await fetch(`${app}/api/auth/magic-link`, {
   method: "POST",
   headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ email: "e2e@example.com" }),
+});
+if (!magic.ok) {
+  console.error("magic link failed", magic.status, await magic.text());
+  process.exit(1);
+}
+const { devLogin } = await magic.json();
+if (!devLogin) {
+  console.error("magic link did not return a local login path");
+  process.exit(1);
+}
+const login = await fetch(`${app}${devLogin}`, { method: "POST", redirect: "manual" });
+if (login.status !== 302 && login.status !== 303) {
+  console.error("magic confirm failed", login.status, await login.text());
+  process.exit(1);
+}
+const sessionCookie = cookieHeader(login);
+if (!sessionCookie) {
+  console.error("no session cookie after sign-in");
+  process.exit(1);
+}
+
+const created = await fetch(`${app}/api/studios`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json", Cookie: sessionCookie },
   body: JSON.stringify({ title: "E2E live" }),
 });
 if (!created.ok) {
@@ -94,7 +128,7 @@ if (tone.code !== 0) {
   process.exit(1);
 }
 
-const studioUrl = `${app}/studio/${studio.id}?host=${encodeURIComponent(studio.hostKey)}&fx=off`;
+const studioUrl = `${app}/studio/${studio.id}?fx=off`;
 const chromeErr = [];
 const chrome = spawn(
   chromePath,
@@ -114,7 +148,7 @@ const chrome = spawn(
     `--use-file-for-fake-audio-capture=${wav}`,
     "--autoplay-policy=no-user-gesture-required",
     "--window-size=1440,900",
-    studioUrl,
+    "about:blank",
   ],
   { stdio: ["ignore", "ignore", "pipe"] },
 );
@@ -162,6 +196,15 @@ try {
     });
   await send("Page.enable");
   await send("Runtime.enable");
+  await send("Network.enable");
+  await send("Network.setCookie", {
+    name: "casthop_session",
+    value: sessionCookie.slice("casthop_session=".length),
+    domain: new URL(app).hostname,
+    path: "/",
+    httpOnly: true,
+  });
+  await send("Page.navigate", { url: studioUrl });
 
   let clicked = false;
   for (let i = 0; i < 60; i++) {
@@ -207,7 +250,7 @@ try {
       returnByValue: true,
     }).catch(() => ({ result: { value: "" } }));
     const live = await fetch(`${app}/api/studios/${studio.id}`, {
-      headers: { "x-casthop-host-key": studio.hostKey },
+      headers: { Cookie: sessionCookie },
     })
       .then((r) => r.text())
       .catch((e) => String(e));
@@ -254,8 +297,8 @@ try {
 } finally {
   await fetch(`${app}/api/studios/${studio.id}/live`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-casthop-host-key": studio.hostKey },
-    body: JSON.stringify({ live: false, hostKey: studio.hostKey }),
+    headers: { "Content-Type": "application/json", Cookie: sessionCookie },
+    body: JSON.stringify({ live: false }),
   }).catch(() => {});
   chrome.kill("SIGKILL");
 }

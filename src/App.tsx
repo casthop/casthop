@@ -12,8 +12,12 @@ export function App() {
       <Route path="/" element={<Home />} />
       <Route path="/join/:id" element={<GuestJoin />} />
       <Route path="/studio/:id" element={<Studio />} />
-      <Route path="/internal/probe" element={<Probe />} />
-      <Route path="/internal/bench" element={<Bench />} />
+      {import.meta.env.DEV ? (
+        <>
+          <Route path="/internal/probe" element={<Probe />} />
+          <Route path="/internal/bench" element={<Bench />} />
+        </>
+      ) : null}
       <Route path="/egress-template" element={<EgressTemplate />} />
     </Routes>
   );

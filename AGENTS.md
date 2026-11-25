@@ -10,7 +10,7 @@ This file is the source of truth. Nested `AGENTS.md` files add tree-specific rul
 - `worker/` — Hono Worker, studio Durable Object, LiveKit tokens, Egress
 - `crates/casthop-media` — WASM media (C ABI, zero JS imports)
 - `crates/casthop-post` — inspect / remux recordings
-- `tests/auth.test.ts` — stranger / guest / host authorization matrix
+- `tests/auth.test.ts` — owner / co-host / guest / signed-out / expired session matrix for every Worker route
 - `tests/egress.test.ts` — start/stop, crash retry, RTMP dest status, empty-studio cleanup
 - `MEASUREMENTS.md` — recorded numbers; update on hot-path changes
 - `PRODUCT.md` — product intent
@@ -78,15 +78,15 @@ Hot-path change: measure before and after (`npm run bench:wasm`, `/internal/benc
 
 ## Security
 
-- Stream keys and full destination URLs never go to guests or public GET / WebSocket state. Hosts get full URLs only after `x-casthop-host-key`.
-- Auth every action on the server. Identities are assigned by the Worker (`host` / `g-…`). Guests cannot impersonate host.
+- Stream keys and full destination URLs never go to guests or public GET / WebSocket state. Owners and co-hosts get full URLs on a signed-in GET (session cookie).
+- Auth every action on the server. Hosting is an account session (owner or invited co-host). Identities are assigned by the Worker (`host` / `host-…` / `g-…`). Guests cannot impersonate host. Guests join by invite link without an account.
 - Validate input (names, layout, RTMP URLs). Reject non-`rtmp:` and RFC1918 destinations from clients.
 - Secrets live in `.dev.vars` / Worker secrets. Never in git, client bundles, or logs. Default `devkey` is loopback-only.
 - `LIVEKIT_API_SECRET` is never sent to the browser.
 
 ## Tests
 
-Every change ships tests. The stranger / guest / host matrix in `tests/auth.test.ts` must stay green. CI must pass. Extend that matrix for new API or auth rules.
+Every change ships tests. The owner / co-host / guest / signed-out / expired matrix in `tests/auth.test.ts` must stay green. CI must pass. Extend that matrix for new API or auth rules.
 
 ## Git and PRs
 

@@ -72,6 +72,8 @@ export type StudioState = {
   bannerSubtitle: string;
   destinations: Destination[];
   participants: ParticipantInfo[];
+  /** Identities removed from the studio; join rejects them until they are a member again. */
+  kickedIdentities?: string[];
   chat: ChatMessage[];
   createdAt: number;
 };
@@ -83,6 +85,7 @@ export type Env = {
   ASSETS: Fetcher;
   LIVEKIT_API_KEY: string;
   LIVEKIT_API_SECRET: string;
+  HOST_KEY_SECRET?: string;
   LIVEKIT_HTTP_URL: string;
   PUBLIC_LIVEKIT_URL: string;
   RTMP_YOUTUBE: string;
@@ -93,7 +96,49 @@ export type Env = {
   CASTHOP_EMPTY_GRACE_MS?: string;
   CASTHOP_COMPOSITOR_GRACE_MS?: string;
   CASTHOP_BACKOFF_MS?: string;
+  CASTHOP_TRUST_FORWARDED?: string;
+  PUBLIC_ORIGIN?: string;
+  GITHUB_CLIENT_ID?: string;
+  GITHUB_CLIENT_SECRET?: string;
+  MAIL_WEBHOOK_URL?: string;
+  MAIL_WEBHOOK_TOKEN?: string;
 };
+
+export type WorkerVars = {
+  sessionCookie?: string;
+};
+
+export type AppEnv = {
+  Bindings: Env;
+  Variables: WorkerVars;
+};
+
+export type Account = {
+  id: string;
+  email: string | null;
+  name: string;
+  githubId: string | null;
+  createdAt: number;
+};
+
+export type MemberRole = "owner" | "cohost";
+
+export type StudioRecord = {
+  id: string;
+  title: string;
+  ownerId: string;
+  createdAt: number;
+  role: MemberRole;
+};
+
+export type StudioMember = {
+  accountId: string;
+  email: string | null;
+  name: string;
+  role: MemberRole;
+};
+
+export type ViewerRole = "owner" | "cohost" | "guest";
 
 export type PublicStudio = Omit<
   StudioState,
@@ -106,6 +151,7 @@ export type PublicStudio = Omit<
   | "egressRetryCount"
   | "egressRetryAt"
   | "emptySince"
+  | "kickedIdentities"
 > & {
   destinations: PublicDestination[];
   egressId?: string | null;

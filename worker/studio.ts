@@ -142,6 +142,10 @@ export class StudioDurableObject {
       const name = asName(body.name, "Guest");
       const role = body.role === "host" && isHost ? "host" : "guest";
       if (!identity) return json({ error: "identity required" }, 400);
+      if ((state.kickedIdentities ?? []).includes(identity)) {
+        if (role !== "host") return json({ error: "removed from studio" }, 403);
+        state.kickedIdentities = (state.kickedIdentities ?? []).filter((id) => id !== identity);
+      }
       if (isHostIdentity(identity) && !isHost) return json({ error: "host identity reserved" }, 403);
       this.pruneGuests(state);
       const existing = state.participants.find((p) => p.identity === identity);
@@ -169,6 +173,18 @@ export class StudioDurableObject {
       await this.putState(state);
       const person = state.participants.find((p) => p.identity === identity)!;
       return json({ ...publicState(state, { includeUrls: isHost }), onStage: person.onStage, role: person.role });
+    }
+
+    if (action === "remove") {
+      if (!isHost) return json({ error: "host key required" }, 403);
+      const identity = asIdentity(body.identity);
+      if (!identity || identity === HOST_IDENTITY) return json({ error: "identity required" }, 400);
+      state.participants = state.participants.filter((p) => p.identity !== identity);
+      const kicked = new Set(state.kickedIdentities ?? []);
+      kicked.add(identity);
+      state.kickedIdentities = [...kicked];
+      await this.putState(state);
+      return json(publicState(state, { includeUrls: true }));
     }
 
     if (action === "stage") {
@@ -747,8 +763,10 @@ export class StudioDurableObject {
     isHost: boolean,
   ): Promise<{ identity: string; name: string } | null> {
     if (isHost) {
-      const host = state.participants.find((p) => p.role === "host");
-      return { identity: HOST_IDENTITY, name: host?.name || "Host" };
+      const claimed = asIdentity(body.identity);
+      const identity = claimed && isHostIdentity(claimed) ? claimed : HOST_IDENTITY;
+      const person = state.participants.find((p) => p.identity === identity) ?? state.participants.find((p) => p.role === "host");
+      return { identity, name: person?.name || "Host" };
     }
     const identity = asIdentity(body.identity);
     const secret = typeof body.guestSecret === "string" ? body.guestSecret : "";

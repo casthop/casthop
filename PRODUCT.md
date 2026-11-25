@@ -1,6 +1,6 @@
 # Casthop
 
-Browser live studio. A host opens a room, guests join from a link, up to six people sit on stage, and the composite goes out to several RTMP destinations with a recording kept.
+Browser live studio. A host signs in, opens a room they own, guests join from a link with no account, up to six people sit on stage, and the composite goes out to several RTMP destinations with a recording kept.
 
 Audience: people who already stream talks, office hours, or product updates and do not want StreamYard’s lock-in.
 

@@ -1,4 +1,4 @@
-/** Fallbacks when CSS scroll-driven animations are missing. */
+/** Play-once section reveals, plus a rAF fallback for the studio shot. */
 export function enhanceScroll(): void {
   const root = document.documentElement;
 
@@ -19,12 +19,12 @@ export function enhanceScroll(): void {
   const io = new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {
-        if (!entry.isIntersecting) continue;
+        if (!entry.isIntersecting || entry.intersectionRatio < 0.15) continue;
         entry.target.classList.add("is-in");
         io.unobserve(entry.target);
       }
     },
-    { rootMargin: "0px 0px -10% 0px", threshold: 0.15 },
+    { threshold: [0.15, 0.2, 0.35, 1] },
   );
   document.querySelectorAll(".hv-reveal").forEach((el) => io.observe(el));
 }

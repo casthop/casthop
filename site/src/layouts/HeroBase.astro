@@ -20,13 +20,14 @@ const { title, description = "Open-source browser live studio. Guests join from 
       (() => {
         const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
         if (reduce) return;
-        let view = false, scrollTl = false;
-        try {
-          view = CSS.supports("animation-timeline", "view()");
-          scrollTl = CSS.supports("animation-timeline", "scroll(root)");
-        } catch (e) {}
+        const supports = (q, v) => {
+          try { return v ? CSS.supports(q, v) : CSS.supports(q); } catch (e) { return false; }
+        };
+        // Section reveals always use IntersectionObserver (play-once, 650ms ease-out).
+        // view() only scrubs and is missing in Safari, so it is not used for rows.
+        document.documentElement.classList.add("js-io");
+        const scrollTl = supports("animation-timeline: scroll(root)") || supports("animation-timeline", "scroll(root)");
         if (!scrollTl) document.documentElement.classList.add("js-scroll");
-        if (!view) document.documentElement.classList.add("js-io");
       })();
     </script>
   </head>

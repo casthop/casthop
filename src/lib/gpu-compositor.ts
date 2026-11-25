@@ -4,8 +4,9 @@ import { modeCode, type LayoutMode } from "./wasm";
 
 export type GpuTile = HTMLVideoElement | HTMLCanvasElement;
 
-let initPromise: Promise<void> | null = null;
-let cached: { key: string; canvas: HTMLCanvasElement } | null = null;
+let wasmInit: Promise<void> | null = null;
+let cached: { key: string; canvas: HTMLCanvasElement; device: GPUDevice } | null = null;
+let inflight: Promise<HTMLCanvasElement | null> | null = null;
 let gpuFail = false;
 let drawFails = 0;
 const DRAW_FAIL_LIMIT = 3;
@@ -13,26 +14,48 @@ const DRAW_FAIL_LIMIT = 3;
 async function ensureGpu(width: number, height: number): Promise<HTMLCanvasElement | null> {
   if (gpuFail) return null;
   const key = `${width}x${height}`;
-  if (cached && cached.key === key) return cached.canvas;
+  if (cached?.key === key) return cached.canvas;
+  if (inflight) {
+    await inflight;
+    if (gpuFail) return null;
+    if (cached?.key === key) return cached.canvas;
+  }
+  const pending = openGpu(width, height, key);
+  inflight = pending;
+  try {
+    return await pending;
+  } finally {
+    if (inflight === pending) inflight = null;
+  }
+}
+
+async function openGpu(width: number, height: number, key: string): Promise<HTMLCanvasElement | null> {
   try {
     const gpu = (navigator as Navigator & { gpu?: GPU }).gpu;
     if (!gpu) {
       gpuFail = true;
       return null;
     }
-    initPromise ??= init({ module_or_path: gpuWasmUrl }).then(() => undefined);
-    await initPromise;
+    wasmInit ??= init({ module_or_path: gpuWasmUrl }).then(() => undefined);
+    await wasmInit;
     const adapter = await gpu.requestAdapter();
     if (!adapter) {
       gpuFail = true;
       return null;
     }
     const device = await adapter.requestDevice();
+    if (cached) {
+      cached.device.destroy();
+      cached = null;
+    }
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
     gpu_compositor_create(device, canvas, width, height, gpu.getPreferredCanvasFormat());
-    cached = { key, canvas };
+    cached = { key, canvas, device };
+    void device.lost.then(() => {
+      if (cached?.device === device) cached = null;
+    });
     return canvas;
   } catch (err) {
     console.warn("wgpu compositor fallback", err);

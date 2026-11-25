@@ -32,6 +32,7 @@ type TsGpu = {
 };
 
 let cached: TsGpu | null = null;
+let inflight: Promise<TsGpu | null> | null = null;
 let tsFail = false;
 
 const SHADER = `
@@ -59,9 +60,31 @@ struct VsOut {
 }
 `;
 
+function dropGpu(gpu: TsGpu): void {
+  for (const slot of gpu.tiles) {
+    if (slot) dropTile(slot);
+  }
+  gpu.device.destroy();
+}
+
 async function ensureTsGpu(width: number, height: number): Promise<TsGpu | null> {
   if (tsFail || !("gpu" in navigator)) return null;
   if (cached && cached.canvas.width === width && cached.canvas.height === height) return cached;
+  if (inflight) {
+    await inflight;
+    if (tsFail) return null;
+    if (cached && cached.canvas.width === width && cached.canvas.height === height) return cached;
+  }
+  const pending = openTsGpu(width, height);
+  inflight = pending;
+  try {
+    return await pending;
+  } finally {
+    if (inflight === pending) inflight = null;
+  }
+}
+
+async function openTsGpu(width: number, height: number): Promise<TsGpu | null> {
   try {
     const gpu = (navigator as Navigator & { gpu?: GPU }).gpu;
     if (!gpu) {
@@ -74,11 +97,16 @@ async function ensureTsGpu(width: number, height: number): Promise<TsGpu | null>
       return null;
     }
     const device = await adapter.requestDevice();
+    if (cached) {
+      dropGpu(cached);
+      cached = null;
+    }
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext("webgpu");
     if (!ctx) {
+      device.destroy();
       tsFail = true;
       return null;
     }
@@ -109,6 +137,9 @@ async function ensureTsGpu(width: number, height: number): Promise<TsGpu | null>
     });
     const sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
     cached = { device, format, sampler, pipeline, bgl, canvas, ctx, tiles: [] };
+    void device.lost.then(() => {
+      if (cached?.device === device) cached = null;
+    });
     return cached;
   } catch (err) {
     console.warn("webgpu-ts compositor fallback", err);

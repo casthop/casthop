@@ -52,6 +52,15 @@ test("webgpu-ts reuses per-tile buffers and destroys old textures", () => {
   assert.match(src, /rectBuf/);
   assert.match(src, /texture\.destroy\(\)/);
   assert.match(src, /rectBuf\.destroy\(\)/);
+  assert.match(src, /device\.destroy\(\)/);
+  assert.match(src, /let inflight/);
+});
+
+test("wgpu init shares one in-flight promise and clears a lost device", () => {
+  const src = readFileSync(join(root, "src/lib/gpu-compositor.ts"), "utf8");
+  assert.match(src, /let inflight/);
+  assert.match(src, /device\.lost/);
+  assert.match(src, /cached = null/);
 });
 
 test("egress template still falls back through pickComposeBackend", () => {

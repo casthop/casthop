@@ -23,6 +23,8 @@ interface GPUDevice {
   createBindGroup(desc: unknown): GPUBindGroup;
   createCommandEncoder(): GPUCommandEncoder;
   queue: GPUQueue;
+  lost: Promise<{ reason: string; message: string }>;
+  destroy(): void;
 }
 
 interface GPUShaderModule {}

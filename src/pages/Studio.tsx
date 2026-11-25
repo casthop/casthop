@@ -307,18 +307,16 @@ export function Studio() {
     if (publishingRef.current) return;
     if (lk.localParticipant.getTrackPublication(Track.Source.Camera)?.track) return;
     publishingRef.current = true;
+    let raw: MediaStream | null = null;
+    let processed: MediaStream | null = null;
+    let handle: CameraBlurHandle | undefined;
+    let published = false;
     try {
       const saved = loadSession(id);
-      const raw = await openUserMedia({ cameraId: saved?.cameraId, micId: saved?.micId });
-      if (!studioOpen(lk)) {
-        raw.getTracks().forEach((t) => t.stop());
-        return;
-      }
-      const processed = await mediaPipeline.process(raw);
-      if (!studioOpen(lk)) {
-        processed.getTracks().forEach((t) => t.stop());
-        return;
-      }
+      raw = await openUserMedia({ cameraId: saved?.cameraId, micId: saved?.micId });
+      if (!studioOpen(lk)) return;
+      processed = await mediaPipeline.process(raw);
+      if (!studioOpen(lk)) return;
       const video = processed.getVideoTracks()[0];
       if (video) {
         originalVideoRef.current = video;
@@ -328,15 +326,15 @@ export function Studio() {
         let publishVideo = video;
         if (wantBlur) {
           try {
-            const handle = await startCameraBlur(video);
-            if (!studioOpen(lk)) {
-              handle.stop();
-              return;
-            }
+            handle = await startCameraBlur(video);
+            if (!studioOpen(lk)) return;
             blurHandleRef.current?.stop();
             blurHandleRef.current = handle;
             publishVideo = handle.track;
+            handle = undefined;
           } catch (err) {
+            handle?.stop();
+            handle = undefined;
             console.warn("casthop blur", err);
             setBlurOn(false);
             setError(err instanceof Error ? err.message : "Blur failed");
@@ -352,8 +350,17 @@ export function Studio() {
       if (audio && studioOpen(lk)) {
         await lk.localParticipant.publishTrack(audio, { source: Track.Source.Microphone });
       }
+      published = studioOpen(lk);
     } finally {
       publishingRef.current = false;
+      if (!published) {
+        handle?.stop();
+        blurHandleRef.current?.stop();
+        blurHandleRef.current = null;
+        originalVideoRef.current = null;
+        processed?.getTracks().forEach((t) => t.stop());
+        raw?.getTracks().forEach((t) => t.stop());
+      }
     }
   }
 

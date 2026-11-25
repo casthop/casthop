@@ -27,6 +27,7 @@ import {
 } from "./livekit";
 import {
   applyStreamResults,
+  compositorGraceMs,
   emptyGraceMs,
   enabledUrls,
   failedStreamUrls,
@@ -43,6 +44,7 @@ import {
   publicError,
   recordingPathFor,
   setDestStatuses,
+  studioHasCompositor,
   studioHasPeople,
   WATCH_MS,
   webhookEventName,
@@ -401,8 +403,20 @@ export class StudioDurableObject {
     const afterList = await this.getState();
     if (!afterList?.wantLive) return json(publicState(afterList ?? state, { includeUrls: true }));
     state = afterList;
+
+    let identities: string[] | null = null;
+    try {
+      identities = parseParticipantIdentities(await listRoomParticipantsRaw(this.env, state.id));
+    } catch {
+      identities = null;
+    }
+    const afterPeople = await this.getState();
+    if (!afterPeople?.wantLive) return json(publicState(afterPeople ?? state, { includeUrls: true }));
+    state = afterPeople;
+    const occupied = identities ? studioHasPeople(identities) : false;
+
     const active = pickActiveEgress(listed, state.egressId);
-    if (active) {
+    if (active && !this.compositorGone(state, identities, active.egressId)) {
       state.wantLive = true;
       state.live = true;
       state.liveStartedAt = state.liveStartedAt ?? Date.now();
@@ -416,20 +430,18 @@ export class StudioDurableObject {
       await this.scheduleWatch(Date.now() + WATCH_MS);
       return json(publicState(state, { includeUrls: true }));
     }
+    if (active) {
+      try {
+        await stopEgress(this.env, active.egressId);
+      } catch (err) {
+        console.warn("stop stale compositor", err);
+      }
+    }
 
     state.liveError = null;
     setDestStatuses(state.destinations, "connecting");
     await this.putState(state);
 
-    let occupied = false;
-    try {
-      occupied = studioHasPeople(parseParticipantIdentities(await listRoomParticipantsRaw(this.env, state.id)));
-    } catch {
-      occupied = false;
-    }
-    const afterPeople = await this.getState();
-    if (!afterPeople?.wantLive) return json(publicState(afterPeople ?? state, { includeUrls: true }));
-    state = afterPeople;
     if (!occupied) {
       await this.scheduleWatch(Date.now() + WATCH_MS);
       return json(publicState(state, { includeUrls: true }));
@@ -530,12 +542,23 @@ export class StudioDurableObject {
       await this.stopLive(state, "stopped");
       return;
     }
-    await this.watchPresence(state, false);
+    const identities = await this.watchPresence(state, false);
     const latest = await this.getState();
     if (!latest?.wantLive) return;
     // Waiting out the empty-room grace: don't treat a missing compositor as a crash.
     if (latest.emptySince) {
       await this.scheduleWatch(latest.emptySince + emptyGraceMs(this.env.CASTHOP_EMPTY_GRACE_MS));
+      return;
+    }
+    if (this.compositorGone(latest, identities)) {
+      if (latest.egressId) {
+        try {
+          await stopEgress(this.env, latest.egressId);
+        } catch (err) {
+          console.warn("stop missing compositor", err);
+        }
+      }
+      await this.markRetry(latest, "Compositor left");
       return;
     }
 
@@ -635,15 +658,27 @@ export class StudioDurableObject {
     return json(publicState(state, { includeUrls: true }), 200);
   }
 
-  private async watchPresence(state: StudioState, roomFinished: boolean): Promise<void> {
-    if (!state.wantLive && !state.live) return;
+  private compositorGone(state: StudioState, identities: string[] | null, egressId = state.egressId): boolean {
+    if (!identities || studioHasCompositor(identities)) return false;
+    if (!state.live && !egressId) return false;
+    const ours = Boolean(egressId) && egressId === state.egressId;
+    const started = state.liveStartedAt ?? 0;
+    const grace = compositorGraceMs(this.env.CASTHOP_COMPOSITOR_GRACE_MS);
+    if (ours && started && Date.now() - started < grace) return false;
+    return true;
+  }
+
+  private async watchPresence(state: StudioState, roomFinished: boolean): Promise<string[] | null> {
+    if (!state.wantLive && !state.live) return [];
+    let identities: string[] | null = roomFinished ? [] : null;
     let occupied = !roomFinished;
     if (!roomFinished) {
       try {
-        const identities = parseParticipantIdentities(await listRoomParticipantsRaw(this.env, state.id));
+        identities = parseParticipantIdentities(await listRoomParticipantsRaw(this.env, state.id));
         occupied = studioHasPeople(identities);
       } catch {
         occupied = true;
+        identities = null;
       }
     }
     if (occupied) {
@@ -651,7 +686,7 @@ export class StudioDurableObject {
         state.emptySince = null;
         await this.putState(state);
       }
-      return;
+      return identities;
     }
     const now = Date.now();
     const grace = emptyGraceMs(this.env.CASTHOP_EMPTY_GRACE_MS);
@@ -659,13 +694,14 @@ export class StudioDurableObject {
       state.emptySince = now;
       await this.putState(state);
       await this.scheduleWatch(now + grace);
-      return;
+      return identities;
     }
     if (now - state.emptySince < grace) {
       await this.scheduleWatch(state.emptySince + grace);
-      return;
+      return identities;
     }
     await this.stopLive(state, "Studio empty");
+    return identities;
   }
 
   private async stopRoomEgress(state: StudioState): Promise<void> {

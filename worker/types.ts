@@ -91,6 +91,7 @@ export type Env = {
   EGRESS_TEMPLATE_URL: string;
   CASTHOP_ALLOW_DEV_KEYS?: string;
   CASTHOP_EMPTY_GRACE_MS?: string;
+  CASTHOP_COMPOSITOR_GRACE_MS?: string;
   CASTHOP_BACKOFF_MS?: string;
 };
 

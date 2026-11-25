@@ -5,6 +5,7 @@ import { DEV_API_KEY, DEV_API_SECRET, HOST_KEY_HEADER } from "../worker/security
 import { mintApiToken, signLivekitWebhook } from "../worker/livekit.ts";
 import {
   applyStreamResults,
+  failedStreamUrls,
   isForeignEgress,
   livePhaseOf,
   MAX_STREAM_RETRIES,
@@ -13,6 +14,7 @@ import {
   parseEgressList,
   pickActiveEgress,
   publicError,
+  redactStreamKey,
   studioHasPeople,
 } from "../worker/egress.ts";
 import type { Destination, Env, PublicStudio, StudioState } from "../worker/types.ts";
@@ -255,6 +257,38 @@ test("applyStreamResults sets per-destination status without exposing urls", () 
   assert.equal(dests[0]?.status, "live");
   assert.equal(dests[1]?.status, "retrying");
   assert.equal(dests[1]?.error?.includes("super-secret"), false);
+});
+
+test("applyStreamResults matches LiveKit-redacted stream URLs", () => {
+  const dests: Destination[] = [
+    { id: "youtube", kind: "youtube", label: "YouTube", detail: "", url: "rtmp://127.0.0.1:1935/live/youtube", enabled: true, status: "connecting", error: null },
+    { id: "linkedin", kind: "linkedin", label: "LinkedIn", detail: "", url: "rtmp://127.0.0.1:1935/live/linkedin", enabled: true, status: "connecting", error: null },
+    { id: "x", kind: "x", label: "X", detail: "", url: "rtmp://127.0.0.1:1935/live/x", enabled: true, status: "connecting", error: null },
+  ];
+  assert.equal(redactStreamKey(dests[0]!.url), "rtmp://127.0.0.1:1935/live/{yo...be}");
+  assert.equal(redactStreamKey(dests[1]!.url), "rtmp://127.0.0.1:1935/live/{li...in}");
+  assert.equal(redactStreamKey(dests[2]!.url), "rtmp://127.0.0.1:1935/live/{...}");
+  const retry = applyStreamResults(
+    dests,
+    [
+      { url: "rtmp://127.0.0.1:1935/live/{yo...be}", status: "active", error: "" },
+      { url: "rtmp://127.0.0.1:1935/live/{li...in}", status: "failed", error: "broken pipe" },
+      { url: "rtmp://127.0.0.1:1935/live/{...}", status: "active", error: "" },
+    ],
+    true,
+  );
+  assert.equal(retry, true);
+  assert.equal(dests[0]?.status, "live");
+  assert.equal(dests[1]?.status, "retrying");
+  assert.equal(dests[2]?.status, "live");
+  assert.deepEqual(
+    failedStreamUrls(dests, [
+      { url: "rtmp://127.0.0.1:1935/live/{yo...be}", status: "active", error: "" },
+      { url: "rtmp://127.0.0.1:1935/live/{li...in}", status: "failed", error: "broken pipe" },
+      { url: "rtmp://127.0.0.1:1935/live/{...}", status: "active", error: "" },
+    ]),
+    ["rtmp://127.0.0.1:1935/live/linkedin"],
+  );
 });
 
 test("applyStreamResults waits for backoff and gives up after MAX_STREAM_RETRIES", () => {
@@ -638,6 +672,43 @@ test("late egress_ended for a previous compositor does not retry the live one", 
   assert.equal(egressStarts, starts);
 });
 
+test("egress_updated with redacted stream URLs marks destinations live", async () => {
+  listedParticipants = [{ identity: "host" }, { identity: "EG_abc" }];
+  listedEgress = { items: [] };
+  const env = makeEnv();
+  const { id, hostKey } = await createStudio(env);
+  const started = await json<PublicStudio>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      env,
+    ),
+  );
+  const body = JSON.stringify({
+    event: "egress_updated",
+    egressInfo: {
+      egressId: started.egressId,
+      roomName: id,
+      status: "EGRESS_ACTIVE",
+      streamResults: [
+        { url: redactStreamKey(YT), status: "ACTIVE" },
+        { url: redactStreamKey(LI), status: "ACTIVE" },
+        { url: redactStreamKey(X), status: "ACTIVE" },
+      ],
+    },
+  });
+  const res = await app.request(
+    "https://casthop.test/api/livekit/webhook",
+    { method: "POST", headers: { Authorization: await signLivekitWebhook(env, body) }, body },
+    env,
+  );
+  assert.equal(res.status, 200, await res.clone().text());
+  const state = await json<PublicStudio>(res);
+  assert.equal(state.destinations.find((d) => d.id === "youtube")?.status, "live");
+  assert.equal(state.destinations.find((d) => d.id === "linkedin")?.status, "live");
+  assert.equal(state.destinations.find((d) => d.id === "x")?.status, "live");
+});
+
 test("egress_updated marks a dropped RTMP destination and reattaches it", async () => {
   listedParticipants = [{ identity: "host" }];
   listedEgress = { items: [] };
@@ -717,6 +788,37 @@ test("a failed RTMP destination is not reattached forever", async () => {
   assert.equal(streamUpdates, before + MAX_STREAM_RETRIES);
   assert.equal(last?.destinations.find((d) => d.id === "linkedin")?.status, "failed");
   assert.equal(last?.destinations.find((d) => d.id === "youtube")?.status, "live");
+});
+
+test("missing compositor while ListEgress is still active retries start", async () => {
+  listedParticipants = [{ identity: "host" }, { identity: "EG_abc" }];
+  listedEgress = { items: [] };
+  const env = makeEnv({ CASTHOP_COMPOSITOR_GRACE_MS: "0" });
+  const { id, hostKey } = await createStudio(env);
+  const started = await json<PublicStudio>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      env,
+    ),
+  );
+  assert.equal(started.live, true);
+  const starts = egressStarts;
+  const stops = egressStops;
+  listedParticipants = [{ identity: "host" }];
+  listedEgress = {
+    items: [{ egressId: started.egressId, roomName: id, status: "EGRESS_ACTIVE" }],
+  };
+  const stub = env.STUDIO.get(env.STUDIO.idFromName(id));
+  const first = await stub.fetch(new Request(`https://studio/${id}?action=watch`, { method: "POST", body: "{}" }));
+  const retrying = await json<PublicStudio>(first);
+  assert.equal(retrying.live, false);
+  assert.equal(retrying.livePhase, "retrying");
+  assert.ok(egressStops > stops);
+  listedEgress = { items: [] };
+  const second = await stub.fetch(new Request(`https://studio/${id}?action=watch`, { method: "POST", body: "{}" }));
+  assert.equal(second.status, 200, await second.clone().text());
+  assert.equal(egressStarts, starts + 1);
 });
 
 test("empty LiveKit room stops stale egress after grace", async () => {

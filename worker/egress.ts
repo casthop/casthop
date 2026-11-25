@@ -2,6 +2,8 @@ import type { Destination, DestStatus, LivePhase, StudioState } from "./types";
 
 export const WATCH_MS = 3_000;
 export const EMPTY_GRACE_MS = 45_000;
+/** Chrome can take a few seconds to join after StartRoomComposite returns. */
+export const COMPOSITOR_GRACE_MS = 15_000;
 export const MAX_BACKOFF_MS = 30_000;
 export const BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 16_000, MAX_BACKOFF_MS] as const;
 export const MAX_STREAM_RETRIES = BACKOFF_MS.length;
@@ -28,6 +30,12 @@ export function emptyGraceMs(raw: string | undefined): number {
   if (raw == null || raw === "") return EMPTY_GRACE_MS;
   const n = Number(raw);
   return Number.isFinite(n) && n >= 0 ? n : EMPTY_GRACE_MS;
+}
+
+export function compositorGraceMs(raw: string | undefined): number {
+  if (raw == null || raw === "") return COMPOSITOR_GRACE_MS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : COMPOSITOR_GRACE_MS;
 }
 
 export function nextBackoffMs(retryCount: number, overrideMs?: string): number {
@@ -92,6 +100,59 @@ export function enabledUrls(destinations: Destination[]): string[] {
   return destinations.filter((d) => d.enabled && d.url).map((d) => d.url);
 }
 
+/** LiveKit `RedactIdentifier`: keep up to 3 prefix/suffix chars when the key is long enough. */
+export function redactIdentifier(identifier: string): string {
+  let prefix = "";
+  let suffix = "";
+  for (let i = 3; i > 0; i--) {
+    if (identifier.length >= i * 3) {
+      prefix = identifier.slice(0, i);
+      suffix = identifier.slice(-i);
+      break;
+    }
+  }
+  return `{${prefix}...${suffix}}`;
+}
+
+function redactUrlQueryValues(raw: string): string {
+  const cut = raw.indexOf("?");
+  if (cut < 0) return raw;
+  const query = raw.slice(cut + 1);
+  if (!query) return raw;
+  const params = query.split("&").map((p) => {
+    const eq = p.indexOf("=");
+    if (eq < 0) return p;
+    return p.slice(eq + 1) ? `${p.slice(0, eq)}={...}` : p;
+  });
+  return `${raw.slice(0, cut + 1)}${params.join("&")}`;
+}
+
+/** Same shape LiveKit returns on ListEgress / webhooks after it redacts stream keys. */
+export function redactStreamKey(url: string): string {
+  const shorthand = /^(mux|twitch):\/\/(\S+)$/i.exec(url);
+  if (shorthand) return `${shorthand[1]}://${redactIdentifier(shorthand[2] ?? "")}`;
+  const rtmp = /^(rtmps?:\/\/)(.*\/)(.*\/)(\S*?)( live=1)?$/i.exec(url);
+  if (!rtmp) return redactUrlQueryValues(url);
+  return `${rtmp[1]}${rtmp[2]}${rtmp[3]}${redactIdentifier(rtmp[4] ?? "")}${rtmp[5] ?? ""}`;
+}
+
+export function streamUrlMatches(reported: string, destUrl: string): boolean {
+  return reported === destUrl || reported === redactStreamKey(destUrl);
+}
+
+function matchStreamForDest(destUrl: string, streams: StreamResult[], used: Set<number>): StreamResult | undefined {
+  const exact = streams.findIndex((s, i) => !used.has(i) && s.url === destUrl);
+  if (exact >= 0) {
+    used.add(exact);
+    return streams[exact];
+  }
+  const hits = streams.map((_, i) => i).filter((i) => !used.has(i) && streamUrlMatches(streams[i]!.url, destUrl));
+  const first = hits[0];
+  if (first == null) return undefined;
+  used.add(first);
+  return streams[first];
+}
+
 export function setDestStatuses(destinations: Destination[], status: DestStatus, error: string | null = null): void {
   for (const d of destinations) {
     if (!d.enabled || !d.url) {
@@ -114,7 +175,7 @@ export function applyStreamResults(
   live: boolean,
   now = Date.now(),
 ): boolean {
-  const byUrl = new Map(streams.map((s) => [s.url, s]));
+  const used = new Set<number>();
   let needsRetry = false;
   for (const d of destinations) {
     if (!d.enabled || !d.url) {
@@ -128,7 +189,7 @@ export function applyStreamResults(
       d.status = d.status === "idle" ? "idle" : "stopped";
       continue;
     }
-    const stream = byUrl.get(d.url);
+    const stream = matchStreamForDest(d.url, streams, used);
     if (!stream) {
       d.status = d.status === "failed" || d.status === "retrying" ? d.status : "connecting";
       continue;
@@ -157,14 +218,14 @@ export function applyStreamResults(
 }
 
 export function failedStreamUrls(destinations: Destination[], streams: StreamResult[], now = Date.now()): string[] {
-  const byUrl = new Map(destinations.filter((d) => d.enabled && d.url).map((d) => [d.url, d]));
-  return streams
-    .filter((s) => {
-      if (s.status !== "failed") return false;
-      const dest = byUrl.get(s.url);
-      return Boolean(dest && streamRetryDue(dest, now));
-    })
-    .map((s) => s.url);
+  const used = new Set<number>();
+  const urls: string[] = [];
+  for (const d of destinations) {
+    if (!d.enabled || !d.url) continue;
+    const stream = matchStreamForDest(d.url, streams, used);
+    if (stream?.status === "failed" && streamRetryDue(d, now)) urls.push(d.url);
+  }
+  return urls;
 }
 
 export function asRecord(value: unknown): Record<string, unknown> | null {
@@ -280,6 +341,10 @@ export function parseParticipantIdentities(raw: unknown): string[] {
 
 export function studioHasPeople(identities: string[]): boolean {
   return identities.some((id) => !isComposerIdentity(id));
+}
+
+export function studioHasCompositor(identities: string[]): boolean {
+  return identities.some(isComposerIdentity);
 }
 
 export function pickActiveEgress(items: ParsedEgress[], knownId: string | null): ParsedEgress | null {

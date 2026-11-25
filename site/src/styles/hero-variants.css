@@ -1,0 +1,87 @@
+/* Only loaded by /hero-a, /hero-b, /hero-c. Does not touch the home styles. */
+.hv {
+  --bg: #07080b; --fg: #f5f6f8; --body: #b4b8c2; --muted: #8d92a0; --line: #1c1e25;
+  --mono: "Geist Mono Variable", ui-monospace, monospace;
+  margin: 0; background: var(--bg); color: var(--body); font-family: var(--hv-sans), system-ui, sans-serif;
+  line-height: 1.6; -webkit-font-smoothing: antialiased; overflow-x: hidden;
+}
+.hv *, .hv *::before, .hv *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
+.hv h1, .hv h2, .hv h3, .hv p { margin: 0; }
+:where(.hv) a { color: inherit; }
+.hv :focus-visible { outline: 2px solid #8aa4ff; outline-offset: 3px; border-radius: 4px; }
+.hv-skip { position: absolute; left: -999px; top: 0.5rem; background: #fff; color: #000; padding: 0.5rem 1rem; z-index: 100; }
+.hv-skip:focus { left: 0.5rem; }
+.hv-wrap { max-width: 70rem; margin: 0 auto; padding: 0 1.5rem; }
+.hv-muted { color: var(--muted); }
+.hv-small { font-size: 0.85rem; }
+
+.hv-cue { background: #0d0f14; border-bottom: 1px solid var(--line); font-size: 0.8rem; }
+.hv-cue-in { max-width: 70rem; margin: 0 auto; padding: 0.45rem 1.5rem; display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; align-items: center; justify-content: space-between; color: var(--muted); }
+.hv-cue nav { display: flex; gap: 1rem; }
+.hv-cue a { text-decoration: none; color: var(--body); }
+.hv-cue a:hover { color: var(--fg); }
+.hv-cue a[aria-current] { color: var(--fg); box-shadow: 0 1px 0 0 #8aa4ff; }
+
+.hv-nav { position: sticky; top: 0; z-index: 20; background: rgba(7, 8, 11, 0.8); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+.hv-nav-in { max-width: 70rem; margin: 0 auto; padding: 0.9rem 1.5rem; display: flex; justify-content: space-between; align-items: center; }
+.hv-nav-links { display: flex; align-items: center; gap: 1.5rem; font-size: 0.95rem; }
+.hv-nav-links a:not(.hv-btn) { text-decoration: none; transition: color 0.2s; }
+.hv-nav-links a:not(.hv-btn):hover { color: var(--fg); }
+.hv-logo { display: inline-flex; align-items: center; gap: 0.55rem; color: var(--fg); font-weight: 600; font-size: 1.1rem; letter-spacing: -0.02em; text-decoration: none; }
+.hv-dot { width: 0.55rem; height: 0.55rem; border-radius: 50%; background: var(--fg); }
+
+.hv-btn { display: inline-flex; align-items: center; padding: 0.7rem 1.25rem; border-radius: 999px; font-weight: 500; font-size: 0.95rem; text-decoration: none; transition: background 0.2s, border-color 0.2s; }
+.hv-btn-primary { background: var(--fg); color: #0a0b0f; font-weight: 600; }
+.hv-btn-primary:hover { background: #fff; }
+.hv-btn-quiet { padding: 0.4rem 0.9rem; border: 1px solid #2b2e38; color: var(--fg); }
+.hv-btn-quiet:hover, .hv-btn-outline:hover { background: #14161c; border-color: #454957; }
+.hv-btn-outline { border: 1px solid #373a46; color: var(--fg); }
+.hv-link { color: var(--fg); text-decoration: none; border-bottom: 1px solid #454957; padding-bottom: 1px; transition: border-color 0.2s; }
+.hv-link:hover { border-color: var(--fg); }
+.hv-cta { display: flex; align-items: center; gap: 1.75rem; flex-wrap: wrap; }
+
+.hv-hero { position: relative; overflow: hidden; padding: 5rem 0 0; isolation: isolate; }
+.hv-canvas { position: absolute; top: 0; left: 0; width: 100%; height: min(100%, 56rem); z-index: -2; pointer-events: none; display: block;
+  -webkit-mask-image: linear-gradient(#000 55%, transparent); mask-image: linear-gradient(#000 55%, transparent); }
+.hv-scrim { position: absolute; top: 0; left: 0; width: 100%; height: min(100%, 56rem); z-index: -1; pointer-events: none;
+  background: radial-gradient(ellipse 60% 55% at 28% 30%, rgba(7, 8, 11, 0.6), transparent 80%); }
+.hv-hero-copy { position: relative; }
+.hv-eyebrow { font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; display: flex; align-items: center; gap: 0.7rem; margin-bottom: 1.5rem; }
+.hv-pip { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: #8aa4ff; }
+.hv-display { color: var(--fg); font-weight: 600; font-size: clamp(2.5rem, 6.2vw, 4.6rem); line-height: 1.03; letter-spacing: -0.035em; max-width: 16ch; text-wrap: balance; }
+.hv-display-sm { font-size: clamp(2.1rem, 4.6vw, 3.3rem); max-width: 20ch; }
+.hv-lede { max-width: 34rem; font-size: 1.15rem; color: #c9ccd4; margin: 1.35rem 0 1.75rem; }
+.hv-shot-wrap { position: relative; max-width: 68rem; margin: 3.25rem auto 0; padding: 0 1.5rem; }
+.hv-shot { margin: 0; border-radius: 16px; border: 1px solid #2a2d38; overflow: hidden; background: #121316; box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.9); }
+.hv-shot img { display: block; width: 100%; height: auto; }
+
+.hv-features { padding: 7rem 1.5rem 3rem; }
+.hv-section-title { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500; color: var(--body); margin-bottom: 2rem; }
+.hv-feature { display: grid; grid-template-columns: 5rem 1fr; gap: 1rem; padding: 3rem 0; border-top: 1px solid var(--line); }
+.hv-feature-n { font-family: var(--mono); font-size: 0.85rem; padding-top: 0.6rem; }
+.hv-feature-t { font-weight: 600; color: var(--fg); font-size: clamp(1.7rem, 3.6vw, 2.4rem); line-height: 1.12; letter-spacing: -0.03em; margin-bottom: 1rem; }
+.hv-feature-b { max-width: 38rem; margin-bottom: 1.25rem; }
+.hv-oss { padding: 6rem 1.5rem; border-top: 1px solid var(--line); }
+.hv-oss .hv-display { margin-bottom: 2.5rem; }
+.hv-oss-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 3rem; margin-bottom: 2.5rem; max-width: 56rem; }
+
+.hv-footer { border-top: 1px solid var(--line); padding: 3rem 0 2rem; }
+.hv-footer-in { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 2rem; }
+.hv-footer-col { display: flex; flex-direction: column; gap: 0.4rem; }
+.hv-footer-col a { text-decoration: none; }
+.hv-footer-col a:hover { color: var(--fg); }
+.hv-label { color: var(--fg); margin-bottom: 0.3rem; }
+.hv-footer-lic { margin-top: 2.5rem; }
+
+@media (max-width: 800px) {
+  .hv-hero { padding-top: 3rem; }
+  .hv-oss-cols, .hv-footer-in { grid-template-columns: 1fr; gap: 1.25rem; }
+  .hv-feature { grid-template-columns: 1fr; gap: 0.25rem; }
+  .hv-nav-links { gap: 1rem; }
+  .hv-scrim { background: radial-gradient(ellipse 90% 40% at 40% 25%, rgba(7, 8, 11, 0.65), transparent 85%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .hv *, .hv *::before, .hv *::after { transition: none !important; }
+}

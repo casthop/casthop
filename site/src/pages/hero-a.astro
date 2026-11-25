@@ -1,0 +1,14 @@
+---
+import "@fontsource-variable/geist";
+import HeroBase from "../layouts/HeroBase.astro";
+import HeroPage from "../components/home/HeroPage.astro";
+---
+<HeroBase title="Casthop — hero preview A" font="'Geist Variable'">
+  <HeroPage variant="a" />
+</HeroBase>
+<script>
+  import { mountBackground } from "../components/heroes/runtime";
+  import { aurora } from "../components/heroes/aurora";
+  const canvas = document.getElementById("hero-canvas");
+  if (canvas instanceof HTMLCanvasElement) mountBackground(canvas, aurora);
+</script>

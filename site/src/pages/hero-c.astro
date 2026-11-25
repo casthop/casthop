@@ -1,0 +1,14 @@
+---
+import "@fontsource-variable/inter/opsz.css";
+import HeroBase from "../layouts/HeroBase.astro";
+import HeroPage from "../components/home/HeroPage.astro";
+---
+<HeroBase title="Casthop — hero preview C" font="'Inter Variable'">
+  <HeroPage variant="c" />
+</HeroBase>
+<script>
+  import { mountBackground } from "../components/heroes/runtime";
+  import { fanout } from "../components/heroes/fanout";
+  const canvas = document.getElementById("hero-canvas");
+  if (canvas instanceof HTMLCanvasElement) mountBackground(canvas, fanout);
+</script>

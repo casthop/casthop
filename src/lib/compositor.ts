@@ -1,22 +1,22 @@
 import { layoutRects, loadWasm, type LayoutMode, type Rect, WasmCompositor } from "./wasm";
 import { jsComposeNearest, jsLayout } from "./js-pipeline";
 import { type ComposeBackend } from "./compose-backend";
+import { get2d, makeDrawCanvas, sizeCanvas, OUT_H, OUT_W, type DrawCanvas, type DrawContext } from "./draw-canvas";
 
 export type { ComposeBackend } from "./compose-backend";
-export { pickComposeBackend, pickComposeBackendFrom } from "./compose-backend";
+export { pickComposeBackend, pickComposeBackendFrom, pickComposeThread, pickComposeThreadFrom } from "./compose-backend";
+export { OUT_H, OUT_W } from "./draw-canvas";
 
-export type ComposeSource = HTMLVideoElement | HTMLCanvasElement;
-
-const OUT_W = 1280;
-const OUT_H = 720;
+export type ComposeSource = CanvasImageSource | VideoFrame;
 
 let cachedWasm: { key: string; comp: WasmCompositor } | null = null;
 let wgpuMod: typeof import("./gpu-compositor") | undefined;
 let wgpuTsMod: typeof import("./webgpu-ts") | undefined;
 let bannerTitle = "";
 let bannerSubtitle = "";
+let scratch: DrawCanvas | null = null;
 
-function bannerFn(ctx: CanvasRenderingContext2D): void {
+function bannerFn(ctx: DrawContext): void {
   drawBanner2d(ctx, bannerTitle, bannerSubtitle);
 }
 
@@ -27,9 +27,20 @@ function wasmCompositorFor(api: Awaited<ReturnType<typeof loadWasm>>, width: num
   return cachedWasm.comp;
 }
 
-function sourceSize(src: ComposeSource): { w: number; h: number } {
-  if (src instanceof HTMLVideoElement) return { w: src.videoWidth, h: src.videoHeight };
-  return { w: src.width, h: src.height };
+export function sourceSize(src: ComposeSource): { w: number; h: number } {
+  if (typeof VideoFrame !== "undefined" && src instanceof VideoFrame) {
+    return { w: src.displayWidth || src.codedWidth, h: src.displayHeight || src.codedHeight };
+  }
+  if (typeof HTMLVideoElement !== "undefined" && src instanceof HTMLVideoElement) {
+    return { w: src.videoWidth, h: src.videoHeight };
+  }
+  const sized = src as { width: number; height: number };
+  return { w: sized.width, h: sized.height };
+}
+
+function scratchCanvas(): DrawCanvas {
+  scratch ??= makeDrawCanvas(640, 360);
+  return scratch;
 }
 
 export async function composeFrame(opts: {
@@ -38,12 +49,11 @@ export async function composeFrame(opts: {
   mode: LayoutMode;
   title: string;
   subtitle: string;
-  canvas: HTMLCanvasElement;
+  canvas: DrawCanvas;
 }): Promise<{ backend: ComposeBackend; ms: number }> {
   const t0 = performance.now();
   const { videos, mode, title, subtitle, canvas } = opts;
-  canvas.width = OUT_W;
-  canvas.height = OUT_H;
+  sizeCanvas(canvas, OUT_W, OUT_H);
   bannerTitle = title;
   bannerSubtitle = subtitle;
 
@@ -75,19 +85,20 @@ export async function composeFrame(opts: {
   }
 
   if (opts.backend === "js-cpu") {
-    const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+    const ctx = get2d(canvas, { willReadFrequently: true });
+    if (!ctx) return { backend: "js-cpu", ms: performance.now() - t0 };
     const dst = ctx.createImageData(OUT_W, OUT_H);
     dst.data.fill(0);
     fillBg(dst.data, OUT_W, OUT_H, 11, 11, 13);
     const rects = jsLayout(videos.length || 1, mode === "solo" ? 0 : mode === "side" ? 1 : mode === "screen" ? 3 : 2);
-    const scratch = document.createElement("canvas");
-    const sctx = scratch.getContext("2d", { willReadFrequently: true })!;
+    const scratchTile = scratchCanvas();
+    const sctx = get2d(scratchTile, { willReadFrequently: true });
+    if (!sctx) return { backend: "js-cpu", ms: performance.now() - t0 };
     videos.forEach((video, i) => {
       const r = rects[i];
       const { w } = sourceSize(video);
       if (!r || !w) return;
-      scratch.width = 640;
-      scratch.height = 360;
+      sizeCanvas(scratchTile, 640, 360);
       sctx.drawImage(video, 0, 0, 640, 360);
       const tile = sctx.getImageData(0, 0, 640, 360);
       jsComposeNearest(
@@ -112,32 +123,33 @@ export async function composeFrame(opts: {
   const comp = wasmCompositorFor(api, OUT_W, OUT_H);
   comp.clear();
   const rects = layoutRects(api, Math.max(1, videos.length), mode, OUT_W, OUT_H);
-  const scratch = document.createElement("canvas");
-  const sctx = scratch.getContext("2d", { willReadFrequently: true })!;
+  const scratchTile = scratchCanvas();
+  const sctx = get2d(scratchTile, { willReadFrequently: true });
+  if (!sctx) return { backend: "wasm-cpu", ms: performance.now() - t0 };
   videos.forEach((video, i) => {
     const r = rects[i];
     const { w } = sourceSize(video);
     if (!r || !w) return;
-    scratch.width = 640;
-    scratch.height = 360;
+    sizeCanvas(scratchTile, 640, 360);
     sctx.drawImage(video, 0, 0, 640, 360);
     const tile = sctx.getImageData(0, 0, 640, 360);
     comp.blit(tile.data, 640, 360, r, false);
   });
   comp.banner(title, subtitle);
-  const ctx = canvas.getContext("2d")!;
-  ctx.putImageData(comp.imageData(), 0, 0);
+  const ctx = get2d(canvas);
+  if (ctx) ctx.putImageData(comp.imageData(), 0, 0);
   return { backend: "wasm-cpu", ms: performance.now() - t0 };
 }
 
 async function drawCanvas2d(
-  canvas: HTMLCanvasElement,
+  canvas: DrawCanvas,
   videos: ComposeSource[],
   mode: LayoutMode,
   title: string,
   subtitle: string,
 ): Promise<void> {
-  const ctx = canvas.getContext("2d")!;
+  const ctx = get2d(canvas);
+  if (!ctx) return;
   ctx.fillStyle = "#0b0b0d";
   ctx.fillRect(0, 0, OUT_W, OUT_H);
   let rects: Rect[];
@@ -169,7 +181,7 @@ async function drawCanvas2d(
   drawBanner2d(ctx, title, subtitle);
 }
 
-function drawBanner2d(ctx: CanvasRenderingContext2D, title: string, subtitle: string): void {
+function drawBanner2d(ctx: DrawContext, title: string, subtitle: string): void {
   const h = Math.round(OUT_H * 0.11);
   const y = OUT_H - h - Math.round(OUT_H / 28);
   const x = Math.round(OUT_W / 24);

@@ -1,6 +1,7 @@
 import { layoutRects, loadWasm, type LayoutMode, type Rect } from "./wasm";
+import { get2d, makeDrawCanvas, type DrawCanvas, type DrawContext } from "./draw-canvas";
 
-export type GpuTile = HTMLVideoElement | HTMLCanvasElement;
+export type GpuTile = CanvasImageSource | VideoFrame;
 
 type TsTile = {
   width: number;
@@ -18,13 +19,24 @@ function dropTile(slot: TsTile): void {
   slot.rectBuf.destroy();
 }
 
+function gpuTileSize(tile: GpuTile): { w: number; h: number } {
+  if (typeof VideoFrame !== "undefined" && tile instanceof VideoFrame) {
+    return { w: tile.displayWidth || tile.codedWidth, h: tile.displayHeight || tile.codedHeight };
+  }
+  if (typeof HTMLVideoElement !== "undefined" && tile instanceof HTMLVideoElement) {
+    return { w: tile.videoWidth, h: tile.videoHeight };
+  }
+  const sized = tile as { width: number; height: number };
+  return { w: sized.width, h: sized.height };
+}
+
 type TsGpu = {
   device: GPUDevice;
   format: GPUTextureFormat;
   sampler: GPUSampler;
   pipeline: GPURenderPipeline;
   bgl: GPUBindGroupLayout;
-  canvas: HTMLCanvasElement;
+  canvas: DrawCanvas;
   ctx: GPUCanvasContext;
   tiles: (TsTile | null)[];
   ready: TsTile[];
@@ -40,7 +52,7 @@ let inflight: Promise<TsGpu | null> | null = null;
 let tsFail = false;
 let drawFails = 0;
 const DRAW_FAIL_LIMIT = 3;
-let copySrc: { source: CanvasImageSource } | undefined;
+let copySrc: { source: CanvasImageSource | VideoFrame } | undefined;
 
 const SHADER = `
 struct VsOut {
@@ -123,9 +135,7 @@ async function openTsGpu(width: number, height: number): Promise<TsGpu | null> {
         tsFail = true;
         return null;
       }
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
+      const canvas = makeDrawCanvas(width, height);
       const ctx = canvas.getContext("webgpu");
       if (!ctx) {
         device.destroy();
@@ -195,10 +205,10 @@ async function openTsGpu(width: number, height: number): Promise<TsGpu | null> {
 
 /** TypeScript WebGPU compositor with a reused device (for bench vs wgpu). */
 export async function drawWebGpuTs(
-  dest: HTMLCanvasElement,
+  dest: DrawCanvas,
   tiles: GpuTile[],
   mode: LayoutMode,
-  banner: (ctx: CanvasRenderingContext2D) => void,
+  banner: (ctx: DrawContext) => void,
 ): Promise<boolean> {
   const gpu = await ensureTsGpu(dest.width, dest.height);
   if (!gpu) return false;
@@ -219,8 +229,7 @@ export async function drawWebGpuTs(
     for (let i = 0; i < tiles.length; i++) {
       const tile = tiles[i]!;
       const r = rects[i];
-      const w = tile instanceof HTMLVideoElement ? tile.videoWidth : tile.width;
-      const h = tile instanceof HTMLVideoElement ? tile.videoHeight : tile.height;
+      const { w, h } = gpuTileSize(tile);
       if (!r || !w) continue;
       if (w > gpu.maxTex || h > gpu.maxTex) return false;
       let slot = gpu.tiles[i];
@@ -288,7 +297,7 @@ export async function drawWebGpuTs(
     pass.end();
     gpu.cmds[0] = encoder.finish();
     gpu.device.queue.submit(gpu.cmds);
-    const dst = dest.getContext("2d");
+    const dst = get2d(dest);
     if (!dst) return false;
     dst.drawImage(gpu.canvas, 0, 0);
     banner(dst);

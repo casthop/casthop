@@ -1,17 +1,18 @@
 import init, { gpu_compositor_create, gpu_compositor_draw } from "../wasm/casthop_gpu.js";
 import gpuWasmUrl from "../wasm/casthop_gpu_bg.wasm?url";
 import { modeCode, type LayoutMode } from "./wasm";
+import { get2d, makeDrawCanvas, type DrawCanvas, type DrawContext } from "./draw-canvas";
 
-export type GpuTile = HTMLVideoElement | HTMLCanvasElement;
+export type GpuTile = CanvasImageSource | VideoFrame;
 
 let wasmInit: Promise<void> | null = null;
-let cached: { key: string; canvas: HTMLCanvasElement; device: GPUDevice } | null = null;
-let inflight: Promise<HTMLCanvasElement | null> | null = null;
+let cached: { key: string; canvas: DrawCanvas; device: GPUDevice } | null = null;
+let inflight: Promise<DrawCanvas | null> | null = null;
 let gpuFail = false;
 let drawFails = 0;
 const DRAW_FAIL_LIMIT = 3;
 
-async function ensureGpu(width: number, height: number): Promise<HTMLCanvasElement | null> {
+async function ensureGpu(width: number, height: number): Promise<DrawCanvas | null> {
   if (gpuFail) return null;
   const key = `${width}x${height}`;
   if (cached?.key === key) return cached.canvas;
@@ -29,7 +30,7 @@ async function ensureGpu(width: number, height: number): Promise<HTMLCanvasEleme
   }
 }
 
-async function openGpu(width: number, height: number, key: string): Promise<HTMLCanvasElement | null> {
+async function openGpu(width: number, height: number, key: string): Promise<DrawCanvas | null> {
   try {
     const gpu = (navigator as Navigator & { gpu?: GPU }).gpu;
     if (!gpu) {
@@ -44,9 +45,7 @@ async function openGpu(width: number, height: number, key: string): Promise<HTML
       return null;
     }
     const device = await adapter.requestDevice();
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
+    const canvas = makeDrawCanvas(width, height);
     try {
       gpu_compositor_create(device, canvas, width, height, gpu.getPreferredCanvasFormat());
     } catch (err) {
@@ -67,10 +66,10 @@ async function openGpu(width: number, height: number, key: string): Promise<HTML
 }
 
 export async function drawWgpu(
-  dest: HTMLCanvasElement,
+  dest: DrawCanvas,
   tiles: GpuTile[],
   mode: LayoutMode,
-  banner: (ctx: CanvasRenderingContext2D) => void,
+  banner: (ctx: DrawContext) => void,
 ): Promise<boolean> {
   const gpuCanvas = await ensureGpu(dest.width, dest.height);
   if (!gpuCanvas) return false;
@@ -81,7 +80,7 @@ export async function drawWgpu(
       if (drawFails >= DRAW_FAIL_LIMIT) gpuFail = true;
       return false;
     }
-    const ctx = dest.getContext("2d");
+    const ctx = get2d(dest);
     if (!ctx) return false;
     ctx.drawImage(gpuCanvas, 0, 0);
     banner(ctx);

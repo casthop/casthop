@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "recordedAt": "2026-11-25",
+  "seconds": 30,
+  "tiles": 6,
+  "backend": "canvas2d",
+  "thread": "worker",
+  "p50FrameMs": 7.6,
+  "p95FrameMs": 11.6,
+  "droppedFrames": 0,
+  "longTaskCount": 0,
+  "longTaskTotalMs": 0,
+  "inputLatencyP95Ms": 15.8,
+  "notes": "Chrome 157 headless --disable-gpu, 6 canvas tiles + overlay, OffscreenCanvas worker. Local snapshot only; CI gates worker vs main on the same runner."
+}

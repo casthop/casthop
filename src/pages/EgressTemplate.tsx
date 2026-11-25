@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Room, RoomEvent, Track } from "livekit-client";
-import { composeFrame, pickComposeBackend, type ComposeBackend } from "../lib/compositor";
+import { pickComposeBackend } from "../lib/compositor";
+import { startProgramCompose, type ProgramCompose } from "../lib/program-compose";
 import { getStudio, sendEgressBeat } from "../lib/api";
 import type { LayoutMode } from "../lib/wasm";
 
@@ -9,30 +10,32 @@ import type { LayoutMode } from "../lib/wasm";
  * console.log("START_RECORDING") before capturing the tab to RTMP + file.
  *
  * Audio tracks are attached unmuted so tab capture includes program sound.
+ * Video is composed on a Worker + OffscreenCanvas when the browser allows it.
  */
 export function EgressTemplate() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const videosRef = useRef<HTMLVideoElement[]>([]);
-  const layoutRef = useRef<LayoutMode>("grid");
-  const titleRef = useRef("Casthop");
-  const subtitleRef = useRef("live");
 
   useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
     const q = new URLSearchParams(location.search);
     const url = q.get("url");
     const token = q.get("token");
     const initialLayout = (q.get("layout") || "grid") as LayoutMode;
-    layoutRef.current = initialLayout === "solo" || initialLayout === "side" || initialLayout === "screen" ? initialLayout : "grid";
-    const backend: ComposeBackend = pickComposeBackend();
+    const layout: LayoutMode =
+      initialLayout === "solo" || initialLayout === "side" || initialLayout === "screen" ? initialLayout : "grid";
+    const backend = pickComposeBackend();
     const room = new Room({ adaptiveStream: false, dynacast: false });
-    const videos: HTMLVideoElement[] = [];
     const audios: HTMLMediaElement[] = [];
-    videosRef.current = videos;
+    const videoEls: HTMLVideoElement[] = [];
+    let compose: ProgramCompose | null = null;
+    let cancelled = false;
 
     const attach = (track: Track) => {
-      const el = track.attach() as HTMLMediaElement;
-      el.autoplay = true;
+      if (!compose) return;
       if (track.kind === Track.Kind.Audio) {
+        const el = track.attach() as HTMLMediaElement;
+        el.autoplay = true;
         el.muted = false;
         (el as HTMLAudioElement).volume = 1;
         el.style.position = "absolute";
@@ -45,71 +48,71 @@ export function EgressTemplate() {
         return;
       }
       if (track.kind !== Track.Kind.Video) return;
-      const video = el as HTMLVideoElement;
-      video.playsInline = true;
-      video.muted = true;
-      video.width = 640;
-      video.height = 360;
-      video.style.position = "absolute";
-      video.style.left = "-9999px";
-      document.body.appendChild(video);
-      videos.push(video);
+      const id = track.sid ?? track.mediaStreamTrack.id;
+      if (compose.thread === "worker") {
+        compose.addSource(id, track.mediaStreamTrack);
+        return;
+      }
+      const el = track.attach() as HTMLVideoElement;
+      el.autoplay = true;
+      el.playsInline = true;
+      el.muted = true;
+      el.width = 640;
+      el.height = 360;
+      el.style.position = "absolute";
+      el.style.left = "-9999px";
+      document.body.appendChild(el);
+      videoEls.push(el);
+      compose.addSource(id, el);
     };
 
     const detach = (track: Track) => {
+      compose?.removeSource(track.sid ?? track.mediaStreamTrack.id);
       track.detach().forEach((el) => el.remove());
     };
 
-    room.on(RoomEvent.TrackSubscribed, (track) => attach(track));
-    room.on(RoomEvent.TrackUnsubscribed, (track) => detach(track));
-    const signalReady = () => console.log("START_RECORDING");
-    if (url && token) {
-      void room.connect(url, token).then(signalReady).catch((err) => {
-        console.error("egress template connect", err);
+    void (async () => {
+      compose = await startProgramCompose({
+        canvas,
+        backend,
+        mode: layout,
+        title: "Casthop",
+        subtitle: "live",
       });
-    } else {
-      signalReady();
-    }
+      if (cancelled) {
+        compose.stop();
+        return;
+      }
+      room.on(RoomEvent.TrackSubscribed, (track) => attach(track));
+      room.on(RoomEvent.TrackUnsubscribed, (track) => detach(track));
+      const signalReady = () => console.log("START_RECORDING");
+      if (url && token) {
+        void room.connect(url, token).then(signalReady).catch((err) => {
+          console.error("egress template connect", err);
+        });
+      } else {
+        signalReady();
+      }
+    })();
 
     const studioId = roomFromToken(token);
     const pullMeta = () => {
       if (!studioId) return;
       void getStudio(studioId).then((s) => {
-        layoutRef.current = s.layout === "solo" || s.layout === "side" || s.layout === "screen" ? s.layout : "grid";
-        titleRef.current = s.bannerTitle || s.title || "Casthop";
-        subtitleRef.current = s.bannerSubtitle || "live";
+        const next: LayoutMode = s.layout === "solo" || s.layout === "side" || s.layout === "screen" ? s.layout : "grid";
+        compose?.setMeta(next, s.bannerTitle || s.title || "Casthop", s.bannerSubtitle || "live");
       });
       if (token) void sendEgressBeat(studioId, token).catch(() => undefined);
     };
     pullMeta();
     const metaTimer = window.setInterval(pullMeta, 2000);
 
-    let raf = 0;
-    let busy = false;
-    const tick = () => {
-      const canvas = canvasRef.current;
-      if (canvas && !busy) {
-        busy = true;
-        void composeFrame({
-          backend,
-          videos: videos.filter((v) => v.videoWidth > 0),
-          mode: layoutRef.current,
-          title: titleRef.current,
-          subtitle: subtitleRef.current,
-          canvas,
-        }).finally(() => {
-          busy = false;
-        });
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-
     return () => {
-      cancelAnimationFrame(raf);
+      cancelled = true;
       window.clearInterval(metaTimer);
+      compose?.stop();
       room.disconnect();
-      videos.forEach((v) => v.remove());
+      videoEls.forEach((v) => v.remove());
       audios.forEach((a) => a.remove());
     };
   }, []);

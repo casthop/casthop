@@ -10,8 +10,19 @@ function copyMediapipeWasm() {
 copyMediapipeWasm();
 
 export default defineConfig({
-  plugins: [react(), cloudflare()],
+  plugins: [
+    react({
+      exclude: [/\/node_modules\//, /\/workers\//, /\/worklets\//],
+      babel: {
+        plugins: [["babel-plugin-react-compiler", { target: "19" }]],
+      },
+    }),
+    cloudflare(),
+  ],
   assetsInclude: ["**/*.tflite"],
+  worker: {
+    format: "es",
+  },
   server: {
     host: "0.0.0.0",
     port: 5173,

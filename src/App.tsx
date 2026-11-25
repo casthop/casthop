@@ -5,6 +5,7 @@ import { Studio } from "./pages/Studio";
 import { Probe } from "./pages/Probe";
 import { Bench } from "./pages/Bench";
 import { EgressTemplate } from "./pages/EgressTemplate";
+import { Perf } from "./pages/Perf";
 
 export function App() {
   return (
@@ -18,6 +19,7 @@ export function App() {
           <Route path="/internal/bench" element={<Bench />} />
         </>
       ) : null}
+      <Route path="/internal/perf" element={<Perf />} />
       <Route path="/egress-template" element={<EgressTemplate />} />
     </Routes>
   );

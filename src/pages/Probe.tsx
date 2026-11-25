@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { LocalVideoTrack, Room, RoomEvent, Track, VideoPresets } from "livekit-client";
-import { mintToken } from "../lib/api";
+import { getMe, mintToken } from "../lib/api";
 
 export function Probe() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -11,13 +11,28 @@ export function Probe() {
     let cancelled = false;
     const rooms: Room[] = [];
     (async () => {
+      const signedIn = await getMe().catch(() => null);
+      if (!signedIn) {
+        if (!import.meta.env.DEV) throw new Error("sign in required for probe");
+        const magic = (await fetch("/api/auth/magic-link", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ email: "probe@example.com" }),
+        }).then((r) => r.json())) as { devLogin?: string };
+        if (magic.devLogin) {
+          await fetch(magic.devLogin, { method: "POST", credentials: "same-origin" });
+        }
+      }
       const created = (await fetch("/api/studios", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({ title: "Latency probe" }),
-      }).then((r) => r.json())) as { id: string; hostKey: string };
-      const pubTok = await mintToken(created.id, { name: "ProbePub", role: "host", hostKey: created.hostKey, identity: "probe-pub" });
-      const subTok = await mintToken(created.id, { name: "ProbeSub", role: "guest", identity: "probe-sub" });
+      }).then((r) => r.json())) as { id: string; error?: string };
+      if (!created.id) throw new Error(created.error || "sign in required for probe");
+      const pubTok = await mintToken(created.id, { name: "ProbePub", role: "host" });
+      const subTok = await mintToken(created.id, { name: "ProbeSub", role: "guest" });
       if (cancelled) return;
       const canvas = canvasRef.current!;
       const ctx = canvas.getContext("2d")!;

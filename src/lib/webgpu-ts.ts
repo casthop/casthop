@@ -34,6 +34,8 @@ type TsGpu = {
 let cached: TsGpu | null = null;
 let inflight: Promise<TsGpu | null> | null = null;
 let tsFail = false;
+let drawFails = 0;
+const DRAW_FAIL_LIMIT = 3;
 
 const SHADER = `
 struct VsOut {
@@ -97,50 +99,55 @@ async function openTsGpu(width: number, height: number): Promise<TsGpu | null> {
       return null;
     }
     const device = await adapter.requestDevice();
-    if (cached) {
-      dropGpu(cached);
-      cached = null;
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("webgpu");
-    if (!ctx) {
-      device.destroy();
-      tsFail = true;
-      return null;
-    }
-    const format = gpu.getPreferredCanvasFormat();
-    ctx.configure({ device, format, alphaMode: "opaque" });
-    const shader = device.createShaderModule({ code: SHADER });
-    const bgl = device.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-      ],
-    });
-    const pipeline = device.createRenderPipeline({
-      layout: device.createPipelineLayout({ bindGroupLayouts: [bgl] }),
-      vertex: {
-        module: shader,
-        entryPoint: "vs",
-        buffers: [
-          {
-            arrayStride: 16,
-            stepMode: "instance",
-            attributes: [{ shaderLocation: 0, offset: 0, format: "float32x4" }],
-          },
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("webgpu");
+      if (!ctx) {
+        device.destroy();
+        tsFail = true;
+        return null;
+      }
+      const format = gpu.getPreferredCanvasFormat();
+      ctx.configure({ device, format, alphaMode: "opaque" });
+      const shader = device.createShaderModule({ code: SHADER });
+      const bgl = device.createBindGroupLayout({
+        entries: [
+          { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+          { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
         ],
-      },
-      fragment: { module: shader, entryPoint: "fs", targets: [{ format }] },
-      primitive: { topology: "triangle-list" },
-    });
-    const sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
-    cached = { device, format, sampler, pipeline, bgl, canvas, ctx, tiles: [] };
-    void device.lost.then(() => {
-      if (cached?.device === device) cached = null;
-    });
-    return cached;
+      });
+      const pipeline = device.createRenderPipeline({
+        layout: device.createPipelineLayout({ bindGroupLayouts: [bgl] }),
+        vertex: {
+          module: shader,
+          entryPoint: "vs",
+          buffers: [
+            {
+              arrayStride: 16,
+              stepMode: "instance",
+              attributes: [{ shaderLocation: 0, offset: 0, format: "float32x4" }],
+            },
+          ],
+        },
+        fragment: { module: shader, entryPoint: "fs", targets: [{ format }] },
+        primitive: { topology: "triangle-list" },
+      });
+      const sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
+      if (cached) {
+        dropGpu(cached);
+        cached = null;
+      }
+      cached = { device, format, sampler, pipeline, bgl, canvas, ctx, tiles: [] };
+      void device.lost.then(() => {
+        if (cached?.device === device) cached = null;
+      });
+      return cached;
+    } catch (err) {
+      device.destroy();
+      throw err;
+    }
   } catch (err) {
     console.warn("webgpu-ts compositor fallback", err);
     tsFail = true;
@@ -222,10 +229,12 @@ export async function drawWebGpuTs(
     if (!dst) return false;
     dst.drawImage(gpu.canvas, 0, 0);
     banner(dst);
+    drawFails = 0;
     return true;
   } catch (err) {
     console.warn("webgpu-ts compositor fallback", err);
-    tsFail = true;
+    drawFails += 1;
+    if (drawFails >= DRAW_FAIL_LIMIT) tsFail = true;
     return false;
   }
 }

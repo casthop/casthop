@@ -56,6 +56,16 @@ test("webgpu-ts reuses per-tile buffers and destroys old textures", () => {
   assert.match(src, /rectBuf\.destroy\(\)/);
   assert.match(src, /device\.destroy\(\)/);
   assert.match(src, /let inflight/);
+  assert.match(src, /DRAW_FAIL_LIMIT = 3/);
+  assert.match(src, /device\.destroy\(\);\s*throw err/s);
+});
+
+test("bench publishes results without as unknown as", () => {
+  const bench = readFileSync(join(root, "src/pages/Bench.tsx"), "utf8");
+  const env = readFileSync(join(root, "src/vite-env.d.ts"), "utf8");
+  assert.doesNotMatch(bench, /as unknown as/);
+  assert.match(bench, /window\.__BENCH__ =/);
+  assert.match(env, /__BENCH__\?: unknown/);
 });
 
 test("wgpu init shares one in-flight promise and clears a lost device", () => {

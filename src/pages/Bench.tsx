@@ -165,7 +165,7 @@ export function Bench() {
         gpuComposeFrames: String(gpuComposeFrames),
       });
       setLog("ok");
-      (window as unknown as { __BENCH__: unknown }).__BENCH__ = {
+      window.__BENCH__ = {
         rows: rowsOut,
         gpu: gpuOut,
         extra: {

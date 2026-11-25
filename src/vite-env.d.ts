@@ -1,5 +1,9 @@
 /// <reference types="vite/client" />
 
+interface Window {
+  __BENCH__?: unknown;
+}
+
 declare module "*.wasm?url" {
   const src: string;
   export default src;

@@ -35,6 +35,12 @@ struct TileSlot {
     bind_group: GpuBindGroup,
 }
 
+impl Drop for TileSlot {
+    fn drop(&mut self) {
+        self.texture.destroy();
+    }
+}
+
 struct GpuInner {
     device: GpuDevice,
     queue: GpuQueue,
@@ -44,6 +50,12 @@ struct GpuInner {
     bgl: GpuBindGroupLayout,
     instance_buf: GpuBuffer,
     tiles: [Option<TileSlot>; MAX_TILES],
+}
+
+impl Drop for GpuInner {
+    fn drop(&mut self) {
+        self.instance_buf.destroy();
+    }
 }
 
 thread_local! {
@@ -257,6 +269,7 @@ fn ensure_tile(inner: &mut GpuInner, i: usize, w: u32, h: u32) -> bool {
         return false;
     };
     let Ok(view) = texture.create_view() else {
+        texture.destroy();
         return false;
     };
     let entries = js_sys::Array::of2(

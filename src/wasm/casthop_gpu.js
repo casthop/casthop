@@ -272,6 +272,9 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_destroy_911c8640ffed5684 = function(arg0) {
         getObject(arg0).destroy();
     };
+    imports.wbg.__wbg_destroy_c1bd9f1fd447bebf = function(arg0) {
+        getObject(arg0).destroy();
+    };
     imports.wbg.__wbg_draw_16c9e979e94486d4 = function(arg0, arg1, arg2) {
         getObject(arg0).draw(arg1 >>> 0, arg2 >>> 0);
     };

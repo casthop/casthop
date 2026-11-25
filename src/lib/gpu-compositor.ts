@@ -44,10 +44,6 @@ async function openGpu(width: number, height: number, key: string): Promise<HTML
       return null;
     }
     const device = await adapter.requestDevice();
-    if (cached) {
-      cached.device.destroy();
-      cached = null;
-    }
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
@@ -57,6 +53,7 @@ async function openGpu(width: number, height: number, key: string): Promise<HTML
       device.destroy();
       throw err;
     }
+    if (cached) cached.device.destroy();
     cached = { key, canvas, device };
     void device.lost.then(() => {
       if (cached?.device === device) cached = null;

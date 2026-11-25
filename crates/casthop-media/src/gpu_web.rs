@@ -266,6 +266,9 @@ fn ensure_tile(inner: &mut GpuInner, i: usize, w: u32, h: u32) -> bool {
     let bind_group = inner
         .device
         .create_bind_group(&GpuBindGroupDescriptor::new(&entries, &inner.bgl));
+    if let Some(old) = inner.tiles[i].take() {
+        old.texture.destroy();
+    }
     inner.tiles[i] = Some(TileSlot {
         width: w,
         height: h,

@@ -51,7 +51,12 @@ async function openGpu(width: number, height: number, key: string): Promise<HTML
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
-    gpu_compositor_create(device, canvas, width, height, gpu.getPreferredCanvasFormat());
+    try {
+      gpu_compositor_create(device, canvas, width, height, gpu.getPreferredCanvasFormat());
+    } catch (err) {
+      device.destroy();
+      throw err;
+    }
     cached = { key, canvas, device };
     void device.lost.then(() => {
       if (cached?.device === device) cached = null;
@@ -60,7 +65,6 @@ async function openGpu(width: number, height: number, key: string): Promise<HTML
   } catch (err) {
     console.warn("wgpu compositor fallback", err);
     gpuFail = true;
-    cached = null;
     return null;
   }
 }

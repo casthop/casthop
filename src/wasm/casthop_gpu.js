@@ -269,6 +269,9 @@ function __wbg_get_imports() {
         const ret = getObject(arg0).createView();
         return addHeapObject(ret);
     }, arguments) };
+    imports.wbg.__wbg_destroy_911c8640ffed5684 = function(arg0) {
+        getObject(arg0).destroy();
+    };
     imports.wbg.__wbg_draw_16c9e979e94486d4 = function(arg0, arg1, arg2) {
         getObject(arg0).draw(arg1 >>> 0, arg2 >>> 0);
     };

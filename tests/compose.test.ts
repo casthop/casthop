@@ -63,6 +63,26 @@ test("wgpu init shares one in-flight promise and clears a lost device", () => {
   assert.match(src, /cached = null/);
 });
 
+test("wgpu compositor create destroys the new device if pipeline setup throws", () => {
+  const src = readFileSync(join(root, "src/lib/gpu-compositor.ts"), "utf8");
+  assert.match(src, /gpu_compositor_create\(/);
+  assert.match(src, /device\.destroy\(\);\s*throw err/s);
+});
+
+test("rust webgpu path destroys the previous tile texture on resize", () => {
+  const src = readFileSync(join(root, "crates/casthop-media/src/gpu_web.rs"), "utf8");
+  assert.match(src, /if let Some\(old\) = inner\.tiles\[i\]\.take\(\)/);
+  assert.match(src, /old\.texture\.destroy\(\)/);
+});
+
+test("wasm build requires wasm-bindgen 0.2.100 before cargo", () => {
+  const src = readFileSync(join(root, "scripts/build-wasm.sh"), "utf8");
+  const checkAt = src.indexOf('wasm-bindgen --version | grep -q "0.2.100"');
+  const cargoAt = src.indexOf("cargo build");
+  assert.ok(checkAt >= 0, "missing wasm-bindgen 0.2.100 version check");
+  assert.ok(cargoAt > checkAt, "version check must run before cargo build");
+});
+
 test("egress template still falls back through pickComposeBackend", () => {
   const src = readFileSync(join(root, "src/pages/EgressTemplate.tsx"), "utf8");
   assert.match(src, /pickComposeBackend/);

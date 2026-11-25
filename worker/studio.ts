@@ -358,15 +358,15 @@ export class StudioDurableObject {
     if (state?.wantLive) await this.scheduleWatch(Date.now() + WATCH_MS);
   }
 
-  private async startLive(state: StudioState): Promise<Response> {
+  private async startLive(state: StudioState, fromWatch = false): Promise<Response> {
     if (state.live && state.egressId) {
       await this.scheduleWatch(Date.now() + WATCH_MS);
       return json(publicState(state, { includeUrls: true }));
     }
-    if (claimIsHeld(state.liveStartingAt) && !state.wantLive) {
+    if (!fromWatch && claimIsHeld(state.liveStartingAt) && !state.wantLive) {
       return json({ error: "already starting" }, 409);
     }
-    if (claimIsHeld(state.liveStartingAt) && !state.egressId) {
+    if (!fromWatch && claimIsHeld(state.liveStartingAt) && !state.egressId) {
       return json({ error: "already starting" }, 409);
     }
 
@@ -396,6 +396,17 @@ export class StudioDurableObject {
     state.liveError = null;
     setDestStatuses(state.destinations, "connecting");
     await this.putState(state);
+
+    let occupied = false;
+    try {
+      occupied = studioHasPeople(parseParticipantIdentities(await listRoomParticipantsRaw(this.env, state.id)));
+    } catch {
+      occupied = false;
+    }
+    if (!occupied) {
+      await this.scheduleWatch(Date.now() + WATCH_MS);
+      return json(publicState(state, { includeUrls: true }));
+    }
 
     const urls = enabledUrls(state.destinations);
     const filepath = recordingPathFor(state.id);
@@ -521,7 +532,7 @@ export class StudioDurableObject {
         await this.scheduleWatch(latest.egressRetryAt);
         return;
       }
-      await this.startLive(latest);
+      await this.startLive(latest, true);
     } catch (err) {
       console.warn("egress watch", err);
       await this.scheduleWatch(Date.now() + WATCH_MS);

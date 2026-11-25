@@ -112,6 +112,9 @@ before(() => {
       egressStops += 1;
       return new Response("{}", { status: 200 });
     }
+    if (url.includes("ListParticipants")) {
+      return new Response(JSON.stringify({ participants: [{ identity: "host" }] }), { status: 200 });
+    }
     if (url.includes("/twirp/livekit.")) {
       return new Response("{}", { status: 200 });
     }

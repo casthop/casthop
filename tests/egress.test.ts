@@ -282,6 +282,31 @@ test("studioHasPeople ignores compositor identities", () => {
   assert.equal(studioHasPeople([]), false);
 });
 
+test("go live waits until someone is in the LiveKit room", async () => {
+  listedParticipants = [];
+  listedEgress = { items: [] };
+  const env = makeEnv({ CASTHOP_EMPTY_GRACE_MS: "60000" });
+  const { id, hostKey } = await createStudio(env);
+  const starts = egressStarts;
+  const go = await app.request(
+    `https://casthop.test/api/studios/${id}/live`,
+    { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+    env,
+  );
+  assert.equal(go.status, 200, await go.clone().text());
+  assert.equal(egressStarts, starts);
+  const waiting = await json<PublicStudio>(go);
+  assert.equal(waiting.live, false);
+  assert.equal(waiting.livePhase, "starting");
+
+  listedParticipants = [{ identity: "host" }];
+  const viaWorker = await env.STUDIO.get(env.STUDIO.idFromName(id)).fetch(
+    new Request(`https://studio/${id}?action=watch`, { method: "POST", body: "{}" }),
+  );
+  assert.equal(viaWorker.status, 200, await viaWorker.clone().text());
+  assert.equal(egressStarts, starts + 1);
+});
+
 test("go live fans out enabled destinations and stop tears down egress", async () => {
   listedParticipants = [{ identity: "host" }];
   listedEgress = { items: [] };

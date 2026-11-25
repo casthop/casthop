@@ -497,7 +497,12 @@ export function Studio() {
               </button>
             ) : null}
             {isHost ? (
-              <button className={`go-live ${liveBusy ? "end" : ""}`} type="button" onClick={onGoLive} disabled={phase === "starting" || phase === "stopping"}>
+              <button
+                className={`go-live ${liveBusy ? "end" : ""}`}
+                type="button"
+                onClick={onGoLive}
+                disabled={phase === "starting" || phase === "stopping" || (!liveBusy && !room)}
+              >
                 <span className="orb" />
                 {liveBusy ? "End live" : "Go Live"}
               </button>

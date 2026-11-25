@@ -115,6 +115,7 @@ async function twirp<T>(env: Env, path: string, body: unknown, room?: string): P
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(8_000),
   });
   const text = await res.text();
   if (!res.ok) {

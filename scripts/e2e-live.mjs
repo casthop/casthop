@@ -164,11 +164,12 @@ try {
   await send("Runtime.enable");
 
   let clicked = false;
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 60; i++) {
     const result = await send("Runtime.evaluate", {
       expression: `(() => {
         const btn = document.querySelector("button.go-live");
-        if (!btn || btn.disabled) return { ok: false, text: document.body.innerText.slice(0, 400) };
+        const ready = Boolean(document.querySelector("video"));
+        if (!btn || btn.disabled || !ready) return { ok: false, text: document.body.innerText.slice(0, 400) };
         btn.click();
         return { ok: true };
       })()`,
@@ -214,39 +215,48 @@ try {
   }
   log("rtmp playing");
 
-  const vol = await run("ffmpeg", [
-    "-hide_banner",
-    "-t",
-    "4",
-    "-i",
-    rtmp,
-    "-af",
-    "volumedetect",
-    "-f",
-    "null",
-    "-",
-  ]);
-  const logText = `${vol.out}\n${vol.err}`;
-  const mean = /mean_volume:\s+([-0-9.]+)\s+dB/.exec(logText)?.[1];
-  if (!mean) {
-    writeFileSync(join(dir, "volumedetect.txt"), logText);
-    throw new Error("volumedetect did not report mean_volume");
+  let db = -Infinity;
+  let logText = "";
+  for (let i = 0; i < 4; i++) {
+    const vol = await run("ffmpeg", [
+      "-hide_banner",
+      "-t",
+      "4",
+      "-i",
+      rtmp,
+      "-af",
+      "volumedetect",
+      "-f",
+      "null",
+      "-",
+    ]);
+    logText = `${vol.out}\n${vol.err}`;
+    const mean = /mean_volume:\s+([-0-9.]+)\s+dB/.exec(logText)?.[1];
+    if (!mean) {
+      writeFileSync(join(dir, "volumedetect.txt"), logText);
+      throw new Error("volumedetect did not report mean_volume");
+    }
+    db = Number(mean);
+    log(`mean_volume=${db} dB`);
+    if (db > -90) break;
+    await sleep(2000);
   }
-  const db = Number(mean);
-  log(`mean_volume=${db} dB`);
-  if (db <= -90) throw new Error(`silent audio: mean_volume ${db} dB`);
+  if (db <= -90) {
+    writeFileSync(join(dir, "volumedetect.txt"), logText);
+    throw new Error(`silent audio: mean_volume ${db} dB`);
+  }
 
-  await fetch(`${app}/api/studios/${studio.id}/live`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-casthop-host-key": studio.hostKey },
-    body: JSON.stringify({ live: false, hostKey: studio.hostKey }),
-  });
   ws.close();
   log("ok");
 } catch (err) {
   failed = 1;
   console.error(err instanceof Error ? err.message : err);
 } finally {
+  await fetch(`${app}/api/studios/${studio.id}/live`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-casthop-host-key": studio.hostKey },
+    body: JSON.stringify({ live: false, hostKey: studio.hostKey }),
+  }).catch(() => {});
   chrome.kill("SIGKILL");
 }
 

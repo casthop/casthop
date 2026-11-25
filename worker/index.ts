@@ -50,6 +50,8 @@ import {
   attachSessionCookie,
   consumeMagicToken,
   createSession,
+  magicConfirmPage,
+  magicLinkPending,
   destroySession,
   finishGithub,
   githubConfigured,
@@ -138,10 +140,19 @@ app.post("/api/auth/magic-link", async (c) => {
 
 app.get("/api/auth/callback", async (c) => {
   const token = c.req.query("token") ?? "";
-  const account = token ? await consumeMagicToken(c, token) : null;
-  if (!account) {
-    return c.redirect("/?auth=invalid");
+  if (!(await magicLinkPending(c, token))) return c.redirect("/?auth=invalid");
+  return c.html(magicConfirmPage(token));
+});
+
+app.post("/api/auth/callback", async (c) => {
+  let token = c.req.query("token") ?? "";
+  if (!token) {
+    const form = await c.req.parseBody().catch(() => ({}) as Record<string, unknown>);
+    const value = (form as { token?: unknown }).token;
+    if (typeof value === "string") token = value;
   }
+  const account = token ? await consumeMagicToken(c, token) : null;
+  if (!account) return c.redirect("/?auth=invalid");
   const cookie = await createSession(c, account);
   c.header("Set-Cookie", cookie, { append: true });
   return c.redirect("/");
@@ -521,6 +532,8 @@ app.delete("/api/studios/:id/cohosts/:accountId", async (c) => {
   attachSessionCookie(c, sess?.cookie);
   const host = await hostAuth(c.env, id, sess?.account);
   if (!host || host.role !== "owner") return c.json({ error: "owner required" }, 403);
+  const member = await memberFor(c.env.DB, id, accountId);
+  if (member?.role !== "cohost") return c.json({ error: "co-host not found" }, 404);
   const target = await accountById(c.env.DB, accountId);
   await deleteCohost(c.env.DB, id, accountId);
   if (target?.email) await deleteInvite(c.env.DB, id, target.email);

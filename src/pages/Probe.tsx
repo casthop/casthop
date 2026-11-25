@@ -18,7 +18,7 @@ export function Probe() {
         body: JSON.stringify({ email: "probe@example.com" }),
       }).then((r) => r.json())) as { devLogin?: string };
       if (magic.devLogin) {
-        await fetch(magic.devLogin, { credentials: "same-origin" });
+        await fetch(magic.devLogin, { method: "POST", credentials: "same-origin" });
       }
       const created = (await fetch("/api/studios", {
         method: "POST",

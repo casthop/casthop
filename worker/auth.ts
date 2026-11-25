@@ -182,9 +182,13 @@ export async function findOrCreateGithubAccount(env: Env, github: { id: string; 
   return account;
 }
 
+function showDevLogin(c: AppCtx, ip: string): boolean {
+  return allowDevLogin(c.env) && !c.req.raw.cf && ip === "local" && isLoopbackUrl(c.req.url);
+}
+
 export async function issueMagicLink(c: AppCtx, email: string): Promise<{ ok: true; devLogin?: string }> {
   const ip = requestIp(c);
-  if (ip !== "local" && !(await allowRate(c.env.DB, `signin:ip:${ip}`, SIGNIN_IP_MAX, SIGNIN_WINDOW_MS))) {
+  if (!(await allowRate(c.env.DB, `signin:ip:${ip}`, SIGNIN_IP_MAX, SIGNIN_WINDOW_MS))) {
     return Promise.reject(Object.assign(new Error("too many attempts"), { status: 429 }));
   }
   if (!(await allowRate(c.env.DB, `signin:email:${email}`, SIGNIN_EMAIL_MAX, SIGNIN_WINDOW_MS))) {
@@ -200,9 +204,41 @@ export async function issueMagicLink(c: AppCtx, email: string): Promise<{ ok: tr
   await mailerFor(c.env).send({
     to: email,
     subject: "Sign in to Casthop",
-    text: `Open this link to sign in. It expires in 15 minutes.\n\n${loginUrl}\n`,
+    text: `Open this link and click Sign in. It expires in 15 minutes.\n\n${loginUrl}\n`,
   });
-  return allowDevLogin(c.env) && isLoopbackUrl(c.req.url) ? { ok: true, devLogin: loginPath } : { ok: true };
+  return showDevLogin(c, ip) ? { ok: true, devLogin: loginPath } : { ok: true };
+}
+
+export async function magicLinkPending(c: AppCtx, token: string): Promise<boolean> {
+  if (!token) return false;
+  const row = await magicByHash(c.env.DB, await sha256hex(token));
+  const now = Date.now();
+  return Boolean(row && row.expires_at >= now && !row.consumed_at);
+}
+
+export function magicConfirmPage(token: string): string {
+  const safe = token.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  return `<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · Casthop</title>
+<style>
+  html,body{margin:0;min-height:100%;background:#f4f4f6;color:#16171c;font-family:"Public Sans","Segoe UI",sans-serif}
+  main{max-width:420px;margin:0 auto;padding:28px}
+  h1{margin:18vh 0 12px;font-size:44px;letter-spacing:-.045em;font-weight:650}
+  p{color:#5c616b;font-size:16px;margin:0 0 28px;line-height:1.45}
+  button{border:0;border-radius:999px;height:44px;padding:0 18px;background:#6d64f7;color:#fff;font:inherit;font-weight:600;cursor:pointer}
+</style>
+<main>
+  <h1>Sign in</h1>
+  <p>This confirms it is you, not a mail scanner.</p>
+  <form method="post" action="/api/auth/callback">
+    <input type="hidden" name="token" value="${safe}">
+    <button type="submit">Sign in</button>
+  </form>
+</main>
+`;
 }
 
 export async function consumeMagicToken(c: AppCtx, token: string): Promise<Account | null> {
@@ -218,7 +254,7 @@ export async function consumeMagicToken(c: AppCtx, token: string): Promise<Accou
 export async function startGithub(c: AppCtx): Promise<{ url: string; cookie: string } | null> {
   if (!githubConfigured(c.env)) return null;
   const ip = requestIp(c);
-  if (ip !== "local" && !(await allowRate(c.env.DB, `signin:ip:${ip}`, SIGNIN_IP_MAX, SIGNIN_WINDOW_MS))) {
+  if (!(await allowRate(c.env.DB, `signin:ip:${ip}`, SIGNIN_IP_MAX, SIGNIN_WINDOW_MS))) {
     throw Object.assign(new Error("too many attempts"), { status: 429 });
   }
   const state = randomId(24);

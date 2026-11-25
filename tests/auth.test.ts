@@ -126,7 +126,9 @@ async function signIn(env: Env, email: string, headers: HeadersInit = {}): Promi
   assert.equal(sent.status, 200, await sent.clone().text());
   const body = await json<{ ok: boolean; devLogin?: string }>(sent);
   assert.ok(body.devLogin);
-  const login = await app.request(`${DEV_ORIGIN}${body.devLogin}`, { redirect: "manual" }, env);
+  const preview = await app.request(`${DEV_ORIGIN}${body.devLogin}`, { redirect: "manual" }, env);
+  assert.equal(preview.status, 200, await preview.clone().text());
+  const login = await app.request(`${DEV_ORIGIN}${body.devLogin}`, { method: "POST", redirect: "manual" }, env);
   assert.equal(login.status, 302);
   const raw = headerCookies(login).find((c) => c.startsWith(`${SESSION_COOKIE}=`)) ?? "";
   assert.match(raw, /HttpOnly/i);
@@ -324,6 +326,12 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
       expect: { owner: 302, cohost: 302, guest: 302, signedOut: 302, expired: 302, outsider: 302 },
     },
     {
+      name: "POST callback missing token",
+      path: "/api/auth/callback",
+      init: { method: "POST", redirect: "manual" },
+      expect: { owner: 302, cohost: 302, guest: 302, signedOut: 302, expired: 302, outsider: 302 },
+    },
+    {
       name: "GET github unconfigured",
       path: "/api/auth/github",
       init: {},
@@ -453,7 +461,7 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
       name: "DELETE cohosts",
       path: `/api/studios/${id}/cohosts/missing`,
       init: { method: "DELETE" },
-      expect: { owner: 200, cohost: 403, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
+      expect: { owner: 404, cohost: 403, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
     },
     {
       name: "POST logout",
@@ -849,8 +857,9 @@ test("sign-in is rate limited per IP", async () => {
   assert.equal(last, 429);
 });
 
-test("spoofed forwarding headers do not get their own IP buckets, and local IPs are not limited", async () => {
+test("spoofed forwarding headers share the local IP bucket, which is rate limited", async () => {
   const env = makeEnv({ CASTHOP_TRUST_FORWARDED: "0" });
+  let last = 200;
   for (let i = 0; i < 6; i++) {
     const res = await app.request(
       "https://casthop.test/api/auth/magic-link",
@@ -865,8 +874,10 @@ test("spoofed forwarding headers do not get their own IP buckets, and local IPs 
       },
       env,
     );
-    assert.equal(res.status, 200, await res.clone().text());
+    last = res.status;
+    if (i < 5) assert.equal(res.status, 200, await res.clone().text());
   }
+  assert.equal(last, 429);
 });
 
 test("email sign-in limit returns ok without sending, so the owner is not locked out", async () => {
@@ -1049,6 +1060,23 @@ test("GitHub OAuth is optional and creates a session when configured", async () 
   assert.equal(me.name, "Octo Cat");
 });
 
+test("devLogin is omitted when Host is loopback but the client IP is not local", async () => {
+  const env = makeEnv();
+  const sent = await json<{ ok: boolean; devLogin?: string }>(
+    await app.request(
+      "http://localhost/api/auth/magic-link",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "cf-connecting-ip": "203.0.113.80" },
+        body: JSON.stringify({ email: "spoof-host@example.com" }),
+      },
+      env,
+    ),
+  );
+  assert.equal(sent.ok, true);
+  assert.equal(sent.devLogin, undefined);
+});
+
 test("devLogin is omitted on a non-loopback host even with CASTHOP_ALLOW_DEV_KEYS", async () => {
   const env = makeEnv();
   const sent = await json<{ ok: boolean; devLogin?: string }>(
@@ -1163,11 +1191,29 @@ test("magic link is single-use", async () => {
       env,
     ),
   );
-  const first = await app.request(`${DEV_ORIGIN}${sent.devLogin}`, { redirect: "manual" }, env);
+  const peek = await app.request(`${DEV_ORIGIN}${sent.devLogin}`, { redirect: "manual" }, env);
+  assert.equal(peek.status, 200, await peek.clone().text());
+  assert.match(await peek.text(), /Sign in/);
+  assert.equal(cookieNamed(peek, SESSION_COOKIE), "");
+  const token = new URL(sent.devLogin, DEV_ORIGIN).searchParams.get("token") ?? "";
+  const first = await app.request(
+    `${DEV_ORIGIN}/api/auth/callback`,
+    {
+      method: "POST",
+      redirect: "manual",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token }).toString(),
+    },
+    env,
+  );
   assert.equal(first.status, 302);
-  const second = await app.request(`${DEV_ORIGIN}${sent.devLogin}`, { redirect: "manual" }, env);
+  assert.ok(cookieNamed(first, SESSION_COOKIE));
+  const second = await app.request(`${DEV_ORIGIN}${sent.devLogin}`, { method: "POST", redirect: "manual" }, env);
   assert.equal(second.status, 302);
   assert.equal(second.headers.get("location"), "/?auth=invalid");
+  const peekAfter = await app.request(`${DEV_ORIGIN}${sent.devLogin}`, { redirect: "manual" }, env);
+  assert.equal(peekAfter.status, 302);
+  assert.equal(peekAfter.headers.get("location"), "/?auth=invalid");
 });
 
 test("removing a co-host kicks them, expires host tokens quickly, and denies rejoin by identity", async () => {
@@ -1175,6 +1221,15 @@ test("removing a co-host kicks them, expires host tokens quickly, and denies rej
   const env = makeEnv();
   const ownerCookie = await signIn(env, "owner@example.com");
   const { id } = await createStudio(env, ownerCookie);
+  const owner = await json<{ id: string }>(
+    await app.request("https://casthop.test/api/auth/me", { headers: { Cookie: ownerCookie } }, env),
+  );
+  const delOwner = await app.request(
+    `https://casthop.test/api/studios/${id}/cohosts/${owner.id}`,
+    { method: "DELETE", headers: { Cookie: ownerCookie } },
+    env,
+  );
+  assert.equal(delOwner.status, 404);
   const invite = await app.request(
     `https://casthop.test/api/studios/${id}/cohosts`,
     {

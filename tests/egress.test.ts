@@ -11,6 +11,7 @@ import {
   nextBackoffMs,
   parseEgressInfo,
   parseEgressList,
+  pickActiveEgress,
   publicError,
   studioHasPeople,
 } from "../worker/egress.ts";
@@ -197,13 +198,26 @@ test("parseEgressInfo reads camelCase and snake_case stream results", () => {
   assert.equal(parseEgressList({ items: [{ egressId: "EG_2", status: 4 }] })[0]?.status, "failed");
 });
 
-test("isForeignEgress ignores terminal info when we do not own a compositor", () => {
+test("isForeignEgress ignores leftover compositor events after stop", () => {
   assert.equal(isForeignEgress("EG_live", "EG_live", "failed"), false);
   assert.equal(isForeignEgress("EG_live", "EG_old", "failed"), true);
   assert.equal(isForeignEgress("EG_live", "EG_old", "active"), true);
   assert.equal(isForeignEgress(null, "EG_old", "failed"), true);
   assert.equal(isForeignEgress(null, "EG_old", "complete"), true);
   assert.equal(isForeignEgress(null, "EG_new", "active"), false);
+  assert.equal(isForeignEgress(null, "EG_old", "ending"), true);
+  assert.equal(isForeignEgress(null, "EG_old", "ending", false), true);
+  assert.equal(isForeignEgress("EG_old", "EG_old", "ending", false), true);
+  assert.equal(isForeignEgress(null, "EG_old", "active", false), true);
+});
+
+test("pickActiveEgress skips a compositor that is already ending", () => {
+  const items = [
+    { egressId: "EG_dying", roomName: "r", status: "ending" as const, error: "", streams: [] },
+    { egressId: "EG_live", roomName: "r", status: "active" as const, error: "", streams: [] },
+  ];
+  assert.equal(pickActiveEgress(items, null)?.egressId, "EG_live");
+  assert.equal(pickActiveEgress(items, "EG_dying")?.egressId, "EG_live");
 });
 
 test("applyStreamResults sets per-destination status without exposing urls", () => {
@@ -300,6 +314,43 @@ test("go live fans out enabled destinations and stop tears down egress", async (
   const ended = await json<PublicStudio>(stop);
   assert.equal(ended.live, false);
   assert.equal(ended.livePhase, "idle");
+});
+
+test("ending webhook after host stop does not flip live back on", async () => {
+  listedParticipants = [{ identity: "host" }];
+  listedEgress = { items: [] };
+  const env = makeEnv();
+  const { id, hostKey } = await createStudio(env);
+  const started = await json<PublicStudio>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      env,
+    ),
+  );
+  assert.ok(started.egressId);
+  const stop = await app.request(
+    `https://casthop.test/api/studios/${id}/live`,
+    { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: false }) },
+    env,
+  );
+  assert.equal(stop.status, 200);
+  const body = JSON.stringify({
+    event: "egress_updated",
+    egressInfo: { egressId: started.egressId, roomName: id, status: "EGRESS_ENDING" },
+  });
+  const res = await app.request(
+    "https://casthop.test/api/livekit/webhook",
+    { method: "POST", headers: { Authorization: await signLivekitWebhook(env, body) }, body },
+    env,
+  );
+  assert.equal(res.status, 200, await res.clone().text());
+  const snap = await json<PublicStudio>(
+    await app.request(`https://casthop.test/api/studios/${id}`, { headers: liveHeaders(hostKey) }, env),
+  );
+  assert.equal(snap.live, false);
+  assert.equal(snap.livePhase, "idle");
+  assert.equal(snap.egressId, null);
 });
 
 test("unsigned webhook is 401; signed egress_ended retries start", async () => {

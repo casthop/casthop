@@ -44,15 +44,25 @@ export function isActiveHealth(status: EgressHealth): boolean {
   return status === "starting" || status === "active" || status === "ending";
 }
 
+export function isRunningHealth(status: EgressHealth): boolean {
+  return status === "starting" || status === "active";
+}
+
 export function isTerminalHealth(status: EgressHealth): boolean {
   return status === "complete" || status === "failed";
 }
 
-/** True when this info is for a compositor we are not currently running. */
-export function isForeignEgress(ownedId: string | null, infoId: string, status: EgressHealth): boolean {
+/** True when this info is for a compositor we should not apply. */
+export function isForeignEgress(
+  ownedId: string | null,
+  infoId: string,
+  status: EgressHealth,
+  wantLive = true,
+): boolean {
+  if (!wantLive) return isActiveHealth(status) || infoId !== ownedId;
   if (infoId === ownedId) return false;
   if (ownedId) return true;
-  return !isActiveHealth(status);
+  return !isRunningHealth(status);
 }
 
 export function streamRetryDue(dest: Destination, now = Date.now()): boolean {
@@ -275,9 +285,9 @@ export function studioHasPeople(identities: string[]): boolean {
 export function pickActiveEgress(items: ParsedEgress[], knownId: string | null): ParsedEgress | null {
   if (knownId) {
     const known = items.find((e) => e.egressId === knownId);
-    if (known && isActiveHealth(known.status)) return known;
+    if (known && isRunningHealth(known.status)) return known;
   }
-  return items.find((e) => isActiveHealth(e.status)) ?? null;
+  return items.find((e) => isRunningHealth(e.status)) ?? null;
 }
 
 export function recordingPathFor(studioId: string, at = new Date()): string {

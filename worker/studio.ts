@@ -530,8 +530,7 @@ export class StudioDurableObject {
 
   private async applyEgress(state: StudioState, info: ReturnType<typeof parseEgressInfo>, event: string): Promise<void> {
     if (!info) return;
-    // Skip events for another compositor, including terminal ones after we cleared egressId.
-    if (isForeignEgress(state.egressId, info.egressId, info.status)) {
+    if (isForeignEgress(state.egressId, info.egressId, info.status, state.wantLive)) {
       return;
     }
     const dropped = applyStreamResults(state.destinations, info.streams, isActiveHealth(info.status));

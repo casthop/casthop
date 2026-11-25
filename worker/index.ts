@@ -185,7 +185,7 @@ app.get("/api/auth/github", async (c) => {
 app.get("/api/auth/github/callback", async (c) => {
   const code = c.req.query("code") ?? "";
   const state = c.req.query("state") ?? "";
-  const account = code ? await finishGithub(c, code, state) : null;
+  const account = code ? await finishGithub(c, code, state).catch(() => null) : null;
   c.header("Set-Cookie", clearCookie(OAUTH_COOKIE, isSecureRequest(c.req.url)), { append: true });
   if (!account) return c.redirect("/?auth=invalid");
   const cookie = await createSession(c, account);

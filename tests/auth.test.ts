@@ -20,6 +20,7 @@ let githubEmails: { email: string; primary?: boolean; verified?: boolean }[] = [
 ];
 let githubUserEmail: string | null = null;
 let githubUserId = 99;
+let githubFetchThrows = false;
 
 function jwtPayload(token: string): { sub: string; name: string; exp: number; video: Record<string, unknown> } {
   const payload = token.split(".")[1];
@@ -158,6 +159,9 @@ async function createStudio(env: Env, cookie: string, title = "Weekly product up
 before(() => {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (githubFetchThrows && (url.includes("github.com") || url.includes("api.github.com"))) {
+      throw new Error("github down");
+    }
     if (url.includes("github.com/login/oauth/access_token")) {
       return new Response(JSON.stringify({ access_token: "gho_test" }), { status: 200 });
     }
@@ -1061,6 +1065,29 @@ test("GitHub OAuth is optional and creates a session when configured", async () 
   assert.equal(me.email, "octo@example.com");
   assert.equal(me.name, "Octo Cat");
   assert.match(location, /redirect_uri=https%3A%2F%2Fcasthop\.test%/);
+});
+
+test("GitHub callback treats a network error as a failed sign-in", async () => {
+  const env = makeEnv({ GITHUB_CLIENT_ID: "client", GITHUB_CLIENT_SECRET: "secret" });
+  const start = await app.request("https://casthop.test/api/auth/github", { redirect: "manual" }, env);
+  const state = new URL(start.headers.get("location") ?? "").searchParams.get("state") ?? "";
+  const oauthCookie = cookieNamed(start, "casthop_oauth");
+  githubFetchThrows = true;
+  try {
+    const callback = await app.request(
+      `https://casthop.test/api/auth/github/callback?code=abc&state=${state}`,
+      { redirect: "manual", headers: { Cookie: oauthCookie } },
+      env,
+    );
+    assert.equal(callback.status, 302);
+    assert.equal(callback.headers.get("location"), "/?auth=invalid");
+    assert.equal(cookieNamed(callback, SESSION_COOKIE), "");
+    const cleared = headerCookies(callback).find((c) => c.startsWith("casthop_oauth="));
+    assert.ok(cleared);
+    assert.match(cleared ?? "", /Max-Age=0/i);
+  } finally {
+    githubFetchThrows = false;
+  }
 });
 
 test("GitHub OAuth does not overwrite an email already linked to another GitHub user", async () => {

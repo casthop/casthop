@@ -1,0 +1,80 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Casthop latency probe</title>
+<style>
+  body { font: 15px/1.4 ui-sans-serif, sans-serif; background: #111; color: #eee; margin: 24px; }
+  canvas, video { width: 320px; height: 180px; background: #222; margin-right: 12px; }
+  pre { background: #1b1b1b; padding: 12px; white-space: pre-wrap; }
+</style>
+<p>Publishes a flashing canvas and measures how long until a subscribed element sees the flash.</p>
+<canvas id="src" width="640" height="360"></canvas>
+<video id="dst" autoplay playsinline muted></video>
+<pre id="out">connecting…</pre>
+<script type="module">
+  import { Room, RoomEvent, Track, LocalVideoTrack, VideoPresets } from "https://esm.sh/livekit-client@2.15.8";
+
+  const params = new URLSearchParams(location.search);
+  const url = params.get("url") || "ws://127.0.0.1:7880";
+  const token = params.get("token");
+  const out = document.getElementById("out");
+  const canvas = document.getElementById("src");
+  const ctx = canvas.getContext("2d");
+  const dst = document.getElementById("dst");
+
+  let flashAt = 0;
+  let lastColor = "dark";
+  const samples = [];
+
+  function draw(flash) {
+    ctx.fillStyle = flash ? "#ffffff" : "#1a2744";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = flash ? "#111" : "#fff";
+    ctx.font = "48px sans-serif";
+    ctx.fillText(flash ? "FLASH" : new Date().toISOString().slice(11, 23), 40, 200);
+  }
+  draw(false);
+
+  const stream = canvas.captureStream(30);
+  const room = new Room({ adaptiveStream: false, dynacast: false, videoCaptureDefaults: { resolution: VideoPresets.h720 } });
+  room.on(RoomEvent.TrackSubscribed, (track) => {
+    if (track.kind === Track.Kind.Video) track.attach(dst);
+  });
+
+  if (!token) {
+    out.textContent = "Missing ?token= LiveKit participant token";
+  } else {
+    await room.connect(url, token);
+    const lv = new LocalVideoTrack(stream.getVideoTracks()[0]);
+    await room.localParticipant.publishTrack(lv, { simulcast: true });
+    out.textContent = "connected, flashing…";
+  }
+
+  const probe = document.createElement("canvas");
+  probe.width = 64; probe.height = 36;
+  const pctx = probe.getContext("2d", { willReadFrequently: true });
+
+  setInterval(() => {
+    flashAt = performance.now();
+    lastColor = "light";
+    draw(true);
+    setTimeout(() => { lastColor = "dark"; draw(false); }, 180);
+  }, 2500);
+
+  function sample() {
+    if (!dst.videoWidth) { requestAnimationFrame(sample); return; }
+    pctx.drawImage(dst, 0, 0, probe.width, probe.height);
+    const pix = pctx.getImageData(8, 8, 1, 1).data;
+    const lum = (pix[0] + pix[1] + pix[2]) / 3;
+    if (lastColor === "light" && lum > 180 && flashAt) {
+      samples.push(performance.now() - flashAt);
+      flashAt = 0;
+      const n = samples.length;
+      const avg = samples.reduce((a, b) => a + b, 0) / n;
+      const sorted = [...samples].sort((a, b) => a - b);
+      const p50 = sorted[Math.floor(n * 0.5)];
+      out.textContent = `samples=${n} last=${samples.at(-1)?.toFixed(0)}ms  p50=${p50?.toFixed(0)}ms  avg=${avg.toFixed(0)}ms\n${samples.map((s) => s.toFixed(0)).join(", ")}`;
+    }
+    requestAnimationFrame(sample);
+  }
+  sample();
+</script>

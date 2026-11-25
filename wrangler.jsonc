@@ -1,0 +1,48 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "casthop",
+  "main": "worker/index.ts",
+  "compatibility_date": "2025-10-08",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "binding": "ASSETS"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "STUDIO",
+        "class_name": "StudioDurableObject"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["StudioDurableObject"]
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "casthop",
+      "database_id": "local-only-placeholder"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "RECORDINGS",
+      "bucket_name": "casthop-recordings"
+    }
+  ],
+  "vars": {
+    "LIVEKIT_API_KEY": "devkey",
+    // LIVEKIT_API_SECRET lives in .dev.vars / Worker secrets. Default pair is refused unless LiveKit is loopback.
+    "LIVEKIT_HTTP_URL": "http://127.0.0.1:7880",
+    "PUBLIC_LIVEKIT_URL": "ws://127.0.0.1:7880",
+    "RTMP_YOUTUBE": "rtmp://127.0.0.1:1935/live/youtube",
+    "RTMP_LINKEDIN": "rtmp://127.0.0.1:1935/live/linkedin",
+    "RTMP_X": "rtmp://127.0.0.1:1935/live/x",
+    "EGRESS_TEMPLATE_URL": "http://127.0.0.1:5173/egress-template"
+  }
+}

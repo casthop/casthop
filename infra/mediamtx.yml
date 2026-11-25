@@ -1,0 +1,21 @@
+# Local RTMP destinations so Go Live can fan out without YouTube/LinkedIn/X accounts.
+logLevel: info
+rtmp: yes
+rtmpAddress: 127.0.0.1:1935
+hls: yes
+hlsAddress: 127.0.0.1:8888
+webrtc: no
+playback: yes
+playbackAddress: 127.0.0.1:9996
+rtsp: no
+srt: no
+
+pathDefaults:
+  record: yes
+  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f-%z
+  recordFormat: fmp4
+  recordPartDuration: 1s
+  recordSegmentDuration: 15m
+
+paths:
+  all_others: {}

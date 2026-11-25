@@ -1,0 +1,31 @@
+# Local LiveKit SFU. Keys match .env.example — replace before any networked deploy.
+port: 7880
+bind_addresses:
+  - 127.0.0.1
+
+rtc:
+  tcp_port: 7881
+  udp_port: 7882
+  use_external_ip: false
+  stun_servers: []
+  # Browsers on this machine connect to localhost-mapped ports.
+  node_ip: 127.0.0.1
+
+redis:
+  address: 127.0.0.1:6379
+
+room:
+  auto_create: true
+  empty_timeout: 300
+  departure_timeout: 20
+  enabled_codecs:
+    - mime: audio/opus
+    - mime: video/vp8
+    - mime: video/h264
+
+keys:
+  devkey: casthop_dev_secret_not_for_production_use_32b
+
+logging:
+  json: false
+  level: info

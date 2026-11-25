@@ -1,0 +1,19 @@
+[package]
+edition = "2018"
+name = "nnnoiseless"
+version = "0.5.1"
+authors = ["Joe Neeman <joeneeman@gmail.com>"]
+description = "Audio denoising, derived from Xiph's RNNoise library (vendored, lib-only)"
+license = "BSD-3-Clause"
+repository = "https://github.com/jneem/nnnoiseless"
+
+[lib]
+bench = false
+path = "src/lib.rs"
+
+[dependencies]
+once_cell = "=1.19.0"
+rustfft = "=6.2.0"
+
+[features]
+default = []

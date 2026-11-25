@@ -1,0 +1,101 @@
+# Measurements
+
+Prototype run on a 4 vCPU / 15 GB Linux VM, 2026-11-25. LiveKit, Egress, Redis, and MediaMTX on Docker host networking. App via `npm run dev` (Cloudflare Worker locally). Publishers: Chrome fake camera, canvas fallback, and `lk room join --publish-demo`.
+
+Estimates are marked **(estimate)**. Direct observations are not.
+
+## Method
+
+1. **On-stage glass-to-glass.** Canvas flash (white 180 ms every 2.5 s) published through LiveKit, read back from the subscribed video element. Delay = `performance.now()` at flash minus first frame whose luma &gt; 180. Page: `/internal/probe`.
+2. **RTMP delay.** Time from Go Live until Egress logs `pipeline playing` and `stream started`, plus `ffprobe` on `rtmp://127.0.0.1:1935/live/youtube`. MediaMTX HLS (`/live/youtube/index.m3u8`) 404s on this image, so HLS is **not** the proof path.
+3. **CPU / memory.** `docker stats` after ~45 s of live composite. Egress also reports `avgCPU` / `maxCPU` in its own metrics.
+4. **WASM vs JS.** `npm run bench:wasm` (Node, same algorithms) and Chrome `/internal/bench`. Denoise: RNNoise (nnnoiseless) vs a JS DC-remove + gate. Compose: WASM nearest-neighbor blit vs the same blit in JS. Canvas2D/WebGPU use the GPU and are a different class of work.
+
+Cost unit prices are from the attached OpenStudio model (2026-11-24): Stream delivery $1/1,000 min, Realtime SFU $0.05/GB, R2 $0.015/GB-month, Containers compositor **(model estimate)** $0.45/h + N×0.675 GB×$0.05.
+
+## 1. Delay
+
+| Path | Result | Notes |
+|---|---|---|
+| On-stage glass-to-glass (loopback flash) | **p50 45 ms**, last 61 ms (n=4) | `/internal/probe`, same-machine LiveKit. WAN guests add RTT. |
+| Subscriber jitter buffer (getStats) | included in the 45 ms hop **(not split out)** | Probe measures encode + SFU + decode + jitter. |
+| Go Live → START_RECORDING | **~0.3 s** after Chrome init (~0.8 s after API) | Custom template logs immediately. |
+| Go Live → pipeline playing / RTMP started | **~1.9–3 s** | 2026-11-25T13:20 run: `timeToPlaying` 1.945 s; three RTMP URLs `stream started`. |
+| Program → RTMP playhead | **~2 s ingest** (ffprobe sees h264 1280×720 + aac) | YouTube CDN would add more. HLS stand-in 404s on MediaMTX 1.21 in this compose. |
+
+## 2. CPU and bandwidth
+
+Docker `NetIO` is 0B because of host networking; bitrates below are from file size / duration and ffprobe.
+
+| On stage | Browser CPU / client | LiveKit CPU | Egress CPU | RAM (egress) | Observed bitrate |
+|---|---|---|---|---|---|
+| 2 | Denoise WASM **~0.9% of one core** at 48 kHz (0.088 ms / 10 ms frame). Studio UI not separately sampled. | 2.44% of 4 vCPU, 69 MiB | 32.63%, 442 MiB | 442 MiB | Egress MP4 14.5 s, 5.2 MB → **2.96 Mbps** |
+| 4 | same denoise (per publisher) | 3.08%, 78 MiB | 24.99%, 443 MiB | 443 MiB | same encode preset (H264 720p30) |
+| 6 | same denoise | 0.89–3.60%, ~59 MiB | 25.56–26.24%, 428–515 MiB | 428–515 MiB | MediaMTX fMP4 ~30 MB / 81.6 s / dest → **~3.0 Mbps**. Egress metrics: avgCPU 0.28, maxCPU 1.14, maxMemory 1.70 GB. |
+
+Egress CPU per live hour ≈ 0.26–0.33 × 4 vCPU ≈ **1.0–1.3 vCPU** during the live window. It does **not** climb much from 2 → 6 on stage; the compositor Chrome is the floor.
+
+## 3. Cost per live hour
+
+Model assumptions we **do not** reuse blindly: 1.5 Mbps per guest, N×(N−1) full-quality links, Stream simulcast as delivery minutes. This prototype uses **simulcast + dynacast** (guests get h180/h360; Egress wants the high layer) and **Egress fan-out** (one transcode, N RTMP URLs) instead of Stream Live.
+
+Self-host destination bandwidth is free on this box. Cloudflare Realtime $0.05/GB would apply if the SFU were Cloudflare Calls.
+
+| Line | 3 on stage, 3 dest | 6 on stage, 3 dest | vs model |
+|---|---|---|---|
+| SFU egress (Realtime $0.05/GB) | **$0.05/h (estimate)** — ~0.4 Mbps × 3×2 links ≈ 1.1 GB/h | **$0.27/h (estimate)** — ~0.4 Mbps × 6×5 ≈ 5.4 GB/h | Model used 0.675 GB × N(N−1): $0.20 / $1.01. Simulcast + dynacast should beat that if guests stay on low layers. |
+| Compositor (measured Egress CPU × container price) | **$0.45/h reserved** / **$0.12/h CPU-proportional (estimate)** | same (CPU did not scale with N) | Model guessed $0.45/h + full-quality feeds to compositor. Observed ~26% of a 4 vCPU box. |
+| Destinations | **$0** self-host RTMP; Stream would be 3×60 min × $0.001 = **$0.18** | same $0.18 if Stream | We did not use Stream. |
+| Recording archive (~1.35 GB/h at 3 Mbps to R2) | **$0.020/h-month** stored | same | Model used 1.8 GB/h → $0.027. |
+| **Total live hour (self-host media plane, CF control plane)** | **~$0.17–0.52** | **~$0.39–0.74** | Range is CPU-proportional vs reserved compositor instance. |
+| **Total live hour (if Stream used for fan-out)** | add **$0.18** | add **$0.18** | |
+
+Workers / D1 / DO stay inside the $5 account floor at this volume **(estimate, matches model)**.
+
+## 4. Rust / WASM vs JS
+
+Bundle: `src/wasm/casthop_media.wasm` is **374.1 KiB** (383,070 bytes), zero imports, loads in AudioWorklets and Workers. Chrome `/internal/bench` and Node `npm run bench:wasm` agree.
+
+| Path | WASM | JS | JS/WASM | What this actually compares |
+|---|---|---|---|---|
+| Denoise, 10 ms / 480 samples @ 48 kHz | **0.084–0.088 ms/frame** (Node CPU 742 ms / 8000 frames) | **0.003 ms/frame** (cheap gate) | **0.03×** | RNNoise GRU vs a few arithmetic ops. WASM is slower and **under budget** (10 ms). The gain is quality, not cycles. |
+| Denoise CPU % of one core @ realtime | **~0.9%** | **~0.03%** | — | Both fine on the publish path. |
+| Compose 1280×720, 4 tiles, nearest blit | **5.39–5.45 ms/frame** | **4.11–4.73 ms/frame** | **0.76–0.87×** | Same algorithm. V8 wins slightly; both are ~30–45 fps CPU. Production egress uses **Canvas2D + WASM layout** (GPU `drawImage`). |
+| WebGPU | `navigator.gpu` **present** in this Chrome | — | — | Default live path is Canvas2D; `?compose=webgpu` or `?compose=wasm` to force. wgpu-in-Rust is a next step (see §5). |
+
+Takeaway: ship RNNoise in WASM because a JS gate is not the same filter. Do **not** put the CPU compositor on the live tab-capture path; keep it for overlays / Worker / measurement. Layout math from Rust is shared by Canvas2D and WebGPU.
+
+## 5. What broke, what’s hard, what next
+
+What broke / was hard:
+
+- Default LiveKit room-composite Chrome template aborted (`END_RECORDING` / Start signal not received). Custom `/egress-template` that logs `START_RECORDING` immediately is the reliable path.
+- Egress RTMP URLs must be `rtmp://host:1935/live/<key>`, not `rtmp://host:1935/<key>`.
+- Default Egress output dir is uid 1001; `data/recordings` needs to be writable (`chmod 777` locally).
+- MediaMTX 1.21 HLS index 404s even while RTMP is up. Proof is `ffprobe` on the RTMP URL + the Egress MP4.
+- Host Docker networking is the Linux ICE story; Docker Desktop needs a different compose.
+- Latest `nnnoiseless` / `wasm-pack` on crates.io want Rust 1.85+ / edition 2024. This repo vendors nnnoiseless 0.5.1 (BSD-3) and builds with `wasm-bindgen-cli` 0.2.100 + rustc 1.83.
+- `lk --no-subscribe` is not a flag on livekit-cli 2.20 (default is already no auto-subscribe).
+
+What next (called out by the product-owner Rust/WASM direction, not done in v0):
+
+- **wgpu** compositor inside the crate (today WebGPU is TypeScript + WASM layout rects).
+- Audio **VAD-driven** UI (worklet already posts VAD; studio chrome doesn’t show it yet).
+- **workers-rs** for hot Worker endpoints (`/api/token`, live start) instead of Hono/TS.
+- Dedicated Rust **RTMP fan-out** if we leave Cloudflare Stream unused in production (`casthop-post` is inspect/remux only).
+- Background blur / WebGPU camera effects.
+- Destination chat ingest, R2 replay viewer, TURN, email auth.
+
+## 6. Silent-audio check (H3)
+
+Egress captures the compositor tab. Audio tracks must be attached unmuted on `/egress-template` or the AAC stream is digital silence. `ffprobe` showing an AAC track is not enough.
+
+```bash
+bash scripts/check-silent-audio.sh data/recordings/<file>.mp4
+```
+
+That runs `ffmpeg -af volumedetect` and fails if `mean_volume` is at or below −90 dB (typical of a silent AAC track). The 2026-11-25 recordings were captured before the template attached audio; re-run after this fix and store the volumedetect lines under `data/measure/silent-audio.txt`.
+
+CI asserts the template source attaches audio (`el.muted = false` on `Track.Kind.Audio`) so a regression cannot drop the attach path without failing `npm test`.
+
+Raw command output from `npm run measure` / `npm run bench:wasm` is stored under `data/measure/` (gitignored).

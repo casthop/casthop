@@ -251,8 +251,8 @@ function fillPixels(
   width: number,
   height: number,
 ): boolean | Promise<boolean> {
-  const VF = (globalThis as unknown as { VideoFrame?: new (src: HTMLVideoElement) => VideoFrame }).VideoFrame;
-  if (typeof VF !== "function") return fillFromCanvas(video, workCtx, dest, width, height);
+  const VF = typeof VideoFrame === "function" ? VideoFrame : undefined;
+  if (!VF) return fillFromCanvas(video, workCtx, dest, width, height);
   try {
     const vf = new VF(video);
     const opts = { format: "RGBA" as const };

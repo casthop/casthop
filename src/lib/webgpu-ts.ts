@@ -210,6 +210,11 @@ export async function drawWebGpuTs(
       gpu.layoutMode = mode;
     }
     const rects = gpu.layout;
+    for (let i = tiles.length; i < gpu.tiles.length; i++) {
+      const stale = gpu.tiles[i];
+      if (stale) dropTile(stale);
+      gpu.tiles[i] = null;
+    }
     gpu.ready.length = 0;
     for (let i = 0; i < tiles.length; i++) {
       const tile = tiles[i]!;

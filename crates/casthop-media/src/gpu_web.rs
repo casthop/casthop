@@ -239,6 +239,9 @@ fn draw_frame(inner: &mut GpuInner, sources: &js_sys::Array, mode: u32) -> bool 
             *slot = None;
         }
     }
+    for slot in inner.tiles.iter_mut().skip(n as usize) {
+        *slot = None;
+    }
 
     let Ok(frame) = inner.ctx.get_current_texture() else {
         return false;

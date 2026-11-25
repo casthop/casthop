@@ -61,6 +61,7 @@ test("webgpu-ts reuses per-tile buffers and destroys old textures", () => {
   assert.match(src, /rect: new Float32Array\(4\)/);
   assert.doesNotMatch(src, /new Float32Array\(\[/);
   assert.match(src, /writeBuffer\(slot\.rectBuf, 0, rect\)/);
+  assert.match(src, /for \(let i = tiles\.length; i < gpu\.tiles\.length; i\+\+\)/);
 });
 
 test("bench publishes results without as unknown as", () => {
@@ -88,6 +89,7 @@ test("rust webgpu path destroys the previous tile texture on resize", () => {
   const src = readFileSync(join(root, "crates/casthop-media/src/gpu_web.rs"), "utf8");
   assert.match(src, /if let Some\(old\) = inner\.tiles\[i\]\.take\(\)/);
   assert.match(src, /old\.texture\.destroy\(\)/);
+  assert.match(src, /inner\.tiles\.iter_mut\(\)\.skip\(n as usize\)/);
 });
 
 test("gpu compose checks texture and buffer device limits", () => {

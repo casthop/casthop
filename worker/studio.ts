@@ -391,6 +391,9 @@ export class StudioDurableObject {
       listed = parseEgressList(await listEgressRaw(this.env, state.id));
     } catch (err) {
       console.warn("list egress on start", err);
+      const fresh = await this.getState();
+      if (!fresh?.wantLive) return json(publicState(fresh ?? state, { includeUrls: true }));
+      return this.markRetry(fresh, "Could not check egress");
     }
     const afterList = await this.getState();
     if (!afterList?.wantLive) return json(publicState(afterList ?? state, { includeUrls: true }));

@@ -29,6 +29,7 @@ let listedEgress: unknown = { items: [] };
 let listEgressHold: Promise<void> | null = null;
 let listEgressStarted: (() => void) | null = null;
 let holdNextListEgress = false;
+let listEgressFail = false;
 const realFetch = globalThis.fetch;
 
 function fakeCtx(): DurableObjectState {
@@ -146,6 +147,7 @@ before(() => {
       return new Response("{}", { status: 200 });
     }
     if (url.includes("ListEgress")) {
+      if (listEgressFail) return new Response("boom", { status: 500 });
       listEgressStarted?.();
       if (holdNextListEgress && listEgressHold) {
         holdNextListEgress = false;
@@ -366,6 +368,35 @@ test("stop during go-live list does not start egress", async () => {
     listEgressHold = null;
     listEgressStarted = null;
     holdNextListEgress = false;
+  }
+});
+
+test("list egress failure does not start a second compositor", async () => {
+  listedParticipants = [{ identity: "host" }];
+  listedEgress = { items: [] };
+  const env = makeEnv();
+  const { id, hostKey } = await createStudio(env);
+  const starts = egressStarts;
+  listEgressFail = true;
+  try {
+    const go = await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      env,
+    );
+    assert.equal(go.status, 200, await go.clone().text());
+    const waiting = await json<PublicStudio>(go);
+    assert.equal(waiting.live, false);
+    assert.equal(waiting.livePhase, "retrying");
+    assert.equal(egressStarts, starts);
+    listEgressFail = false;
+    const viaWorker = await env.STUDIO.get(env.STUDIO.idFromName(id)).fetch(
+      new Request(`https://studio/${id}?action=watch`, { method: "POST", body: "{}" }),
+    );
+    assert.equal(viaWorker.status, 200, await viaWorker.clone().text());
+    assert.equal(egressStarts, starts + 1);
+  } finally {
+    listEgressFail = false;
   }
 });
 

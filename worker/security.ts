@@ -19,6 +19,7 @@ export const CHAT_WINDOW_MS = 10_000;
 export const CHAT_MAX = 8;
 export const SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 export const SESSION_ROTATE_MS = 60 * 60 * 1000;
+export const SESSION_PREV_GRACE_MS = 60_000;
 export const MAGIC_TTL_MS = 15 * 60 * 1000;
 export const OAUTH_TTL_MS = 10 * 60 * 1000;
 
@@ -58,6 +59,10 @@ export function claimIsHeld(startedAt: number | undefined, now = Date.now()): bo
 
 export function isDefaultDevSecret(env: Pick<Env, "LIVEKIT_API_KEY" | "LIVEKIT_API_SECRET">): boolean {
   return env.LIVEKIT_API_KEY === DEV_API_KEY || env.LIVEKIT_API_SECRET === DEV_API_SECRET;
+}
+
+export function allowDevLogin(env: Pick<Env, "CASTHOP_ALLOW_DEV_KEYS" | "LIVEKIT_API_KEY" | "LIVEKIT_API_SECRET">): boolean {
+  return env.CASTHOP_ALLOW_DEV_KEYS === "1" || isDefaultDevSecret(env);
 }
 
 /** Refuse the published local keypair unless LiveKit is on loopback (or CASTHOP_ALLOW_DEV_KEYS=1). */
@@ -254,7 +259,12 @@ export function cookieValue(header: string | undefined, name: string): string {
   if (!header) return "";
   for (const part of header.split(";")) {
     const [k, ...rest] = part.trim().split("=");
-    if (k === name) return decodeURIComponent(rest.join("="));
+    if (k !== name) continue;
+    try {
+      return decodeURIComponent(rest.join("="));
+    } catch {
+      return "";
+    }
   }
   return "";
 }

@@ -136,6 +136,27 @@ export class FakeD1 implements D1Database {
       this.tables.set("sessions", next);
       return { results: [], changes: 1 };
     }
+    if (q === norm(Q.deleteExpiredMagic)) {
+      this.tables.set(
+        "magic_links",
+        this.rows("magic_links").filter((r) => Number(r.expires_at) >= Number(binds[0])),
+      );
+      return { results: [], changes: 1 };
+    }
+    if (q === norm(Q.deleteExpiredOauth)) {
+      this.tables.set(
+        "oauth_states",
+        this.rows("oauth_states").filter((r) => Number(r.expires_at) >= Number(binds[0])),
+      );
+      return { results: [], changes: 1 };
+    }
+    if (q === norm(Q.deleteStaleRates)) {
+      this.tables.set(
+        "rate_limits",
+        this.rows("rate_limits").filter((r) => Number(r.window_start) >= Number(binds[0])),
+      );
+      return { results: [], changes: 1 };
+    }
     if (q === norm(Q.rotateSession)) {
       const [token_hash, prev_token_hash, rotated_at, expires_at, id] = binds;
       for (const r of this.rows("sessions")) {
@@ -158,7 +179,9 @@ export class FakeD1 implements D1Database {
     }
     if (q === norm(Q.consumeMagic)) {
       const [consumed_at, token_hash] = binds;
-      for (const r of this.rows("magic_links")) if (r.token_hash === token_hash) r.consumed_at = consumed_at;
+      const row = this.rows("magic_links").find((r) => r.token_hash === token_hash && r.consumed_at == null);
+      if (!row) return { results: [], changes: 0 };
+      row.consumed_at = consumed_at;
       return { results: [], changes: 1 };
     }
     if (q === norm(Q.insertOauth)) {

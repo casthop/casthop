@@ -1,4 +1,5 @@
 import type { Account, MemberRole, StudioMember, StudioRecord } from "./types";
+import { SIGNIN_WINDOW_MS } from "./security";
 
 export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS accounts (
@@ -70,10 +71,13 @@ export const Q = {
   sessionByToken: "SELECT * FROM sessions WHERE token_hash = ? OR prev_token_hash = ?",
   deleteSession: "DELETE FROM sessions WHERE id = ?",
   deleteExpiredSessions: "DELETE FROM sessions WHERE expires_at < ?",
+  deleteExpiredMagic: "DELETE FROM magic_links WHERE expires_at < ?",
+  deleteExpiredOauth: "DELETE FROM oauth_states WHERE expires_at < ?",
+  deleteStaleRates: "DELETE FROM rate_limits WHERE window_start < ?",
   rotateSession: "UPDATE sessions SET token_hash = ?, prev_token_hash = ?, rotated_at = ?, expires_at = ? WHERE id = ?",
   insertMagic: "INSERT INTO magic_links (token_hash, email, expires_at, consumed_at, created_at) VALUES (?, ?, ?, NULL, ?)",
   magicByHash: "SELECT token_hash, email, expires_at, consumed_at, created_at FROM magic_links WHERE token_hash = ?",
-  consumeMagic: "UPDATE magic_links SET consumed_at = ? WHERE token_hash = ?",
+  consumeMagic: "UPDATE magic_links SET consumed_at = ? WHERE token_hash = ? AND consumed_at IS NULL",
   insertOauth: "INSERT INTO oauth_states (state, expires_at) VALUES (?, ?)",
   oauthByState: "SELECT state, expires_at FROM oauth_states WHERE state = ?",
   deleteOauth: "DELETE FROM oauth_states WHERE state = ?",
@@ -96,6 +100,8 @@ export const Q = {
 } as const;
 
 const migrated = new WeakSet<object>();
+const lastSweep = new WeakMap<object, number>();
+const SWEEP_EVERY_MS = 60 * 60 * 1000;
 
 type AccountRow = {
   id: string;
@@ -134,14 +140,25 @@ function mapAccount(row: AccountRow): Account {
 }
 
 export async function ensureDb(db: D1Database): Promise<void> {
-  if (migrated.has(db)) return;
-  await db.batch(SCHEMA.map((sql) => db.prepare(sql)));
-  try {
-    await db.prepare("ALTER TABLE studios ADD COLUMN owner_id TEXT").run();
-  } catch {
-    /* already present */
+  if (!migrated.has(db)) {
+    await db.batch(SCHEMA.map((sql) => db.prepare(sql)));
+    try {
+      await db.prepare("ALTER TABLE studios ADD COLUMN owner_id TEXT").run();
+    } catch {
+      /* already present */
+    }
+    migrated.add(db);
   }
-  migrated.add(db);
+  const now = Date.now();
+  const prevSweep = lastSweep.get(db) ?? 0;
+  if (prevSweep && now - prevSweep < SWEEP_EVERY_MS) return;
+  lastSweep.set(db, now);
+  await db.batch([
+    db.prepare(Q.deleteExpiredSessions).bind(now),
+    db.prepare(Q.deleteExpiredMagic).bind(now),
+    db.prepare(Q.deleteExpiredOauth).bind(now),
+    db.prepare(Q.deleteStaleRates).bind(now - SIGNIN_WINDOW_MS),
+  ]);
 }
 
 export async function first<T>(db: D1Database, sql: string, ...bind: unknown[]): Promise<T | null> {
@@ -223,8 +240,9 @@ export async function magicByHash(db: D1Database, tokenHash: string): Promise<Ma
   return first<MagicRow>(db, Q.magicByHash, tokenHash);
 }
 
-export async function consumeMagic(db: D1Database, tokenHash: string, at: number): Promise<void> {
-  await run(db, Q.consumeMagic, at, tokenHash);
+export async function consumeMagic(db: D1Database, tokenHash: string, at: number): Promise<boolean> {
+  const res = await db.prepare(Q.consumeMagic).bind(at, tokenHash).run();
+  return (res.meta.changes ?? 0) > 0;
 }
 
 export async function insertOauth(db: D1Database, state: string, expiresAt: number): Promise<void> {

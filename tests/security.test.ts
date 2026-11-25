@@ -6,6 +6,7 @@ import { test } from "node:test";
 import {
   CLAIM_STALE_MS,
   claimIsHeld,
+  cookieValue,
   DEV_API_KEY,
   DEV_API_SECRET,
   devKeyGuardError,
@@ -43,6 +44,11 @@ function state(url: string): StudioState {
     createdAt: 1,
   };
 }
+
+test("cookieValue ignores malformed percent-encoding", () => {
+  assert.equal(cookieValue("casthop_session=%E0%A4%A", "casthop_session"), "");
+  assert.equal(cookieValue("casthop_session=ok%20token", "casthop_session"), "ok token");
+});
 
 test("maskRtmpUrl keeps only the last four characters of the key", () => {
   assert.equal(maskRtmpUrl(secretUrl), "rtmp://…/-key");

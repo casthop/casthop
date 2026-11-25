@@ -1,10 +1,11 @@
 import type { Env } from "./types";
+import { allowDevLogin } from "./security";
 
 export type MailSender = {
   send(opts: { to: string; subject: string; text: string }): Promise<void>;
 };
 
-/** Default: print the link. Optional MAIL_WEBHOOK_URL POSTs JSON so a self-hosted sender can plug in. */
+/** Optional MAIL_WEBHOOK_URL POSTs JSON so a self-hosted sender can plug in. Console only in local/dev. */
 export function mailerFor(env: Env): MailSender {
   const webhook = env.MAIL_WEBHOOK_URL?.trim();
   if (webhook) {
@@ -22,7 +23,11 @@ export function mailerFor(env: Env): MailSender {
   }
   return {
     async send(opts) {
-      console.log(`[casthop mail] to=${opts.to}\n${opts.subject}\n${opts.text}`);
+      if (allowDevLogin(env)) {
+        console.log(`[casthop mail] to=${opts.to}\n${opts.subject}\n${opts.text}`);
+        return;
+      }
+      console.warn("[casthop] no mail sender configured; set MAIL_WEBHOOK_URL");
     },
   };
 }

@@ -12,6 +12,10 @@ const X = "rtmp://ingest.example.com/live/super-secret-x-key";
 let egressStarts = 0;
 let egressStops = 0;
 const realFetch = globalThis.fetch;
+let githubEmails: { email: string; primary?: boolean; verified?: boolean }[] = [
+  { email: "octo@example.com", primary: true, verified: true },
+];
+let githubUserEmail: string | null = null;
 
 function jwtPayload(token: string): { sub: string; name: string; video: Record<string, unknown> } {
   const payload = token.split(".")[1];
@@ -140,10 +144,10 @@ before(() => {
       return new Response(JSON.stringify({ access_token: "gho_test" }), { status: 200 });
     }
     if (url.includes("api.github.com/user/emails")) {
-      return new Response(JSON.stringify([{ email: "octo@example.com", primary: true, verified: true }]), { status: 200 });
+      return new Response(JSON.stringify(githubEmails), { status: 200 });
     }
     if (url.includes("api.github.com/user")) {
-      return new Response(JSON.stringify({ id: 99, login: "octo", name: "Octo Cat", email: null }), { status: 200 });
+      return new Response(JSON.stringify({ id: 99, login: "octo", name: "Octo Cat", email: githubUserEmail }), { status: 200 });
     }
     if (url.includes("StartRoomCompositeEgress")) {
       egressStarts += 1;
@@ -816,7 +820,7 @@ test("sign-in is rate limited per IP", async () => {
   assert.equal(last, 429);
 });
 
-test("sessions rotate and the previous cookie still works once", async () => {
+test("sessions rotate and the previous cookie still works within the grace window", async () => {
   const env = makeEnv();
   const cookie = await signIn(env, "ada@example.com");
   env._db.setSessionRotatedAt(1);
@@ -829,6 +833,30 @@ test("sessions rotate and the previous cookie still works once", async () => {
   assert.equal(oldStill.status, 200);
   const next = await app.request("https://casthop.test/api/auth/me", { headers: { Cookie: rotated } }, env);
   assert.equal(next.status, 200);
+});
+
+test("previous cookie is rejected after the rotation grace window; current cookie still works", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "ada@example.com");
+  env._db.setSessionRotatedAt(1);
+  const me = await app.request("https://casthop.test/api/auth/me", { headers: { Cookie: cookie } }, env);
+  assert.equal(me.status, 200);
+  const rotated = cookieNamed(me, SESSION_COOKIE);
+  env._db.setSessionRotatedAt(Date.now() - 61_000);
+  const stalePrev = await app.request("https://casthop.test/api/auth/me", { headers: { Cookie: cookie } }, env);
+  assert.equal(stalePrev.status, 401);
+  const current = await app.request("https://casthop.test/api/auth/me", { headers: { Cookie: rotated } }, env);
+  assert.equal(current.status, 200);
+});
+
+test("malformed session cookie does not 500", async () => {
+  const env = makeEnv();
+  const res = await app.request(
+    "https://casthop.test/api/auth/me",
+    { headers: { Cookie: "casthop_session=%E0%A4%A" } },
+    env,
+  );
+  assert.equal(res.status, 401);
 });
 
 test("expired session cannot host, and Set-Cookie clears on /me", async () => {
@@ -848,6 +876,39 @@ test("expired session cannot host, and Set-Cookie clears on /me", async () => {
     env,
   );
   assert.equal(live.status, 403);
+});
+
+test("GitHub OAuth ignores unverified emails and cannot steal an existing account", async () => {
+  const env = makeEnv({ GITHUB_CLIENT_ID: "client", GITHUB_CLIENT_SECRET: "secret" });
+  const victim = await signIn(env, "victim@example.com");
+  const meBefore = await json<{ email: string; githubId: string | null }>(
+    await app.request("https://casthop.test/api/auth/me", { headers: { Cookie: victim } }, env),
+  );
+  assert.equal(meBefore.email, "victim@example.com");
+  githubEmails = [{ email: "victim@example.com", primary: true, verified: false }];
+  githubUserEmail = "victim@example.com";
+  try {
+    const start = await app.request("https://casthop.test/api/auth/github", { redirect: "manual" }, env);
+    const location = start.headers.get("location") ?? "";
+    const state = new URL(location).searchParams.get("state") ?? "";
+    const oauthCookie = cookieNamed(start, "casthop_oauth");
+    const callback = await app.request(
+      `https://casthop.test/api/auth/github/callback?code=abc&state=${state}`,
+      { redirect: "manual", headers: { Cookie: oauthCookie } },
+      env,
+    );
+    assert.equal(callback.status, 302);
+    assert.equal(callback.headers.get("location"), "/?auth=invalid");
+    assert.equal(cookieNamed(callback, SESSION_COOKIE), "");
+    const still = await json<{ email: string; githubId: string | null }>(
+      await app.request("https://casthop.test/api/auth/me", { headers: { Cookie: victim } }, env),
+    );
+    assert.equal(still.email, "victim@example.com");
+    assert.equal(still.githubId, null);
+  } finally {
+    githubEmails = [{ email: "octo@example.com", primary: true, verified: true }];
+    githubUserEmail = null;
+  }
 });
 
 test("GitHub OAuth is optional and creates a session when configured", async () => {
@@ -870,6 +931,71 @@ test("GitHub OAuth is optional and creates a session when configured", async () 
   );
   assert.equal(me.email, "octo@example.com");
   assert.equal(me.name, "Octo Cat");
+});
+
+test("magic link is not logged or returned outside local/dev", async () => {
+  const logs: string[] = [];
+  const origLog = console.log;
+  const origWarn = console.warn;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map(String).join(" "));
+  };
+  console.warn = () => undefined;
+  try {
+    const env = makeEnv({
+      LIVEKIT_API_KEY: "prodkey",
+      LIVEKIT_API_SECRET: "prodsecretprodsecretprodsecret",
+      CASTHOP_ALLOW_DEV_KEYS: "0",
+    });
+    const sent = await json<{ ok: boolean; devLogin?: string }>(
+      await app.request(
+        "https://casthop.test/api/auth/magic-link",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: "prod@example.com" }),
+        },
+        env,
+      ),
+    );
+    assert.equal(sent.ok, true);
+    assert.equal(sent.devLogin, undefined);
+    assert.equal(
+      logs.some((line) => line.includes("casthop mail")),
+      false,
+    );
+  } finally {
+    console.log = origLog;
+    console.warn = origWarn;
+  }
+});
+
+test("ensureDb sweeps expired sessions, magic links, oauth states, and stale rate rows", async () => {
+  const env = makeEnv();
+  env._db.rows("sessions").push({
+    id: "s1",
+    account_id: "a1",
+    token_hash: "h",
+    prev_token_hash: null,
+    expires_at: 1,
+    created_at: 1,
+    rotated_at: 1,
+  });
+  env._db.rows("magic_links").push({
+    token_hash: "m1",
+    email: "old@example.com",
+    expires_at: 1,
+    consumed_at: null,
+    created_at: 1,
+  });
+  env._db.rows("oauth_states").push({ state: "stale", expires_at: 1 });
+  env._db.rows("rate_limits").push({ key: "ip:1.1.1.1", count: 9, window_start: 1 });
+  const res = await app.request("https://casthop.test/api/auth/me", {}, env);
+  assert.equal(res.status, 401);
+  assert.equal(env._db.rows("sessions").length, 0);
+  assert.equal(env._db.rows("magic_links").length, 0);
+  assert.equal(env._db.rows("oauth_states").length, 0);
+  assert.equal(env._db.rows("rate_limits").length, 0);
 });
 
 test("magic link is single-use", async () => {

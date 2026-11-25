@@ -10,6 +10,8 @@ import {
   SIGNIN_WINDOW_MS,
   SIGNIN_IP_MAX,
   SIGNIN_EMAIL_MAX,
+  SESSION_PREV_GRACE_MS,
+  allowDevLogin,
   asEmail,
   asName,
   clearCookie,
@@ -17,7 +19,6 @@ import {
   cookieValue,
   hostIdentityFor,
   hostKeyFor,
-  isDefaultDevSecret,
   isSecureRequest,
   nameFromEmail,
   randomId,
@@ -59,10 +60,6 @@ export function githubConfigured(env: Env): boolean {
   return Boolean(env.GITHUB_CLIENT_ID?.trim() && env.GITHUB_CLIENT_SECRET?.trim());
 }
 
-export function allowDevLogin(env: Env): boolean {
-  return env.CASTHOP_ALLOW_DEV_KEYS === "1" || isDefaultDevSecret(env);
-}
-
 export async function loadSession(c: AppCtx): Promise<Authed | null> {
   await ensureDb(c.env.DB);
   const token = cookieValue(c.req.header("Cookie"), SESSION_COOKIE);
@@ -72,6 +69,10 @@ export async function loadSession(c: AppCtx): Promise<Authed | null> {
   const now = Date.now();
   if (!row || row.expires_at < now) {
     if (row) await deleteSession(c.env.DB, row.id);
+    return null;
+  }
+  const presentedPrev = hash === row.prev_token_hash;
+  if (presentedPrev && now - row.rotated_at > SESSION_PREV_GRACE_MS) {
     return null;
   }
   const account = await accountById(c.env.DB, row.account_id);
@@ -201,8 +202,9 @@ export async function consumeMagicToken(c: AppCtx, token: string): Promise<Accou
   const tokenHash = await sha256hex(token);
   const row = await magicByHash(c.env.DB, tokenHash);
   const now = Date.now();
-  if (!row || row.consumed_at || row.expires_at < now) return null;
-  await consumeMagic(c.env.DB, tokenHash, now);
+  if (!row || row.expires_at < now) return null;
+  const claimed = await consumeMagic(c.env.DB, tokenHash, now);
+  if (!claimed) return null;
   return findOrCreateEmailAccount(c.env, row.email);
 }
 
@@ -255,15 +257,14 @@ export async function finishGithub(c: AppCtx, code: string, state: string): Prom
   });
   const user = (await userRes.json().catch(() => ({}))) as { id?: number; login?: string; name?: string; email?: string | null };
   if (!user.id) return null;
-  let email = asEmail(user.email);
-  if (!email) {
-    const emailsRes = await fetch("https://api.github.com/user/emails", {
-      headers: { Authorization: `Bearer ${tokenBody.access_token}`, Accept: "application/json", "User-Agent": "casthop" },
-    });
-    const emails = (await emailsRes.json().catch(() => [])) as { email?: string; primary?: boolean; verified?: boolean }[];
-    const primary = emails.find((e) => e.primary && e.verified) ?? emails.find((e) => e.verified) ?? emails[0];
-    email = asEmail(primary?.email);
-  }
+  const emailsRes = await fetch("https://api.github.com/user/emails", {
+    headers: { Authorization: `Bearer ${tokenBody.access_token}`, Accept: "application/json", "User-Agent": "casthop" },
+  });
+  const emailsRaw = (await emailsRes.json().catch(() => [])) as { email?: string; primary?: boolean; verified?: boolean }[];
+  const emails = Array.isArray(emailsRaw) ? emailsRaw : [];
+  const primary = emails.find((e) => e.primary && e.verified) ?? emails.find((e) => e.verified);
+  const email = asEmail(primary?.email);
+  if (!email) return null;
   return findOrCreateGithubAccount(c.env, {
     id: String(user.id),
     email,

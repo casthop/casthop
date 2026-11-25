@@ -11,7 +11,7 @@
 }
 .hv *, .hv *::before, .hv *::after { box-sizing: border-box; }
 html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
-.hv h1, .hv h2, .hv h3, .hv p { margin: 0; }
+:where(.hv) h1, :where(.hv) h2, :where(.hv) h3, :where(.hv) p { margin: 0; }
 :where(.hv) a { color: inherit; }
 .hv :focus-visible { outline: 2px solid #8aa4ff; outline-offset: 3px; border-radius: 4px; }
 .hv-skip { position: absolute; left: -999px; top: 0.5rem; background: #fff; color: #000; padding: 0.5rem 1rem; z-index: 100; }
@@ -34,7 +34,7 @@ html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
 .hv-btn-quiet { padding: 0.4rem 0.9rem; border: 1px solid #2b2e38; color: var(--fg); }
 .hv-btn-quiet:hover, .hv-btn-outline:hover { background: #14161c; border-color: #454957; }
 .hv-btn-outline { border: 1px solid #373a46; color: var(--fg); }
-.hv-link { color: var(--fg); text-decoration: none; border-bottom: 1px solid #454957; padding-bottom: 1px; transition: border-color 0.2s; }
+.hv-link { display: inline-block; color: var(--fg); text-decoration: none; border-bottom: 1px solid #454957; padding-bottom: 1px; transition: border-color 0.2s; }
 .hv-link:hover { border-color: var(--fg); }
 .hv-cta { display: flex; align-items: center; gap: 1.75rem; flex-wrap: wrap; }
 
@@ -49,8 +49,8 @@ html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
 .hv-display { color: var(--fg); font-family: var(--display); font-weight: 600; font-size: clamp(2.5rem, 6.2vw, 4.6rem); line-height: 1.03; letter-spacing: -0.035em; max-width: 16ch; }
 .hv-display-sm { font-size: clamp(2.1rem, 4.6vw, 3.3rem); max-width: 20ch; }
 /* Breathing room: headline → description → buttons → screenshot. */
-.hv-lede { max-width: 34rem; font-size: 1.15rem; color: #c9ccd4; margin: 2.25rem 0 2.75rem; }
-.hv-shot-wrap { position: relative; max-width: 68rem; margin: 5.25rem auto 0; padding: 0 1.5rem 4.5rem; }
+.hv-lede { max-width: 34rem; font-size: 1.15rem; line-height: 1.6; color: #c9ccd4; margin: 2rem 0 2.5rem; }
+.hv-shot-wrap { position: relative; max-width: 68rem; margin: 5.5rem auto 0; padding: 0 1.5rem 4.5rem; }
 .hv-shot-stage { transform-origin: 50% 100%; }
 .hv-shot { margin: 0; border-radius: 16px; border: 1px solid #2a2d38; overflow: hidden; background: #121316; box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.9); }
 .hv-shot img { display: block; width: 100%; height: auto; }
@@ -91,7 +91,7 @@ html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
 .hv-feature { display: grid; grid-template-columns: 5rem 1fr; gap: 1rem; padding: 3rem 0; border-top: 1px solid var(--line); }
 .hv-feature-n { font-family: var(--mono); font-size: 0.85rem; padding-top: 0.6rem; color: #8aa4ff; }
 .hv-feature-t { font-family: var(--display); font-weight: 600; color: var(--fg); font-size: clamp(1.7rem, 3.6vw, 2.4rem); line-height: 1.12; letter-spacing: -0.03em; margin-bottom: 1rem; }
-.hv-feature-b { max-width: 38rem; margin-bottom: 1.25rem; }
+.hv-feature-b { max-width: 38rem; margin-bottom: 1rem; line-height: 1.6; }
 .hv-oss { padding: 6rem 1.5rem; border-top: 1px solid var(--line); }
 .hv-oss .hv-display { margin-bottom: 2.5rem; }
 .hv-oss-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 3rem; margin-bottom: 2.5rem; max-width: 56rem; }
@@ -136,8 +136,8 @@ html.js-io .hv-shot-stage.is-in { transform: perspective(1600px) rotateX(0deg) s
 
 @media (max-width: 800px) {
   .hv-hero { padding-top: 3.25rem; }
-  .hv-lede { margin: 1.85rem 0 2.25rem; }
-  .hv-shot-wrap { margin-top: 4rem; }
+  .hv-lede { margin: 1.75rem 0 2.25rem; }
+  .hv-shot-wrap { margin-top: 4.5rem; }
   .hv-oss-cols, .hv-footer-in { grid-template-columns: 1fr; gap: 1.25rem; }
   .hv-feature { grid-template-columns: 1fr; gap: 0.25rem; }
   .hv-nav-links { gap: 1rem; }

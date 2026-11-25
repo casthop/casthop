@@ -245,11 +245,11 @@ fn verify_hs256(api_key: &str, api_secret: &str, token: &str) -> Option<serde_js
     }
     let exp = claims.get("exp").and_then(serde_json::Value::as_u64)?;
     let now = now_secs();
-    if exp + CLOCK_SKEW_SEC < now {
+    if exp.saturating_add(CLOCK_SKEW_SEC) < now {
         return None;
     }
     if let Some(nbf) = claims.get("nbf").and_then(serde_json::Value::as_u64) {
-        if nbf > now + CLOCK_SKEW_SEC {
+        if nbf > now.saturating_add(CLOCK_SKEW_SEC) {
             return None;
         }
     }
@@ -376,5 +376,32 @@ mod tests {
         assert!(!sig.contains('+'));
         assert!(!sig.contains('/'));
         assert!(!sig.contains('='));
+    }
+
+    #[test]
+    fn extreme_exp_and_nbf_do_not_overflow() {
+        let far = serde_json::json!({
+            "iss": KEY,
+            "sub": "host",
+            "name": "Ada",
+            "nbf": 0,
+            "exp": u64::MAX,
+            "video": { "room": "studio-a" },
+        });
+        let token = sign(KEY, SECRET, &far).expect("sign");
+        let claims = verify_participant_token(KEY, SECRET, Some(&format!("Bearer {token}")))
+            .expect("huge exp is still valid");
+        assert_eq!(claims.identity, "host");
+
+        let future = serde_json::json!({
+            "iss": KEY,
+            "sub": "host",
+            "name": "Ada",
+            "nbf": u64::MAX,
+            "exp": u64::MAX,
+            "video": { "room": "studio-a" },
+        });
+        let token = sign(KEY, SECRET, &future).expect("sign");
+        assert!(verify_participant_token(KEY, SECRET, Some(&format!("Bearer {token}"))).is_none());
     }
 }

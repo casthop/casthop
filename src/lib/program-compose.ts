@@ -92,7 +92,11 @@ async function startWorker(opts: {
     },
     transfer,
   );
-  const backend = await waitReady(worker, 4000);
+  const backend = await waitReady(worker, 4000).catch((err: unknown) => {
+    worker.terminate();
+    outputTrack?.stop();
+    throw err;
+  });
   post(worker, { type: "meta", mode: opts.mode, title: opts.title, subtitle: opts.subtitle });
 
   const processors = new Map<string, MediaStreamTrackProcessor>();

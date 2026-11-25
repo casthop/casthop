@@ -62,6 +62,13 @@ test("comparePerf fails only on gated metrics beyond 15%", () => {
   assert.equal(failFrame.ok, false);
   const failTasks = comparePerf({ ...sample, longTaskTotalMs: 400 }, baseline);
   assert.equal(failTasks.ok, false);
+  const gha = comparePerf({ ...sample, p95FrameMs: 13, longTaskTotalMs: 121 }, {
+    ...baseline,
+    p50FrameMs: 9,
+    p95FrameMs: 13,
+    longTaskTotalMs: 120,
+  });
+  assert.equal(gha.ok, true);
   const table = formatPerfTable(ok.rows);
   assert.match(table, /p95 frame ms/);
   assert.match(table, /long task total ms/);
@@ -94,6 +101,13 @@ test("offthread compose uses OffscreenCanvas and VideoFrame transfer", () => {
   assert.match(worker, /OffscreenCanvas/);
   assert.match(worker, /VideoFrame/);
   assert.match(worker, /readable\.getReader/);
+  assert.match(worker, /!order.includes\(id\)/);
+  assert.match(worker, /reader\.cancel/);
+  assert.match(worker, /OUTPUT_INTERVAL_MS/);
+  assert.match(worker, /requestAnimationFrame/);
+  assert.match(worker, /setTimeout\(run, 16\)/);
+  assert.match(program, /worker\.terminate\(\)/);
+  assert.match(program, /outputTrack\?\.stop\(\)/);
   assert.match(egress, /startProgramCompose/);
   assert.match(egress, /el\.muted = false/);
 });

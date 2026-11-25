@@ -14,7 +14,6 @@ function makeTiles(count: number): { tracks: MediaStreamTrack[]; stop: () => voi
   });
   const ctxs = canvases.map((c) => c.getContext("2d")!);
   let t = 0;
-  let raf = 0;
   const draw = () => {
     t += 1;
     ctxs.forEach((ctx, i) => {
@@ -26,9 +25,9 @@ function makeTiles(count: number): { tracks: MediaStreamTrack[]; stop: () => voi
       ctx.font = "64px sans-serif";
       ctx.fillText(String(i + 1), 40, 90);
     });
-    raf = requestAnimationFrame(draw);
   };
   draw();
+  const timer = window.setInterval(draw, 33);
   const streams = canvases.map((c) => c.captureStream(30));
   const tracks = streams.map((s) => {
     const track = s.getVideoTracks()[0];
@@ -38,7 +37,7 @@ function makeTiles(count: number): { tracks: MediaStreamTrack[]; stop: () => voi
   return {
     tracks,
     stop: () => {
-      cancelAnimationFrame(raf);
+      window.clearInterval(timer);
       tracks.forEach((track) => track.stop());
       streams.forEach((s) => s.getTracks().forEach((tr) => tr.stop()));
     },
@@ -66,9 +65,7 @@ export function Perf() {
     window.__PERF__ = undefined;
     window.__PERF_RUNNING__ = { tiles, seconds, backend };
 
-    const longObs = observe("longtask", (entry) => {
-      longTasks.push(entry.duration);
-    });
+    let longObs: PerformanceObserver | null = null;
     const onClick = (ev: MouseEvent) => {
       const start = ev.timeStamp;
       requestAnimationFrame(() => {
@@ -95,7 +92,15 @@ export function Perf() {
       setStatus(`running · ${compose.thread} · ${tiles} tiles`);
       window.__PERF_RUNNING__ = { tiles, seconds, backend, thread: compose.thread };
 
-      await sleep(seconds * 1000);
+      await sleep(3000);
+      if (stopped) {
+        compose.stop();
+        return;
+      }
+      longObs = observe("longtask", (entry) => {
+        longTasks.push(entry.duration);
+      });
+      await sleep(Math.max(1000, seconds * 1000 - 3000));
       if (stopped) {
         compose.stop();
         return;
@@ -151,7 +156,7 @@ function observe(type: string, onEntry: (entry: PerformanceEntry) => void): Perf
     const obs = new PerformanceObserver((list) => {
       list.getEntries().forEach(onEntry);
     });
-    obs.observe({ type, buffered: true });
+    obs.observe({ type, buffered: false });
     return obs;
   } catch {
     return null;

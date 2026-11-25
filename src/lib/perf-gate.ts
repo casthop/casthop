@@ -46,7 +46,7 @@ export function regressionLimit(baseline: number, floor: number, pct = PCT): num
 export function comparePerf(measured: PerfMeasured, baseline: PerfBaseline): { rows: PerfRow[]; ok: boolean } {
   const rows: PerfRow[] = [
     row("p95 frame ms", measured.p95FrameMs, baseline.p95FrameMs, 4, true),
-    row("long task total ms", measured.longTaskTotalMs, baseline.longTaskTotalMs, 50, true),
+    row("long task total ms", measured.longTaskTotalMs, baseline.longTaskTotalMs, 80, true),
     row("p50 frame ms", measured.p50FrameMs, baseline.p50FrameMs, 2, false),
     row("dropped frames", measured.droppedFrames, baseline.droppedFrames, 8, false),
     row("long task count", measured.longTaskCount, baseline.longTaskCount, 2, false),

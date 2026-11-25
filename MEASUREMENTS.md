@@ -78,18 +78,18 @@ Takeaway: ship RNNoise in WASM because a JS gate is not the same filter. Do **no
 
 ## 7. Off-main-thread compose (this PR)
 
-`/internal/perf`, Chrome 157 headless `--disable-gpu`, 6 canvas tiles + banner overlay, 30 s after warmup. Same machine, same build; `?thread=main` vs default Worker.
+`/internal/perf`, 6 canvas tiles + banner overlay, 30 s after warmup. Local Chrome 157 `--disable-gpu` compared `?thread=main` vs Worker. GitHub Actions Chrome 158 is the CI baseline.
 
-| | Main thread (before) | Worker + OffscreenCanvas (after) |
-|---|---|---|
-| Compose p50 | **5.40 ms** | 7.60 ms |
-| Compose p95 | **7.20 ms** | 11.60 ms |
-| Produced frames | 1800 (~60 fps rAF) | 901 (~30 fps worker rAF) |
-| Dropped | 0 | 0 |
-| Long tasks | 0 ms | **0 ms** |
-| Input latency p95 (Tap while composing) | 17.72 ms | **15.81 ms** |
+| | Main thread (local) | Worker (local) | Worker (GHA, CI baseline) |
+|---|---|---|---|
+| Compose p50 | **5.40 ms** | 7.60 ms | 9 ms |
+| Compose p95 | **7.20 ms** | 11.60 ms | 13 ms |
+| Produced frames | 1800 (~60 fps rAF) | 901 (~30 fps worker rAF) | 900 |
+| Dropped | 0 | 0 | 0 |
+| Long tasks | 0 ms | **0 ms** | 121 ms (one load/warmup task) |
+| Input latency p95 (Tap while composing) | 17.72 ms | **15.81 ms** | 44.46 ms |
 
-Worker frame time is a bit higher (VideoFrame transfer + worker vsync). Compose is no longer on the UI thread. CI stores the worker numbers in `tests/perf-baseline.json` and fails if p95 frame time or long-task totals rise more than 15% (plus a small floor). Force main with `?thread=main`.
+Worker frame time is a bit higher (VideoFrame transfer + worker vsync). Compose is no longer on the UI thread. The OffscreenCanvas preview loop follows display vsync (~60 fps on a 60 Hz screen). The output track (`MediaStreamTrackGenerator` or `captureStream(30)`) stays at 30 fps, same as LiveKit egress tab capture. CI stores the GHA worker numbers in `tests/perf-baseline.json` and fails if p95 frame time or long-task totals rise more than 15% (plus a noise floor). The perf page starts the long-task observer after 3 s of compose so page-load compile does not count. Force main with `?thread=main`.
 
 ## 5. What broke, what’s hard, what next
 

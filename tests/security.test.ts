@@ -22,7 +22,7 @@ import type { Destination, Env, StudioState } from "../worker/types.ts";
 const secretUrl = "rtmp://ingest.example.com/live/super-secret-stream-key";
 
 function dest(url: string): Destination {
-  return { id: "youtube", kind: "youtube", label: "YouTube", detail: "", url, enabled: true };
+  return { id: "youtube", kind: "youtube", label: "YouTube", detail: "", url, enabled: true, status: "idle", error: null };
 }
 
 function state(url: string): StudioState {
@@ -33,6 +33,11 @@ function state(url: string): StudioState {
     layout: "side",
     live: true,
     liveStartedAt: 1,
+    wantLive: true,
+    liveError: null,
+    egressRetryCount: 0,
+    egressRetryAt: null,
+    emptySince: null,
     egressId: "eg_1",
     recordingPath: "/out/abc.mp4",
     bannerTitle: "Weekly",
@@ -65,6 +70,9 @@ test("publicState never serializes the stream key or recording path for guests",
   assert.equal(json.includes("/out/abc.mp4"), false);
   assert.equal(json.includes("eg_1"), false);
   assert.equal(json.includes("hostKeyHash"), false);
+  const pub = publicState(state(secretUrl), { includeUrls: false });
+  assert.equal(pub.livePhase, "live");
+  assert.equal(pub.destinations[0]?.status, "idle");
 });
 
 test("host publicState includes destination urls", () => {

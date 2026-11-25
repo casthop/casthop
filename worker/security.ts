@@ -1,4 +1,5 @@
-import type { Destination, Env, PublicDestination, PublicStudio, StudioState } from "./types";
+import { livePhaseOf } from "./egress";
+import type { Destination, DestStatus, Env, PublicDestination, PublicStudio, StudioState } from "./types";
 
 export const DEV_API_KEY = "devkey";
 export const DEV_API_SECRET = "casthop_dev_secret_not_for_production_use_32b";
@@ -79,6 +80,8 @@ export function publicDestinations(destinations: Destination[], includeUrls: boo
       enabled: d.enabled,
       hasKey: Boolean(d.url),
       urlMasked: maskRtmpUrl(d.url),
+      status: d.status ?? "idle",
+      error: d.error ?? null,
     };
     if (includeUrls) pub.url = d.url;
     return pub;
@@ -92,6 +95,8 @@ export function publicState(state: StudioState, opts: { includeUrls: boolean }):
     layout: state.layout,
     live: state.live,
     liveStartedAt: state.liveStartedAt,
+    liveError: state.liveError ?? null,
+    livePhase: livePhaseOf(state),
     egressId: opts.includeUrls ? state.egressId : null,
     bannerTitle: state.bannerTitle,
     bannerSubtitle: state.bannerSubtitle,
@@ -152,6 +157,8 @@ export function sanitizeDestinations(
       if (parsedUrl === null) return null;
       url = parsedUrl;
     }
+    const urlChanged = url !== (prev?.url || "");
+    const status: DestStatus = urlChanged ? "idle" : (prev?.status ?? "idle");
     out.push({
       id,
       kind,
@@ -159,6 +166,8 @@ export function sanitizeDestinations(
       detail: String(r.detail ?? prev?.detail ?? "").slice(0, 80),
       url,
       enabled: Boolean(r.enabled),
+      status: Boolean(r.enabled) && url ? status : "idle",
+      error: urlChanged ? null : (prev?.error ?? null),
     });
   }
   return out;

@@ -16,10 +16,10 @@ import {
   mintParticipantToken,
   randomId,
   sha256hex,
-  startRoomComposite,
-  stopEgress,
   updateParticipantPublish,
+  verifyLivekitWebhook,
 } from "./livekit";
+import { webhookRoomName } from "./egress";
 
 export { StudioDurableObject };
 
@@ -242,6 +242,24 @@ app.post("/api/studios/:id/chat", async (c) => {
   return new Response(res.body, { status: res.status, headers: res.headers });
 });
 
+app.post("/api/livekit/webhook", async (c) => {
+  const raw = await c.req.text();
+  if (!(await verifyLivekitWebhook(c.env, c.req.header("Authorization") ?? c.req.header("Authorize"), raw))) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  let body: Record<string, unknown>;
+  try {
+    body = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return c.json({ error: "invalid json" }, 400);
+  }
+  const room = webhookRoomName(body);
+  if (!room) return c.json({ ok: true });
+  const res = await doAction(c.env, room, "webhook", body);
+  if (res.status === 404) return c.json({ ok: true });
+  return new Response(res.body, { status: res.status, headers: res.headers });
+});
+
 app.post("/api/studios/:id/live", async (c) => {
   const id = c.req.param("id");
   const body = (await c.req.json().catch(() => ({}))) as { hostKey?: string; live?: boolean };
@@ -249,72 +267,11 @@ app.post("/api/studios/:id/live", async (c) => {
   if (!hostKey) return c.json({ error: "host key required" }, 403);
   if (typeof body.live !== "boolean") return c.json({ error: "live required" }, 400);
 
-  const snap = await doAction(c.env, id, "host-snapshot", { hostKey });
-  if (snap.status === 404) return c.json({ error: "Studio not found" }, 404);
-  if (!snap.ok) return c.json({ error: "host key required" }, 403);
-  const data = (await snap.json()) as {
-    state: PublicStudio;
-    secrets: { destinations: { url: string; enabled: boolean }[]; egressId: string | null };
-  };
-
-  if (!body.live) {
-    if (data.secrets.egressId) {
-      try {
-        await stopEgress(c.env, data.secrets.egressId);
-      } catch (err) {
-        console.warn("stop egress", err);
-      }
-    }
-    const res = await doAction(c.env, id, "live", { hostKey, live: false, egressId: null });
-    return new Response(res.body, { status: res.status, headers: res.headers });
-  }
-
-  if (data.state.live && data.secrets.egressId) {
-    return c.json(data.state);
-  }
-
-  const claim = await doAction(c.env, id, "claim-live", { hostKey });
-  if (claim.status === 409) return c.json({ error: "already starting" }, 409);
-  if (!claim.ok) return new Response(claim.body, { status: claim.status, headers: claim.headers });
-  const claimed = (await claim.json()) as {
-    already?: boolean;
-    secrets: { destinations: { url: string; enabled: boolean }[]; egressId: string | null };
-  };
-  if (claimed.already && claimed.secrets.egressId) {
-    return c.json(data.state);
-  }
-
-  const urls = claimed.secrets.destinations.filter((d) => d.enabled && d.url).map((d) => d.url);
-  const stamp = new Date().toISOString().replaceAll(":", "").replaceAll(".", "");
-  const filepath = `/out/${id}-${stamp}.mp4`;
-  try {
-    const { egressId } = await startRoomComposite({
-      env: c.env,
-      room: id,
-      layout: data.state.layout,
-      urls,
-      filepath,
-    });
-    const res = await doAction(c.env, id, "live", {
-      hostKey,
-      live: true,
-      egressId,
-      recordingPath: filepath,
-    });
-    if (!res.ok) {
-      try {
-        await stopEgress(c.env, egressId);
-      } catch {
-        /* already failing */
-      }
-      await doAction(c.env, id, "live", { hostKey, live: false, egressId: null });
-    }
-    return new Response(res.body, { status: res.status, headers: res.headers });
-  } catch (err) {
-    console.warn("egress start failed", err);
-    await doAction(c.env, id, "live", { hostKey, live: false, egressId: null });
-    return c.json({ error: "Could not go live" }, 502);
-  }
+  const action = body.live ? "start-live" : "stop-live";
+  const res = await doAction(c.env, id, action, { hostKey });
+  if (res.status === 404) return c.json({ error: "Studio not found" }, 404);
+  if (res.status === 403) return c.json({ error: "host key required" }, 403);
+  return new Response(res.body, { status: res.status, headers: res.headers });
 });
 
 export default {

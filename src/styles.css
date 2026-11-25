@@ -226,6 +226,15 @@ a {
   box-shadow: 0 0 0 4px rgba(255, 90, 95, 0.16);
 }
 
+.live-pill.retry .dot {
+  background: #e6b325;
+  box-shadow: 0 0 0 4px rgba(230, 179, 37, 0.16);
+}
+
+.live-pill.wait .dot {
+  background: #6d64f7;
+}
+
 .settings {
   height: 34px;
   padding: 0 14px;
@@ -554,6 +563,23 @@ a {
 .dest .meta small {
   color: var(--faint);
   font-size: 12px;
+}
+
+.dest-status {
+  color: var(--faint);
+}
+
+.dest-status.live {
+  color: var(--ok);
+}
+
+.dest-status.retrying,
+.dest-status.connecting {
+  color: #c9a227;
+}
+
+.dest-status.failed {
+  color: var(--danger);
 }
 
 .badge {

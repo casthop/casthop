@@ -49,7 +49,7 @@ npm install
 npm run dev
 ```
 
-Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Create a studio, copy the guest link, put people on stage, Go Live.
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Create a studio, copy the guest link, put people on stage, Go Live. Destination rows show per-RTMP status; if Egress or a stream drops, the studio retries with backoff.
 
 Rebuild the WASM module (needs rustc 1.83+ and the `wasm32-unknown-unknown` target):
 
@@ -83,6 +83,7 @@ Load measurement (2 / 4 / 6 publishers + Go Live):
 
 ```bash
 npm run measure
+E2E=1 npm run test:e2e   # Chrome joins, Go Live, MediaMTX audio is not silent
 ```
 
 ### Docker Desktop (macOS / Windows)
@@ -97,7 +98,7 @@ The app falls back to a generated canvas+silent-audio track so a VM without `/de
 
 1. LiveKit + Egress + Redis + an RTMP edge (MediaMTX, nginx-rtmp, or a real destination).
 2. Worker + D1 + Durable Objects (`wrangler deploy`). Put `LIVEKIT_API_SECRET` in Worker secrets, never in git.
-3. Generate real API keys (`lk generate-keys`) and replace the local defaults in `infra/livekit.yaml` and `infra/egress.yaml`.
+3. Generate real API keys (`lk generate-keys`) and replace the local defaults in `infra/livekit.yaml` and `infra/egress.yaml`. Point LiveKit `webhook.urls` at `https://<worker>/api/livekit/webhook` so Egress crashes and RTMP drops are signed and applied.
 4. Point destination URLs at real YouTube / LinkedIn / X ingest. Stream keys stay in Durable Object storage (not the repo, and not the guest/public API). `GET /api/studios/:id` and the WebSocket `state` frame return only a masked suffix (`rtmp://…/xxxx`) plus `hasKey`. The host receives full URLs on authenticated GET (`x-casthop-host-key`). Generate real API keys (`lk generate-keys`); the Worker returns 503 if the published `devkey` is used with a non-loopback LiveKit URL.
 5. Optional: `casthop-post normalize` then copy finished MP4s to R2 for replay.
 

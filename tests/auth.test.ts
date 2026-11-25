@@ -505,6 +505,16 @@ test("chat requires host key or guest secret and uses the participant name", asy
   assert.equal(hostChat.chat.at(-1)?.name, "Ada");
 });
 
+test("unsigned LiveKit webhook is rejected", async () => {
+  const env = makeEnv();
+  const res = await app.request("https://casthop.test/api/livekit/webhook", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ event: "egress_ended" }),
+  }, env);
+  assert.equal(res.status, 401);
+});
+
 test("token minting is rate limited; host can still join a full studio", async () => {
   const env = makeEnv();
   const { id, hostKey } = await createStudio(env);

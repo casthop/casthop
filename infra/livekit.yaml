@@ -26,6 +26,11 @@ room:
 keys:
   devkey: casthop_dev_secret_not_for_production_use_32b
 
+webhook:
+  api_key: devkey
+  urls:
+    - http://127.0.0.1:5173/api/livekit/webhook
+
 logging:
   json: false
   level: info

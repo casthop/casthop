@@ -4,21 +4,122 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  check:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.83.0
+        with:
+          components: rustfmt
+      - run: cargo fmt -p casthop-media -p casthop-post -- --check
 
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: npm
-
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
-      - run: npm audit --audit-level=high
 
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.83.0
+        with:
+          components: clippy
+      - run: cargo test -p casthop-media -p casthop-post
+      - run: cargo clippy -p casthop-media -p casthop-post --all-targets --no-deps -- -D warnings
+
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: node scripts/check-wasm-budget.mjs
+
+  audit:
+    runs-on: ubuntu-latest
+    env:
+      # cargo-audit needs rustc 1.88+ to parse the current advisory DB (CVSS 4).
+      RUSTUP_TOOLCHAIN: stable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=high
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test -p casthop-media
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - run: cargo audit
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+      - uses: FedericoCarboni/setup-ffmpeg@v3
+      - run: npm ci
+      - run: |
+          cp .env.example .env
+          cp .dev.vars.example .dev.vars
+          mkdir -p data/recordings data/rtmp
+          chmod 777 data/recordings
+      - run: docker compose up -d
+      - name: Start app
+        run: npm run dev > /tmp/casthop-dev.log 2>&1 &
+      - name: Wait for app and media plane
+        run: |
+          for i in $(seq 1 90); do
+            if curl -sf http://127.0.0.1:5173/api/health >/dev/null \
+              && curl -s -o /dev/null --max-time 2 http://127.0.0.1:7880 \
+              && curl -s -o /dev/null --max-time 2 http://127.0.0.1:9090; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "timeout waiting for app/livekit"
+          cat /tmp/casthop-dev.log || true
+          docker compose logs || true
+          exit 1
+      - name: Headless live to MediaMTX
+        env:
+          CI: "true"
+          E2E: "1"
+          CHROME: ${{ steps.chrome.outputs.chrome-path }}
+        run: node scripts/e2e-live.mjs
+      - if: failure()
+        run: |
+          cat /tmp/casthop-dev.log || true
+          docker compose logs || true

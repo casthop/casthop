@@ -10,7 +10,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/*.test.ts",
+    "lint": "cargo fmt -p casthop-media -p casthop-post -- --check",
+    "test": "tsx --test --test-concurrency=1 tests/*.test.ts",
+    "test:e2e": "node scripts/e2e-live.mjs",
+    "check:wasm": "node scripts/check-wasm-budget.mjs",
     "build:wasm": "bash scripts/build-wasm.sh",
     "bench:wasm": "node scripts/bench-wasm.mjs",
     "measure": "bash scripts/measure.sh"

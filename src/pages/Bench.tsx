@@ -96,7 +96,7 @@ export function Bench() {
       const wasmBlur = performance.now() - t4;
       blur.free();
       const jsScratch = blurSrc.slice();
-      const jsState = { smooth: null, feather: null, down: null, tmp: null };
+      const jsState = { smooth: null, feather: null, down: null, tmp: null, prefix: null };
       jsScratch.set(blurSrc);
       jsBlurComposite(jsScratch, blurW, blurH, blurMask, 256, 144, 24, 0, jsState);
       const t5 = performance.now();

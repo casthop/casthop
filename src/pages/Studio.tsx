@@ -23,7 +23,7 @@ import {
   setStage,
   type PublicStudio,
 } from "../lib/api";
-import { loadBlurPref, saveBlurPref } from "../lib/blur-prefs";
+import { loadBlurPref, saveBlurPrefPair } from "../lib/blur-prefs";
 import { startCameraBlur, type CameraBlurHandle } from "../lib/camera-blur";
 import { mediaPipeline } from "../lib/effects";
 import { hueFor, openUserMedia } from "../lib/media";
@@ -331,8 +331,7 @@ export function Studio() {
     const next = !blurOn;
     const savedId = loadSession(id)?.cameraId ?? "";
     const deviceId = originalVideoRef.current?.getSettings().deviceId ?? savedId;
-    saveBlurPref(deviceId, next);
-    if (savedId && savedId !== deviceId) saveBlurPref(savedId, next);
+    saveBlurPrefPair(deviceId, savedId, next);
     setBlurOn(next);
     const local = room?.localParticipant.getTrackPublication(Track.Source.Camera)?.videoTrack;
     const original = originalVideoRef.current;
@@ -359,7 +358,7 @@ export function Studio() {
       handle?.stop();
       setError(err instanceof Error ? err.message : "Blur failed");
       setBlurOn(!next);
-      saveBlurPref(deviceId, !next);
+      saveBlurPrefPair(deviceId, savedId, !next);
     } finally {
       setBlurBusy(false);
     }

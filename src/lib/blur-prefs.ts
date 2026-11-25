@@ -20,6 +20,12 @@ export function saveBlurPref(deviceId: string, on: boolean): void {
   }
 }
 
+/** Write the same on/off value to a camera id and an optional second key. */
+export function saveBlurPrefPair(deviceId: string, otherId: string, on: boolean): void {
+  saveBlurPref(deviceId, on);
+  if (otherId && otherId !== deviceId) saveBlurPref(otherId, on);
+}
+
 /** Copy an on-pref from one camera key to another if the destination has none yet. */
 export function copyBlurPref(fromId: string, toId: string): void {
   if (!toId || fromId === toId) return;

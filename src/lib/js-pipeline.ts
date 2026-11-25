@@ -83,10 +83,15 @@ export type JsBlurState = {
   feather: Uint8Array | null;
   down: Uint8Array | null;
   tmp: Uint8Array | null;
+  prefix: Uint32Array | null;
 };
 
 function ensure(buf: Uint8Array | null, n: number): Uint8Array {
   return buf && buf.length >= n ? buf : new Uint8Array(n);
+}
+
+function ensureU32(buf: Uint32Array | null, n: number): Uint32Array {
+  return buf && buf.length >= n ? buf : new Uint32Array(n);
 }
 
 /** Same algorithm as crates/casthop-media blur.rs (mask EMA, 4× box-blur, mix). */
@@ -99,7 +104,7 @@ export function jsBlurComposite(
   maskH: number,
   radius: number,
   temporal: number,
-  state: JsBlurState = { smooth: null, feather: null, down: null, tmp: null },
+  state: JsBlurState = { smooth: null, feather: null, down: null, tmp: null, prefix: null },
 ): void {
   const pixels = width * height;
   if (frame.length < pixels * 4 || maskW < 1 || maskH < 1) return;
@@ -129,8 +134,10 @@ export function jsBlurComposite(
   state.tmp = tmp;
   downsampleRgba(frame, width, height, down, dw, dh);
   const r = Math.max(1, Math.min(16, Math.floor(radius / 4)));
-  boxBlurH(down, tmp, dw, dh, r);
-  boxBlurV(tmp, down, dw, dh, r);
+  const prefix = ensureU32(state.prefix, Math.max(dw, dh) + 1);
+  state.prefix = prefix;
+  boxBlurH(down, tmp, dw, dh, r, prefix);
+  boxBlurV(tmp, down, dw, dh, r, prefix);
   mixFromDown(frame, width, height, feather, maskW, maskH, down, dw, dh);
 }
 
@@ -169,16 +176,13 @@ function downsampleRgba(
     for (let x = 0; x < dw; x++) {
       const sx = Math.floor((x * sw) / dw);
       const sx2 = Math.min(sw - 1, sx + 2);
-      let r = 0;
-      let g = 0;
-      let b = 0;
-      const pts = [sx, sy, sx2, sy, sx, sy2, sx2, sy2];
-      for (let p = 0; p < 8; p += 2) {
-        const i = (pts[p + 1]! * sw + pts[p]!) * 4;
-        r += src[i]!;
-        g += src[i + 1]!;
-        b += src[i + 2]!;
-      }
+      const i0 = (sy * sw + sx) * 4;
+      const i1 = (sy * sw + sx2) * 4;
+      const i2 = (sy2 * sw + sx) * 4;
+      const i3 = (sy2 * sw + sx2) * 4;
+      const r = src[i0]! + src[i1]! + src[i2]! + src[i3]!;
+      const g = src[i0 + 1]! + src[i1 + 1]! + src[i2 + 1]! + src[i3 + 1]!;
+      const b = src[i0 + 2]! + src[i1 + 2]! + src[i2 + 2]! + src[i3 + 2]!;
       const o = (y * dw + x) * 4;
       dst[o] = (r / 4) | 0;
       dst[o + 1] = (g / 4) | 0;
@@ -188,8 +192,14 @@ function downsampleRgba(
   }
 }
 
-function boxBlurH(src: Uint8Array, dst: Uint8Array, w: number, h: number, radius: number): void {
-  const prefix = new Uint32Array(w + 1);
+function boxBlurH(
+  src: Uint8Array,
+  dst: Uint8Array,
+  w: number,
+  h: number,
+  radius: number,
+  prefix: Uint32Array,
+): void {
   for (let y = 0; y < h; y++) {
     const row = y * w * 4;
     for (let c = 0; c < 3; c++) {
@@ -205,8 +215,14 @@ function boxBlurH(src: Uint8Array, dst: Uint8Array, w: number, h: number, radius
   }
 }
 
-function boxBlurV(src: Uint8Array, dst: Uint8Array, w: number, h: number, radius: number): void {
-  const prefix = new Uint32Array(h + 1);
+function boxBlurV(
+  src: Uint8Array,
+  dst: Uint8Array,
+  w: number,
+  h: number,
+  radius: number,
+  prefix: Uint32Array,
+): void {
   for (let x = 0; x < w; x++) {
     for (let c = 0; c < 3; c++) {
       prefix[0] = 0;

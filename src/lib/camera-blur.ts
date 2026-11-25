@@ -39,7 +39,7 @@ async function makeComposite(backend: BlurBackend): Promise<CameraBlurComposite>
       free: () => blur.free(),
     };
   }
-  const state: JsBlurState = { smooth: null, feather: null, down: null, tmp: null };
+  const state: JsBlurState = { smooth: null, feather: null, down: null, tmp: null, prefix: null };
   let width = 0;
   let height = 0;
   return {
@@ -58,6 +58,7 @@ async function makeComposite(backend: BlurBackend): Promise<CameraBlurComposite>
       state.feather = null;
       state.down = null;
       state.tmp = null;
+      state.prefix = null;
     },
   };
 }

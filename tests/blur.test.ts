@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { jsBlurComposite } from "../src/lib/js-pipeline.ts";
-import { copyBlurPref, loadBlurPref, saveBlurPref } from "../src/lib/blur-prefs.ts";
+import { copyBlurPref, loadBlurPref, saveBlurPref, saveBlurPrefPair } from "../src/lib/blur-prefs.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const wasmPath = join(root, "src/wasm/casthop_media.wasm");
@@ -41,6 +41,12 @@ test("blur preference is off by default and stored per device", () => {
   saveBlurPref("cam-d", false);
   copyBlurPref("", "cam-d");
   assert.equal(loadBlurPref("cam-d"), false);
+  saveBlurPrefPair("cam-e", "cam-f", true);
+  assert.equal(loadBlurPref("cam-e"), true);
+  assert.equal(loadBlurPref("cam-f"), true);
+  saveBlurPrefPair("cam-e", "cam-f", false);
+  assert.equal(loadBlurPref("cam-e"), false);
+  assert.equal(loadBlurPref("cam-f"), false);
 });
 
 test("casthop_media.wasm stays under 500 KiB with zero imports", () => {
@@ -140,9 +146,14 @@ test("JS blur fallback matches the WASM mix contract", () => {
   for (let y = 0; y < 16; y++) {
     for (let x = 0; x < 8; x++) mask[y * 16 + x] = 255;
   }
-  jsBlurComposite(frame, w, h, mask, 16, 16, 24, 0);
+  const state = { smooth: null, feather: null, down: null, tmp: null, prefix: null };
+  jsBlurComposite(frame, w, h, mask, 16, 16, 24, 0, state);
   const person = frame[(16 * w + 8) * 4] ?? 0;
   assert.ok(Math.abs(person - 200) < 8, `person pixel ${person}`);
   const bg = frame[(16 * w + 48) * 4] ?? 0;
   assert.ok(bg !== 0 && bg !== 255, `background should be mixed, got ${bg}`);
+  const prefix = state.prefix;
+  assert.ok(prefix && prefix.length >= 16 + 1);
+  jsBlurComposite(frame, w, h, mask, 16, 16, 24, 0, state);
+  assert.equal(state.prefix, prefix);
 });

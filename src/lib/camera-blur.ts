@@ -1,11 +1,10 @@
-import { fxFromSearch } from "./effects";
+import type { LiveSegmenter } from "./segmenter";
 import { jsBlurComposite, type JsBlurState } from "./js-pipeline";
-import { loadWasm, WasmBlur } from "./wasm";
 
 export type BlurBackend = "wasm" | "js";
 
 export function blurBackendFromSearch(search = location.search): BlurBackend {
-  return fxFromSearch(search) === "js" ? "js" : "wasm";
+  return new URLSearchParams(search).get("fx") === "js" ? "js" : "wasm";
 }
 
 export type CameraBlurHandle = {
@@ -13,14 +12,25 @@ export type CameraBlurHandle = {
   stop: () => void;
 };
 
-type Composite = {
+export type CameraBlurComposite = {
   setup: (w: number, h: number, mw: number, mh: number) => boolean;
   process: (frame: Uint8ClampedArray, mask: Uint8Array, mw: number, mh: number) => boolean;
   free: () => void;
 };
 
-async function makeComposite(backend: BlurBackend): Promise<Composite> {
+export type CameraBlurDeps = {
+  createSegmenter?: () => Promise<LiveSegmenter>;
+  makeComposite?: (backend: BlurBackend) => Promise<CameraBlurComposite>;
+};
+
+async function defaultCreateSegmenter(): Promise<LiveSegmenter> {
+  const { createSegmenter } = await import("./segmenter");
+  return createSegmenter();
+}
+
+async function makeComposite(backend: BlurBackend): Promise<CameraBlurComposite> {
   if (backend === "wasm") {
+    const { loadWasm, WasmBlur } = await import("./wasm");
     const api = await loadWasm();
     const blur = new WasmBlur(api);
     return {
@@ -45,6 +55,9 @@ async function makeComposite(backend: BlurBackend): Promise<Composite> {
     },
     free: () => {
       state.smooth = null;
+      state.feather = null;
+      state.down = null;
+      state.tmp = null;
     },
   };
 }
@@ -56,6 +69,7 @@ async function makeComposite(backend: BlurBackend): Promise<Composite> {
 export async function startCameraBlur(
   source: MediaStreamTrack,
   backend: BlurBackend = blurBackendFromSearch(),
+  deps: CameraBlurDeps = {},
 ): Promise<CameraBlurHandle> {
   const settings = source.getSettings();
   const video = document.createElement("video");
@@ -66,6 +80,7 @@ export async function startCameraBlur(
   try {
     await video.play();
   } catch (err) {
+    video.pause();
     video.srcObject = null;
     throw err;
   }
@@ -86,19 +101,14 @@ export async function startCameraBlur(
     throw new Error("no 2d canvas");
   }
 
-  let segmenter: {
-    maskWidth: number;
-    maskHeight: number;
-    mask: Uint8Array;
-    segment(source: TexImageSource, timestampMs: number): boolean;
-    close(): void;
-  } | undefined;
-  let composite: Composite | undefined;
+  let segmenter: LiveSegmenter | undefined;
+  let composite: CameraBlurComposite | undefined;
   let out: MediaStream | undefined;
   try {
-    const { createSegmenter } = await import("./segmenter");
+    const createSegmenter = deps.createSegmenter ?? defaultCreateSegmenter;
+    const buildComposite = deps.makeComposite ?? makeComposite;
     segmenter = await createSegmenter();
-    composite = await makeComposite(backend);
+    composite = await buildComposite(backend);
     if (!composite.setup(width, height, segmenter.maskWidth, segmenter.maskHeight)) {
       throw new Error("blur setup failed");
     }
@@ -108,6 +118,7 @@ export async function startCameraBlur(
     if (!outTrack) throw new Error("captureStream failed");
 
     let running = true;
+    let stopped = false;
     let frameCb = 0;
     let raf = 0;
     let lastTs = -1;
@@ -163,6 +174,8 @@ export async function startCameraBlur(
     return {
       track: outTrack,
       stop: () => {
+        if (stopped) return;
+        stopped = true;
         running = false;
         const v = video as HTMLVideoElement & { cancelVideoFrameCallback?: (id: number) => void };
         if (frameCb && v.cancelVideoFrameCallback) v.cancelVideoFrameCallback(frameCb);

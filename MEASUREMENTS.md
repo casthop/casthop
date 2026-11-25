@@ -54,7 +54,7 @@ Workers / D1 / DO stay inside the $5 account floor at this volume **(estimate, m
 
 ## 4. Rust / WASM vs JS
 
-Bundle: `src/wasm/casthop_media.wasm` is **384.8 KiB** (394,071 bytes), zero imports, loads in AudioWorklets and Workers. Chrome `/internal/bench` and Node `npm run bench:wasm` agree. The selfie-segmenter model (245 KiB, Apache-2.0) and MediaPipe vision WASM load only when blur is on.
+Bundle: `src/wasm/casthop_media.wasm` is **384.0 KiB** (393,215 bytes), zero imports, loads in AudioWorklets and Workers. Chrome `/internal/bench` and Node `npm run bench:wasm` agree. The selfie-segmenter model (245 KiB, Apache-2.0) and MediaPipe vision WASM load only when blur is on.
 
 | Path | WASM | JS | JS/WASM | What this actually compares |
 |---|---|---|---|---|

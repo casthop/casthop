@@ -48,6 +48,14 @@ fn blur_mut(w: &mut World, handle: u32) -> Option<&mut Pipeline> {
         .and_then(Option::as_mut)
 }
 
+fn buf_ptr(buf: &mut [u8]) -> u32 {
+    if buf.is_empty() {
+        0
+    } else {
+        buf.as_mut_ptr() as u32
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn casthop_frame_size() -> u32 {
     FRAME as u32
@@ -290,7 +298,7 @@ pub extern "C" fn casthop_blur_setup(
 
 #[no_mangle]
 pub extern "C" fn casthop_blur_frame_ptr(handle: u32) -> u32 {
-    with_world(|w| blur_mut(w, handle).map_or(0, |b| b.frame.as_mut_ptr() as u32))
+    with_world(|w| blur_mut(w, handle).map_or(0, |b| buf_ptr(&mut b.frame)))
 }
 
 #[no_mangle]
@@ -300,7 +308,7 @@ pub extern "C" fn casthop_blur_frame_len(handle: u32) -> u32 {
 
 #[no_mangle]
 pub extern "C" fn casthop_blur_mask_ptr(handle: u32) -> u32 {
-    with_world(|w| blur_mut(w, handle).map_or(0, |b| b.mask.as_mut_ptr() as u32))
+    with_world(|w| blur_mut(w, handle).map_or(0, |b| buf_ptr(&mut b.mask)))
 }
 
 #[no_mangle]
@@ -352,6 +360,7 @@ mod tests {
         assert!(h >= 1);
         assert_eq!(casthop_blur_process(0), 0);
         assert_eq!(casthop_blur_frame_ptr(99_999), 0);
+        assert_eq!(casthop_blur_frame_ptr(h), 0);
         assert_eq!(casthop_blur_setup(h, 64, 64, 16, 16, 24, 0), 1);
         assert!(casthop_blur_frame_ptr(h) != 0);
         assert!(casthop_blur_mask_ptr(h) != 0);

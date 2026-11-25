@@ -213,7 +213,7 @@ export class WasmCompositor {
 
 export class WasmBlur {
   private readonly api: Exports;
-  readonly handle: number;
+  private handle: number;
   width = 1280;
   height = 720;
   maskW = 256;
@@ -225,6 +225,7 @@ export class WasmBlur {
   }
 
   setup(width: number, height: number, maskW: number, maskH: number, radius = 24, temporal = 180): boolean {
+    if (!this.handle) return false;
     if (!this.api.casthop_blur_setup(this.handle, width, height, maskW, maskH, radius, temporal)) return false;
     this.width = width;
     this.height = height;
@@ -234,6 +235,7 @@ export class WasmBlur {
   }
 
   process(frame: Uint8ClampedArray | Uint8Array, mask: Uint8Array): boolean {
+    if (!this.handle) return false;
     const fp = this.api.casthop_blur_frame_ptr(this.handle);
     const mp = this.api.casthop_blur_mask_ptr(this.handle);
     if (!fp || !mp) return false;
@@ -247,6 +249,8 @@ export class WasmBlur {
   }
 
   free(): void {
+    if (!this.handle) return;
     this.api.casthop_blur_free(this.handle);
+    this.handle = 0;
   }
 }

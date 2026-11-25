@@ -94,6 +94,7 @@ export function Bench() {
         blur.process(scratch, blurMask);
       }
       const wasmBlur = performance.now() - t4;
+      blur.free();
       const jsScratch = blurSrc.slice();
       const jsState = { smooth: null, feather: null, down: null, tmp: null };
       jsScratch.set(blurSrc);

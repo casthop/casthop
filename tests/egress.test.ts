@@ -30,6 +30,9 @@ let listEgressHold: Promise<void> | null = null;
 let listEgressStarted: (() => void) | null = null;
 let holdNextListEgress = false;
 let listEgressFail = false;
+let updateStreamHold: Promise<void> | null = null;
+let updateStreamStarted: (() => void) | null = null;
+let holdNextUpdateStream = false;
 const realFetch = globalThis.fetch;
 
 function fakeCtx(): DurableObjectState {
@@ -144,6 +147,11 @@ before(() => {
     }
     if (url.includes("UpdateStream")) {
       streamUpdates += 1;
+      updateStreamStarted?.();
+      if (holdNextUpdateStream && updateStreamHold) {
+        holdNextUpdateStream = false;
+        await updateStreamHold;
+      }
       return new Response("{}", { status: 200 });
     }
     if (url.includes("ListEgress")) {
@@ -756,4 +764,112 @@ test("toggling a destination while live calls UpdateStream", async () => {
   );
   assert.equal(res.status, 200, await res.clone().text());
   assert.ok(streamUpdates > before);
+});
+
+test("stop during destination UpdateStream keeps live off", async () => {
+  listedParticipants = [{ identity: "host" }];
+  listedEgress = { items: [] };
+  const env = makeEnv();
+  const { id, hostKey } = await createStudio(env);
+  const started = await json<PublicStudio>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      env,
+    ),
+  );
+  let release!: () => void;
+  updateStreamHold = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const sawUpdate = new Promise<void>((resolve) => {
+    updateStreamStarted = resolve;
+  });
+  holdNextUpdateStream = true;
+  const next = started.destinations.map((d) => (d.id === "x" ? { ...d, enabled: false } : d));
+  const toggle = app.request(
+    `https://casthop.test/api/studios/${id}/destinations`,
+    { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ hostKey, destinations: next }) },
+    env,
+  );
+  try {
+    await sawUpdate;
+    const stop = await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: false }) },
+      env,
+    );
+    assert.equal(stop.status, 200, await stop.clone().text());
+    release();
+    const destRes = await toggle;
+    assert.equal(destRes.status, 200, await destRes.clone().text());
+    const ended = await json<PublicStudio>(destRes);
+    assert.equal(ended.live, false);
+    assert.equal(ended.livePhase, "idle");
+  } finally {
+    updateStreamHold = null;
+    updateStreamStarted = null;
+    holdNextUpdateStream = false;
+  }
+});
+
+test("stop during RTMP reattach UpdateStream keeps live off", async () => {
+  listedParticipants = [{ identity: "host" }];
+  listedEgress = { items: [] };
+  const env = makeEnv();
+  const { id, hostKey } = await createStudio(env);
+  const started = await json<PublicStudio>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      env,
+    ),
+  );
+  let release!: () => void;
+  updateStreamHold = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const sawUpdate = new Promise<void>((resolve) => {
+    updateStreamStarted = resolve;
+  });
+  holdNextUpdateStream = true;
+  const body = JSON.stringify({
+    event: "egress_updated",
+    egressInfo: {
+      egressId: started.egressId,
+      roomName: id,
+      status: "EGRESS_ACTIVE",
+      streamResults: [
+        { url: YT, status: "ACTIVE" },
+        { url: LI, status: "FAILED", error: "broken pipe" },
+        { url: X, status: "ACTIVE" },
+      ],
+    },
+  });
+  const webhook = app.request(
+    "https://casthop.test/api/livekit/webhook",
+    { method: "POST", headers: { Authorization: await signLivekitWebhook(env, body) }, body },
+    env,
+  );
+  try {
+    await sawUpdate;
+    const stop = await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: false }) },
+      env,
+    );
+    assert.equal(stop.status, 200, await stop.clone().text());
+    release();
+    const res = await webhook;
+    assert.equal(res.status, 200, await res.clone().text());
+    const ended = await json<PublicStudio>(
+      await app.request(`https://casthop.test/api/studios/${id}`, { headers: liveHeaders(hostKey) }, env),
+    );
+    assert.equal(ended.live, false);
+    assert.equal(ended.livePhase, "idle");
+  } finally {
+    updateStreamHold = null;
+    updateStreamStarted = null;
+    holdNextUpdateStream = false;
+  }
 });

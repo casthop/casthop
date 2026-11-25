@@ -216,17 +216,20 @@ export class StudioDurableObject {
         const remove = prevUrls.filter((u) => !nextUrls.includes(u));
         try {
           await updateStream(this.env, state.egressId, add, remove);
+          const fresh = (await this.getState()) ?? state;
+          if (!fresh.wantLive) return json(publicState(fresh, { includeUrls: true }));
           setDestStatuses(
-            state.destinations.filter((d) => add.includes(d.url)),
+            fresh.destinations.filter((d) => add.includes(d.url)),
             "connecting",
           );
-          await this.putState(state);
+          await this.putState(fresh);
+          return json(publicState(fresh, { includeUrls: true }));
         } catch (err) {
           console.warn("update stream failed", err);
           await this.scheduleWatch(Date.now() + WATCH_MS);
         }
       }
-      return json(publicState(state, { includeUrls: true }));
+      return json(publicState((await this.getState()) ?? state, { includeUrls: true }));
     }
 
     if (action === "banner") {
@@ -599,17 +602,21 @@ export class StudioDurableObject {
     if (!urls.length) return;
     try {
       await updateStream(this.env, state.egressId, urls, urls);
-      for (const d of state.destinations) {
+      const fresh = (await this.getState()) ?? state;
+      if (!fresh.wantLive) return;
+      for (const d of fresh.destinations) {
         if (!urls.includes(d.url)) continue;
         const attempt = d.retryCount ?? 0;
         d.retryCount = attempt + 1;
         d.retryAt = now + nextBackoffMs(attempt, this.env.CASTHOP_BACKOFF_MS);
         d.status = d.retryCount >= MAX_STREAM_RETRIES ? "failed" : "retrying";
       }
-      await this.putState(state);
+      await this.putState(fresh);
     } catch (err) {
       console.warn("reattach stream", err);
-      await this.markRetry(state, "RTMP dropped");
+      const fresh = (await this.getState()) ?? state;
+      if (!fresh.wantLive) return;
+      await this.markRetry(fresh, "RTMP dropped");
     }
   }
 

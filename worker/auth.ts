@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import type { Account, Env, MemberRole } from "./types";
+import type { Account, AppEnv, Env, MemberRole } from "./types";
 import {
   SESSION_COOKIE,
   OAUTH_COOKIE,
@@ -56,7 +56,7 @@ export type Authed = {
   cookie?: string;
 };
 
-type AppCtx = Context<{ Bindings: Env }>;
+type AppCtx = Context<AppEnv>;
 
 export function githubConfigured(env: Env): boolean {
   return Boolean(env.GITHUB_CLIENT_ID?.trim() && env.GITHUB_CLIENT_SECRET?.trim());
@@ -111,7 +111,7 @@ export async function loadSession(c: AppCtx): Promise<Authed | null> {
 }
 
 export function attachSessionCookie(c: AppCtx, cookie?: string): void {
-  if (cookie) c.header("Set-Cookie", cookie, { append: true });
+  if (cookie) c.set("sessionCookie", cookie);
 }
 
 export async function createSession(c: AppCtx, account: Account): Promise<string> {
@@ -193,7 +193,7 @@ export async function issueMagicLink(c: AppCtx, email: string): Promise<{ ok: tr
   if (!(await allowRate(c.env.DB, `signin:ip:${ip}`, SIGNIN_IP_MAX, SIGNIN_WINDOW_MS))) {
     return Promise.reject(Object.assign(new Error("too many attempts"), { status: 429 }));
   }
-  if (!(await allowRate(c.env.DB, `signin:email:${email}`, SIGNIN_EMAIL_MAX, SIGNIN_WINDOW_MS))) {
+  if (!(await allowRate(c.env.DB, `signin:email:${email}:${ip}`, SIGNIN_EMAIL_MAX, SIGNIN_WINDOW_MS))) {
     return { ok: true };
   }
   const token = randomId(32);

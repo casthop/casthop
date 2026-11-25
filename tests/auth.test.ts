@@ -914,6 +914,43 @@ test("email sign-in limit returns ok without sending, so the owner is not locked
   assert.equal(env._db.rows("magic_links").filter((r) => r.email === "victim@example.com").length, 3);
 });
 
+test("email sign-in limit is per email and IP, so another client can still get a link", async () => {
+  const env = makeEnv();
+  const logs: string[] = [];
+  const origLog = console.log;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map(String).join(" "));
+  };
+  try {
+    for (let i = 0; i < 3; i++) {
+      const res = await app.request(
+        "https://casthop.test/api/auth/magic-link",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "cf-connecting-ip": "203.0.113.9" },
+          body: JSON.stringify({ email: "victim@example.com" }),
+        },
+        env,
+      );
+      assert.equal(res.status, 200, await res.clone().text());
+    }
+    const owner = await app.request(
+      "https://casthop.test/api/auth/magic-link",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "cf-connecting-ip": "203.0.113.10" },
+        body: JSON.stringify({ email: "victim@example.com" }),
+      },
+      env,
+    );
+    assert.equal(owner.status, 200, await owner.clone().text());
+  } finally {
+    console.log = origLog;
+  }
+  const sent = logs.filter((line) => line.includes("casthop mail") && line.includes("victim@example.com"));
+  assert.equal(sent.length, 4);
+});
+
 test("parallel sign-in rate limit does not 500", async () => {
   const env = makeEnv();
   const results = await Promise.all(
@@ -948,6 +985,28 @@ test("sessions rotate and the previous cookie still works within the grace windo
   assert.equal(oldStill.status, 200);
   const next = await app.request("https://casthop.test/api/auth/me", { headers: { Cookie: rotated } }, env);
   assert.equal(next.status, 200);
+});
+
+test("rotated session cookie is returned on a raw Response route", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "ada@example.com");
+  const { id } = await createStudio(env, cookie);
+  env._db.setSessionRotatedAt(1);
+  const res = await app.request(
+    `https://casthop.test/api/studios/${id}/layout`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ layout: "solo" }),
+    },
+    env,
+  );
+  assert.equal(res.status, 200, await res.clone().text());
+  const rotated = cookieNamed(res, SESSION_COOKIE);
+  assert.ok(rotated);
+  assert.notEqual(rotated, cookie);
+  const me = await app.request("https://casthop.test/api/auth/me", { headers: { Cookie: rotated } }, env);
+  assert.equal(me.status, 200);
 });
 
 test("parallel rotation issues only one new cookie", async () => {

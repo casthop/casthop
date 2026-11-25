@@ -83,6 +83,15 @@ export type Env = {
   MAIL_WEBHOOK_TOKEN?: string;
 };
 
+export type WorkerVars = {
+  sessionCookie?: string;
+};
+
+export type AppEnv = {
+  Bindings: Env;
+  Variables: WorkerVars;
+};
+
 export type Account = {
   id: string;
   email: string | null;

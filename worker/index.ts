@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { Env, PublicStudio } from "./types";
+import type { AppEnv, Env, PublicStudio } from "./types";
 import { MAX_ON_STAGE } from "./types";
 import { StudioDurableObject } from "./studio";
 import {
@@ -65,7 +65,7 @@ import {
 
 export { StudioDurableObject };
 
-export const app = new Hono<{ Bindings: Env }>();
+export const app = new Hono<AppEnv>();
 
 function studioStub(env: Env, id: string): DurableObjectStub {
   return env.STUDIO.get(env.STUDIO.idFromName(id));
@@ -95,7 +95,9 @@ app.use("/api/*", async (c, next) => {
   const err = devKeyGuardError(c.env);
   if (err) return c.json({ error: err }, 503);
   await ensureDb(c.env.DB);
-  return next();
+  await next();
+  const cookie = c.get("sessionCookie");
+  if (cookie) c.res.headers.append("Set-Cookie", cookie);
 });
 
 app.get("/api/health", async (c) => {

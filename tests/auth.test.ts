@@ -12,6 +12,7 @@ const X = "rtmp://ingest.example.com/live/super-secret-x-key";
 let egressStarts = 0;
 let egressStops = 0;
 let mailWebhookStatus = 503;
+const livekitRemoved: string[] = [];
 const realFetch = globalThis.fetch;
 let githubEmails: { email: string; primary?: boolean; verified?: boolean }[] = [
   { email: "octo@example.com", primary: true, verified: true },
@@ -159,6 +160,12 @@ before(() => {
     }
     if (url.includes("StopEgress")) {
       egressStops += 1;
+      return new Response("{}", { status: 200 });
+    }
+    if (url.includes("RemoveParticipant")) {
+      const raw = typeof init?.body === "string" ? init.body : "";
+      const parsed = raw ? (JSON.parse(raw) as { identity?: string }) : {};
+      livekitRemoved.push(parsed.identity ?? "");
       return new Response("{}", { status: 200 });
     }
     if (url.includes("/twirp/livekit.")) {
@@ -827,9 +834,8 @@ test("sign-in is rate limited per IP", async () => {
   assert.equal(last, 429);
 });
 
-test("spoofed forwarding headers do not bypass sign-in rate limits", async () => {
+test("spoofed forwarding headers do not get their own IP buckets, and local IPs are not limited", async () => {
   const env = makeEnv({ CASTHOP_TRUST_FORWARDED: "0" });
-  let last = 200;
   for (let i = 0; i < 6; i++) {
     const res = await app.request(
       "https://casthop.test/api/auth/magic-link",
@@ -844,9 +850,57 @@ test("spoofed forwarding headers do not bypass sign-in rate limits", async () =>
       },
       env,
     );
-    last = res.status;
+    assert.equal(res.status, 200, await res.clone().text());
   }
-  assert.equal(last, 429);
+});
+
+test("email sign-in limit returns ok without sending, so the owner is not locked out", async () => {
+  const env = makeEnv();
+  const logs: string[] = [];
+  const origLog = console.log;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map(String).join(" "));
+  };
+  try {
+    for (let i = 0; i < 4; i++) {
+      const res = await app.request(
+        "https://casthop.test/api/auth/magic-link",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "cf-connecting-ip": "203.0.113.40" },
+          body: JSON.stringify({ email: "victim@example.com" }),
+        },
+        env,
+      );
+      assert.equal(res.status, 200, await res.clone().text());
+    }
+  } finally {
+    console.log = origLog;
+  }
+  const sent = logs.filter((line) => line.includes("casthop mail") && line.includes("victim@example.com"));
+  assert.equal(sent.length, 3);
+  assert.equal(env._db.rows("magic_links").filter((r) => r.email === "victim@example.com").length, 3);
+});
+
+test("parallel sign-in rate limit does not 500", async () => {
+  const env = makeEnv();
+  const results = await Promise.all(
+    Array.from({ length: 8 }, (_, i) =>
+      app.request(
+        "https://casthop.test/api/auth/magic-link",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "cf-connecting-ip": "203.0.113.50" },
+          body: JSON.stringify({ email: `race${i}@example.com` }),
+        },
+        env,
+      ),
+    ),
+  );
+  const statuses = results.map((r) => r.status);
+  assert.ok(statuses.every((s) => s === 200 || s === 429));
+  assert.ok(statuses.some((s) => s === 429));
+  assert.equal(statuses.includes(500), false);
 });
 
 test("sessions rotate and the previous cookie still works within the grace window", async () => {
@@ -1099,4 +1153,67 @@ test("magic link is single-use", async () => {
   const second = await app.request(`${DEV_ORIGIN}${sent.devLogin}`, { redirect: "manual" }, env);
   assert.equal(second.status, 302);
   assert.equal(second.headers.get("location"), "/?auth=invalid");
+});
+
+test("removing a co-host kicks them from LiveKit and the studio participant list", async () => {
+  livekitRemoved.length = 0;
+  const env = makeEnv();
+  const ownerCookie = await signIn(env, "owner@example.com");
+  const { id } = await createStudio(env, ownerCookie);
+  const invite = await app.request(
+    `https://casthop.test/api/studios/${id}/cohosts`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: ownerCookie },
+      body: JSON.stringify({ email: "cohost-kick@example.com" }),
+    },
+    env,
+  );
+  assert.equal(invite.status, 200, await invite.clone().text());
+  const cohostCookie = await signIn(env, "cohost-kick@example.com");
+  const cohost = await json<{ id: string }>(
+    await app.request("https://casthop.test/api/auth/me", { headers: { Cookie: cohostCookie } }, env),
+  );
+  const minted = await json<{ identity: string }>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/token`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: cohostCookie },
+        body: JSON.stringify({ name: "Co", role: "host" }),
+      },
+      env,
+    ),
+  );
+  const before = await json<{ participants: { identity: string }[] }>(
+    await app.request(`https://casthop.test/api/studios/${id}`, { headers: { Cookie: ownerCookie } }, env),
+  );
+  assert.ok(before.participants.some((p) => p.identity === minted.identity));
+
+  const del = await app.request(
+    `https://casthop.test/api/studios/${id}/cohosts/${cohost.id}`,
+    { method: "DELETE", headers: { Cookie: ownerCookie } },
+    env,
+  );
+  assert.equal(del.status, 200, await del.clone().text());
+  assert.ok(livekitRemoved.includes(minted.identity));
+
+  const after = await json<{ participants: { identity: string }[] }>(
+    await app.request(`https://casthop.test/api/studios/${id}`, { headers: { Cookie: ownerCookie } }, env),
+  );
+  assert.equal(
+    after.participants.some((p) => p.identity === minted.identity),
+    false,
+  );
+
+  const remint = await app.request(
+    `https://casthop.test/api/studios/${id}/token`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cohostCookie },
+      body: JSON.stringify({ name: "Co", role: "host" }),
+    },
+    env,
+  );
+  assert.equal(remint.status, 403);
 });

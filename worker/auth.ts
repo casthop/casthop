@@ -184,11 +184,11 @@ export async function findOrCreateGithubAccount(env: Env, github: { id: string; 
 
 export async function issueMagicLink(c: AppCtx, email: string): Promise<{ ok: true; devLogin?: string }> {
   const ip = requestIp(c);
-  if (!(await allowRate(c.env.DB, `signin:ip:${ip}`, SIGNIN_IP_MAX, SIGNIN_WINDOW_MS))) {
+  if (ip !== "local" && !(await allowRate(c.env.DB, `signin:ip:${ip}`, SIGNIN_IP_MAX, SIGNIN_WINDOW_MS))) {
     return Promise.reject(Object.assign(new Error("too many attempts"), { status: 429 }));
   }
   if (!(await allowRate(c.env.DB, `signin:email:${email}`, SIGNIN_EMAIL_MAX, SIGNIN_WINDOW_MS))) {
-    return Promise.reject(Object.assign(new Error("too many attempts"), { status: 429 }));
+    return { ok: true };
   }
   const token = randomId(32);
   const tokenHash = await sha256hex(token);
@@ -218,7 +218,7 @@ export async function consumeMagicToken(c: AppCtx, token: string): Promise<Accou
 export async function startGithub(c: AppCtx): Promise<{ url: string; cookie: string } | null> {
   if (!githubConfigured(c.env)) return null;
   const ip = requestIp(c);
-  if (!(await allowRate(c.env.DB, `signin:ip:${ip}`, SIGNIN_IP_MAX, SIGNIN_WINDOW_MS))) {
+  if (ip !== "local" && !(await allowRate(c.env.DB, `signin:ip:${ip}`, SIGNIN_IP_MAX, SIGNIN_WINDOW_MS))) {
     throw Object.assign(new Error("too many attempts"), { status: 429 });
   }
   const state = randomId(24);

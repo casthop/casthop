@@ -94,9 +94,8 @@ export const Q = {
   invitesByStudio: "SELECT id, studio_id, email, created_at FROM studio_invites WHERE studio_id = ?",
   invitesByEmail: "SELECT id, studio_id, email, created_at FROM studio_invites WHERE email = ?",
   deleteInvite: "DELETE FROM studio_invites WHERE studio_id = ? AND email = ?",
-  rateByKey: "SELECT key, count, window_start FROM rate_limits WHERE key = ?",
-  upsertRate: "INSERT INTO rate_limits (key, count, window_start) VALUES (?, ?, ?)",
-  updateRate: "UPDATE rate_limits SET count = ?, window_start = ? WHERE key = ?",
+  bumpRate:
+    "INSERT INTO rate_limits (key, count, window_start) VALUES (?, 1, ?) ON CONFLICT(key) DO UPDATE SET count = CASE WHEN ? - window_start > ? THEN 1 ELSE count + 1 END, window_start = CASE WHEN ? - window_start > ? THEN ? ELSE window_start END RETURNING count",
 } as const;
 
 const migrated = new WeakSet<object>();
@@ -331,13 +330,6 @@ export async function applyInvites(db: D1Database, account: Account): Promise<vo
 }
 
 export async function allowRate(db: D1Database, key: string, max: number, windowMs: number, now = Date.now()): Promise<boolean> {
-  const row = await first<{ key: string; count: number; window_start: number }>(db, Q.rateByKey, key);
-  if (!row || now - row.window_start > windowMs) {
-    if (row) await run(db, Q.updateRate, 1, now, key);
-    else await run(db, Q.upsertRate, key, 1, now);
-    return true;
-  }
-  if (row.count >= max) return false;
-  await run(db, Q.updateRate, row.count + 1, row.window_start, key);
-  return true;
+  const row = await first<{ count: number }>(db, Q.bumpRate, key, now, now, windowMs, now, windowMs, now);
+  return (row?.count ?? 0) <= max;
 }

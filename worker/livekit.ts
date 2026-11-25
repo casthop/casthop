@@ -115,6 +115,10 @@ export async function updateParticipantPublish(env: Env, room: string, identity:
   });
 }
 
+export async function removeParticipant(env: Env, room: string, identity: string): Promise<void> {
+  await twirp(env, "/twirp/livekit.RoomService/RemoveParticipant", { room, identity });
+}
+
 export async function startRoomComposite(opts: {
   env: Env;
   room: string;

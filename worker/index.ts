@@ -8,6 +8,7 @@ import {
   clearCookie,
   devKeyGuardError,
   hostKeyFor,
+  hostIdentityFor,
   isHostIdentity,
   isSecureRequest,
   OAUTH_COOKIE,
@@ -22,6 +23,7 @@ import {
   guestSecretOk,
   livekitHealth,
   mintParticipantToken,
+  removeParticipant,
   startRoomComposite,
   stopEgress,
   updateParticipantPublish,
@@ -516,6 +518,13 @@ app.delete("/api/studios/:id/cohosts/:accountId", async (c) => {
   const target = await accountById(c.env.DB, accountId);
   await deleteCohost(c.env.DB, id, accountId);
   if (target?.email) await deleteInvite(c.env.DB, id, target.email);
+  const identity = hostIdentityFor(accountId, "cohost");
+  try {
+    await removeParticipant(c.env, id, identity);
+  } catch {
+    /* not in the room */
+  }
+  await doAction(c.env, id, "remove", { hostKey: host.hostKey, identity });
   return c.json({ ok: true });
 });
 

@@ -126,6 +126,15 @@ export class StudioDurableObject {
       return json({ ...publicState(state, { includeUrls: isHost }), onStage: person.onStage, role: person.role });
     }
 
+    if (action === "remove") {
+      if (!isHost) return json({ error: "host key required" }, 403);
+      const identity = asIdentity(body.identity);
+      if (!identity || identity === HOST_IDENTITY) return json({ error: "identity required" }, 400);
+      state.participants = state.participants.filter((p) => p.identity !== identity);
+      await this.putState(state);
+      return json(publicState(state, { includeUrls: true }));
+    }
+
     if (action === "stage") {
       if (!isHost) return json({ error: "host key required" }, 403);
       const identity = asIdentity(body.identity);

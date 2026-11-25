@@ -266,29 +266,21 @@ export class FakeD1 implements D1Database {
       );
       return { results: [], changes: 1 };
     }
-    if (q === norm(Q.rateByKey)) {
-      return { results: this.rows("rate_limits").filter((r) => r.key === binds[0]).map(clone), changes: 0 };
-    }
-    if (q === norm(Q.upsertRate)) {
-      const [key, count, window_start] = binds;
-      const existing = this.rows("rate_limits").find((r) => r.key === key);
-      if (existing) {
-        existing.count = count;
-        existing.window_start = window_start;
+    if (q === norm(Q.bumpRate)) {
+      const [key, nowBind, , windowBind] = binds;
+      const now = Number(nowBind);
+      const windowMs = Number(windowBind);
+      let row = this.rows("rate_limits").find((r) => r.key === key);
+      if (!row) {
+        row = { key, count: 1, window_start: now };
+        this.rows("rate_limits").push(row);
+      } else if (now - Number(row.window_start) > windowMs) {
+        row.count = 1;
+        row.window_start = now;
       } else {
-        this.rows("rate_limits").push({ key, count, window_start });
+        row.count = Number(row.count) + 1;
       }
-      return { results: [], changes: 1 };
-    }
-    if (q === norm(Q.updateRate)) {
-      const [count, window_start, key] = binds;
-      for (const r of this.rows("rate_limits")) {
-        if (r.key === key) {
-          r.count = count;
-          r.window_start = window_start;
-        }
-      }
-      return { results: [], changes: 1 };
+      return { results: [{ count: row.count }], changes: 1 };
     }
     throw new Error(`unhandled sql: ${q}`);
   }

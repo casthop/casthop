@@ -99,9 +99,11 @@ function cookieNamed(res: Response, name: string): string {
   return hit ? hit.split(";")[0] : "";
 }
 
+const DEV_ORIGIN = "https://127.0.0.1";
+
 async function signIn(env: Env, email: string, headers: HeadersInit = {}): Promise<string> {
   const sent = await app.request(
-    "https://casthop.test/api/auth/magic-link",
+    `${DEV_ORIGIN}/api/auth/magic-link`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json", ...headers },
@@ -112,7 +114,7 @@ async function signIn(env: Env, email: string, headers: HeadersInit = {}): Promi
   assert.equal(sent.status, 200, await sent.clone().text());
   const body = await json<{ ok: boolean; devLogin?: string }>(sent);
   assert.ok(body.devLogin);
-  const login = await app.request(`https://casthop.test${body.devLogin}`, { redirect: "manual" }, env);
+  const login = await app.request(`${DEV_ORIGIN}${body.devLogin}`, { redirect: "manual" }, env);
   assert.equal(login.status, 302);
   const raw = headerCookies(login).find((c) => c.startsWith(`${SESSION_COOKIE}=`)) ?? "";
   assert.match(raw, /HttpOnly/i);
@@ -835,6 +837,24 @@ test("sessions rotate and the previous cookie still works within the grace windo
   assert.equal(next.status, 200);
 });
 
+test("parallel rotation issues only one new cookie", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "ada@example.com");
+  env._db.setSessionRotatedAt(1);
+  const [a, b] = await Promise.all([
+    app.request("https://casthop.test/api/auth/me", { headers: { Cookie: cookie } }, env),
+    app.request("https://casthop.test/api/auth/me", { headers: { Cookie: cookie } }, env),
+  ]);
+  assert.equal(a.status, 200);
+  assert.equal(b.status, 200);
+  const issued = [cookieNamed(a, SESSION_COOKIE), cookieNamed(b, SESSION_COOKIE)].filter(Boolean);
+  assert.equal(issued.length, 1);
+  const current = await app.request("https://casthop.test/api/auth/me", { headers: { Cookie: issued[0] } }, env);
+  assert.equal(current.status, 200);
+  const prev = await app.request("https://casthop.test/api/auth/me", { headers: { Cookie: cookie } }, env);
+  assert.equal(prev.status, 200);
+});
+
 test("previous cookie is rejected after the rotation grace window; current cookie still works", async () => {
   const env = makeEnv();
   const cookie = await signIn(env, "ada@example.com");
@@ -933,6 +953,23 @@ test("GitHub OAuth is optional and creates a session when configured", async () 
   assert.equal(me.name, "Octo Cat");
 });
 
+test("devLogin is omitted on a non-loopback host even with CASTHOP_ALLOW_DEV_KEYS", async () => {
+  const env = makeEnv();
+  const sent = await json<{ ok: boolean; devLogin?: string }>(
+    await app.request(
+      "https://casthop.test/api/auth/magic-link",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "remote@example.com" }),
+      },
+      env,
+    ),
+  );
+  assert.equal(sent.ok, true);
+  assert.equal(sent.devLogin, undefined);
+});
+
 test("magic link is not logged or returned outside local/dev", async () => {
   const logs: string[] = [];
   const origLog = console.log;
@@ -1002,7 +1039,7 @@ test("magic link is single-use", async () => {
   const env = makeEnv();
   const sent = await json<{ devLogin: string }>(
     await app.request(
-      "https://casthop.test/api/auth/magic-link",
+      `${DEV_ORIGIN}/api/auth/magic-link`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1011,9 +1048,9 @@ test("magic link is single-use", async () => {
       env,
     ),
   );
-  const first = await app.request(`https://casthop.test${sent.devLogin}`, { redirect: "manual" }, env);
+  const first = await app.request(`${DEV_ORIGIN}${sent.devLogin}`, { redirect: "manual" }, env);
   assert.equal(first.status, 302);
-  const second = await app.request(`https://casthop.test${sent.devLogin}`, { redirect: "manual" }, env);
+  const second = await app.request(`${DEV_ORIGIN}${sent.devLogin}`, { redirect: "manual" }, env);
   assert.equal(second.status, 302);
   assert.equal(second.headers.get("location"), "/?auth=invalid");
 });

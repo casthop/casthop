@@ -74,7 +74,7 @@ export const Q = {
   deleteExpiredMagic: "DELETE FROM magic_links WHERE expires_at < ?",
   deleteExpiredOauth: "DELETE FROM oauth_states WHERE expires_at < ?",
   deleteStaleRates: "DELETE FROM rate_limits WHERE window_start < ?",
-  rotateSession: "UPDATE sessions SET token_hash = ?, prev_token_hash = ?, rotated_at = ?, expires_at = ? WHERE id = ?",
+  rotateSession: "UPDATE sessions SET token_hash = ?, prev_token_hash = ?, rotated_at = ?, expires_at = ? WHERE id = ? AND token_hash = ?",
   insertMagic: "INSERT INTO magic_links (token_hash, email, expires_at, consumed_at, created_at) VALUES (?, ?, ?, NULL, ?)",
   magicByHash: "SELECT token_hash, email, expires_at, consumed_at, created_at FROM magic_links WHERE token_hash = ?",
   consumeMagic: "UPDATE magic_links SET consumed_at = ? WHERE token_hash = ? AND consumed_at IS NULL",
@@ -228,8 +228,10 @@ export async function rotateSession(
   db: D1Database,
   id: string,
   next: { tokenHash: string; prevHash: string; rotatedAt: number; expiresAt: number },
-): Promise<void> {
-  await run(db, Q.rotateSession, next.tokenHash, next.prevHash, next.rotatedAt, next.expiresAt, id);
+  expectedTokenHash: string,
+): Promise<boolean> {
+  const res = await db.prepare(Q.rotateSession).bind(next.tokenHash, next.prevHash, next.rotatedAt, next.expiresAt, id, expectedTokenHash).run();
+  return (res.meta.changes ?? 0) > 0;
 }
 
 export async function insertMagic(db: D1Database, tokenHash: string, email: string, expiresAt: number, createdAt: number): Promise<void> {

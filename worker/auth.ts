@@ -19,6 +19,7 @@ import {
   cookieValue,
   hostIdentityFor,
   hostKeyFor,
+  isLoopbackUrl,
   isSecureRequest,
   nameFromEmail,
   randomId,
@@ -84,12 +85,18 @@ export async function loadSession(c: AppCtx): Promise<Authed | null> {
   if (presentedCurrent && now - row.rotated_at >= SESSION_ROTATE_MS) {
     const nextToken = randomId(32);
     const nextHash = await sha256hex(nextToken);
-    await rotateSession(c.env.DB, row.id, {
-      tokenHash: nextHash,
-      prevHash: row.token_hash,
-      rotatedAt: now,
-      expiresAt: now + SESSION_TTL_MS,
-    });
+    const rotated = await rotateSession(
+      c.env.DB,
+      row.id,
+      {
+        tokenHash: nextHash,
+        prevHash: row.token_hash,
+        rotatedAt: now,
+        expiresAt: now + SESSION_TTL_MS,
+      },
+      row.token_hash,
+    );
+    if (!rotated) return { account, sessionId: row.id };
     return {
       account,
       sessionId: row.id,
@@ -195,7 +202,7 @@ export async function issueMagicLink(c: AppCtx, email: string): Promise<{ ok: tr
     subject: "Sign in to Casthop",
     text: `Open this link to sign in. It expires in 15 minutes.\n\n${loginUrl}\n`,
   });
-  return allowDevLogin(c.env) ? { ok: true, devLogin: loginPath } : { ok: true };
+  return allowDevLogin(c.env) && isLoopbackUrl(c.req.url) ? { ok: true, devLogin: loginPath } : { ok: true };
 }
 
 export async function consumeMagicToken(c: AppCtx, token: string): Promise<Account | null> {

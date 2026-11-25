@@ -158,15 +158,13 @@ export class FakeD1 implements D1Database {
       return { results: [], changes: 1 };
     }
     if (q === norm(Q.rotateSession)) {
-      const [token_hash, prev_token_hash, rotated_at, expires_at, id] = binds;
-      for (const r of this.rows("sessions")) {
-        if (r.id === id) {
-          r.token_hash = token_hash;
-          r.prev_token_hash = prev_token_hash;
-          r.rotated_at = rotated_at;
-          r.expires_at = expires_at;
-        }
-      }
+      const [token_hash, prev_token_hash, rotated_at, expires_at, id, expected_hash] = binds;
+      const row = this.rows("sessions").find((r) => r.id === id && r.token_hash === expected_hash);
+      if (!row) return { results: [], changes: 0 };
+      row.token_hash = token_hash;
+      row.prev_token_hash = prev_token_hash;
+      row.rotated_at = rotated_at;
+      row.expires_at = expires_at;
       return { results: [], changes: 1 };
     }
     if (q === norm(Q.insertMagic)) {

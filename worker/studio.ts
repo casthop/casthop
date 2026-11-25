@@ -386,25 +386,29 @@ export class StudioDurableObject {
     state.liveStartingAt = Date.now();
     await this.putState(state);
 
+    let listed: ReturnType<typeof parseEgressList> = [];
     try {
-      const listed = parseEgressList(await listEgressRaw(this.env, state.id));
-      const active = pickActiveEgress(listed, state.egressId);
-      if (active) {
-        state.wantLive = true;
-        state.live = true;
-        state.liveStartedAt = state.liveStartedAt ?? Date.now();
-        state.liveStartingAt = undefined;
-        state.egressId = active.egressId;
-        state.liveError = null;
-        state.egressRetryCount = 0;
-        state.egressRetryAt = null;
-        applyStreamResults(state.destinations, active.streams, true);
-        await this.putState(state);
-        await this.scheduleWatch(Date.now() + WATCH_MS);
-        return json(publicState(state, { includeUrls: true }));
-      }
+      listed = parseEgressList(await listEgressRaw(this.env, state.id));
     } catch (err) {
       console.warn("list egress on start", err);
+    }
+    const afterList = await this.getState();
+    if (!afterList?.wantLive) return json(publicState(afterList ?? state, { includeUrls: true }));
+    state = afterList;
+    const active = pickActiveEgress(listed, state.egressId);
+    if (active) {
+      state.wantLive = true;
+      state.live = true;
+      state.liveStartedAt = state.liveStartedAt ?? Date.now();
+      state.liveStartingAt = undefined;
+      state.egressId = active.egressId;
+      state.liveError = null;
+      state.egressRetryCount = 0;
+      state.egressRetryAt = null;
+      applyStreamResults(state.destinations, active.streams, true);
+      await this.putState(state);
+      await this.scheduleWatch(Date.now() + WATCH_MS);
+      return json(publicState(state, { includeUrls: true }));
     }
 
     state.liveError = null;
@@ -417,6 +421,9 @@ export class StudioDurableObject {
     } catch {
       occupied = false;
     }
+    const afterPeople = await this.getState();
+    if (!afterPeople?.wantLive) return json(publicState(afterPeople ?? state, { includeUrls: true }));
+    state = afterPeople;
     if (!occupied) {
       await this.scheduleWatch(Date.now() + WATCH_MS);
       return json(publicState(state, { includeUrls: true }));

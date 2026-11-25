@@ -28,6 +28,7 @@ let listedParticipants: { identity: string }[] = [{ identity: "host" }];
 let listedEgress: unknown = { items: [] };
 let listEgressHold: Promise<void> | null = null;
 let listEgressStarted: (() => void) | null = null;
+let holdNextListEgress = false;
 const realFetch = globalThis.fetch;
 
 function fakeCtx(): DurableObjectState {
@@ -146,7 +147,10 @@ before(() => {
     }
     if (url.includes("ListEgress")) {
       listEgressStarted?.();
-      if (listEgressHold) await listEgressHold;
+      if (holdNextListEgress && listEgressHold) {
+        holdNextListEgress = false;
+        await listEgressHold;
+      }
       return new Response(JSON.stringify(listedEgress), { status: 200 });
     }
     if (url.includes("ListParticipants")) {
@@ -299,6 +303,7 @@ test("two overlapping go-live calls start only one compositor", async () => {
   const sawList = new Promise<void>((resolve) => {
     listEgressStarted = resolve;
   });
+  holdNextListEgress = true;
   const first = app.request(
     `https://casthop.test/api/studios/${id}/live`,
     { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
@@ -319,6 +324,48 @@ test("two overlapping go-live calls start only one compositor", async () => {
   } finally {
     listEgressHold = null;
     listEgressStarted = null;
+    holdNextListEgress = false;
+  }
+});
+
+test("stop during go-live list does not start egress", async () => {
+  listedParticipants = [{ identity: "host" }];
+  listedEgress = { items: [] };
+  const env = makeEnv();
+  const { id, hostKey } = await createStudio(env);
+  const starts = egressStarts;
+  let release!: () => void;
+  listEgressHold = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const sawList = new Promise<void>((resolve) => {
+    listEgressStarted = resolve;
+  });
+  holdNextListEgress = true;
+  const first = app.request(
+    `https://casthop.test/api/studios/${id}/live`,
+    { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+    env,
+  );
+  try {
+    await sawList;
+    const stop = await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: false }) },
+      env,
+    );
+    assert.equal(stop.status, 200, await stop.clone().text());
+    release();
+    const go = await first;
+    assert.equal(go.status, 200, await go.clone().text());
+    const ended = await json<PublicStudio>(go);
+    assert.equal(ended.live, false);
+    assert.equal(ended.livePhase, "idle");
+    assert.equal(egressStarts, starts);
+  } finally {
+    listEgressHold = null;
+    listEgressStarted = null;
+    holdNextListEgress = false;
   }
 });
 

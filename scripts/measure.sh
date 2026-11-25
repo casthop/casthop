@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Measure glass-to-glass delay, CPU, and bandwidth for 2 / 4 / 6 on-stage publishers.
-# Requires: docker compose stack, npm run dev, livekit-cli (`lk`), ffmpeg, curl, python3.
+# Requires: docker compose stack, bun run dev, livekit-cli (`lk`), ffmpeg, curl, python3.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

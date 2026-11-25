@@ -1,10 +1,10 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { cloudflare } from "@cloudflare/vite-plugin";
 
 function copyMediapipeWasm() {
-  execSync("node scripts/copy-mediapipe.mjs", { stdio: "inherit" });
+  execFileSync(process.execPath, ["scripts/copy-mediapipe.mjs"], { stdio: "inherit" });
 }
 
 copyMediapipeWasm();

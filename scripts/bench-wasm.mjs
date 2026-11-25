@@ -1,6 +1,6 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
- * Node-side WASM vs JS comparison (CPU time / frame, bundle size).
+ * Runtime WASM vs JS comparison (CPU time / frame, bundle size).
  * Browser numbers come from /internal/bench.
  */
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";

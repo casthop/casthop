@@ -5,22 +5,23 @@
   "license": "AGPL-3.0-only",
   "description": "Open-source browser live studio — guests, layouts, multistream, recording.",
   "type": "module",
+  "packageManager": "bun@1.4.5",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "cargo fmt -p casthop-media -p casthop-post -- --check",
-    "test": "tsx --test --test-concurrency=1 tests/*.test.ts",
-    "test:e2e": "node scripts/e2e-live.mjs",
-    "check:wasm": "node scripts/check-wasm-budget.mjs",
+    "test": "bun test --max-concurrency=1",
+    "test:e2e": "bun scripts/e2e-live.mjs",
+    "check:wasm": "bun scripts/check-wasm-budget.mjs",
     "build:wasm": "bash scripts/build-wasm.sh",
-    "bench:wasm": "tsx scripts/bench-wasm.mjs",
+    "bench:wasm": "bun scripts/bench-wasm.mjs",
     "measure": "bash scripts/measure.sh",
-    "postinstall": "node scripts/copy-mediapipe.mjs"
+    "postinstall": "bun scripts/copy-mediapipe.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "bun": ">=1.4.5"
   },
   "dependencies": {
     "@fontsource/public-sans": "^5.2.7",
@@ -38,7 +39,6 @@
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.4",
-    "tsx": "^4.20.6",
     "typescript": "^5.9.2",
     "vite": "^7.1.7",
     "wrangler": "^4.168.0",

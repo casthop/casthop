@@ -30,7 +30,7 @@ LiveKit Egress (custom /egress-template)             Durable Object
 
 **Why not Cloudflare Stream Live for fan-out?** Stream Live ingest and simulcast outputs need a Cloudflare account with Stream enabled. Stream storage is prepaid; running out blocks new live inputs. This prototype does not sign up for paid services. Egress already transcodes once and can emit many RTMP URLs from that encode, which is the right self-host path. Hosted Casthop can still put a single RTMP into Stream later if Stream’s delivery math wins; see `MEASUREMENTS.md`.
 
-**Cloudflare pieces in this repo:** the app is a Worker (Hono) with a Durable Object per studio and D1 for the studio index. Local `npm run dev` runs that stack through the Cloudflare Vite plugin. R2 is bound and left as the replay archive seam; v0 recordings stay on the Egress volume. Hot Worker endpoints are still TypeScript; a workers-rs port is a next step.
+**Cloudflare pieces in this repo:** the app is a Worker (Hono) with a Durable Object per studio and D1 for the studio index. Local `bun run dev` runs that stack through the Cloudflare Vite plugin. R2 is bound and left as the replay archive seam; v0 recordings stay on the Egress volume. Hot Worker endpoints are still TypeScript; a workers-rs port is a next step.
 
 **LiveKit stays the SFU** (Go). It is already the fast path. The LiveKit Rust SDK is unused in v0.
 
@@ -38,15 +38,15 @@ LiveKit Egress (custom /egress-template)             Durable Object
 
 ## Local run
 
-Linux (this is the path we measured). Docker uses host networking so the browser, LiveKit ICE, Egress, and RTMP all see `127.0.0.1`. LiveKit, Redis, and MediaMTX bind that loopback address so the committed `devkey` is not reachable on the LAN. The Worker refuses to start with that default keypair unless LiveKit is loopback (or `CASTHOP_ALLOW_DEV_KEYS=1` for tests).
+Linux (this is the path we measured). Install [Bun](https://bun.com) 1.4+; do not use npm. Docker uses host networking so the browser, LiveKit ICE, Egress, and RTMP all see `127.0.0.1`. LiveKit, Redis, and MediaMTX bind that loopback address so the committed `devkey` is not reachable on the LAN. The Worker refuses to start with that default keypair unless LiveKit is loopback (or `CASTHOP_ALLOW_DEV_KEYS=1` for tests).
 
 ```bash
 cp .env.example .env
 cp .dev.vars.example .dev.vars   # Worker secrets, gitignored
 mkdir -p data/recordings data/rtmp && chmod 777 data/recordings
 docker compose up -d
-npm install
-npm run dev
+bun install
+bun run dev
 ```
 
 Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Email yourself a magic link (the Worker prints it in the console), open a studio, copy the guest link, put people on stage, Go Live. Destination rows show per-RTMP status; if Egress or a stream drops, the studio retries with backoff. Optional GitHub OAuth: set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `.dev.vars`.
@@ -54,10 +54,10 @@ Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Email yourself a magic link
 Rebuild the WASM module (needs rustc 1.83+ and the `wasm32-unknown-unknown` target):
 
 ```bash
-npm run build:wasm
+bun run build:wasm
 ```
 
-A prebuilt `src/wasm/casthop_media.wasm` is committed so `npm run dev` works without a Rust toolchain.
+A prebuilt `src/wasm/casthop_media.wasm` is committed so `bun run dev` works without a Rust toolchain.
 
 Default destinations are local MediaMTX stand-ins for YouTube, LinkedIn, and X:
 
@@ -77,13 +77,13 @@ Health: [http://127.0.0.1:5173/api/health](http://127.0.0.1:5173/api/health)
 
 Latency probe: [http://127.0.0.1:5173/internal/probe](http://127.0.0.1:5173/internal/probe)
 
-WASM vs JS bench: [http://127.0.0.1:5173/internal/bench](http://127.0.0.1:5173/internal/bench) or `npm run bench:wasm`
+WASM vs JS bench: [http://127.0.0.1:5173/internal/bench](http://127.0.0.1:5173/internal/bench) or `bun run bench:wasm`
 
 Load measurement (2 / 4 / 6 publishers + Go Live):
 
 ```bash
-npm run measure
-E2E=1 npm run test:e2e   # Chrome joins, Go Live, MediaMTX audio is not silent
+bun run measure
+E2E=1 bun run test:e2e   # Chrome joins, Go Live, MediaMTX audio is not silent
 ```
 
 ### Docker Desktop (macOS / Windows)

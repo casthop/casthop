@@ -42,7 +42,7 @@ export function GuestJoin() {
 
   useEffect(() => {
     if (cameraId) copyBlurPref("", cameraId);
-    setBlurOn(loadBlurPref(cameraId, ""));
+    setBlurOn(loadBlurPref(cameraId));
   }, [cameraId]);
 
   useEffect(() => {

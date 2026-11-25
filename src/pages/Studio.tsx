@@ -8,7 +8,7 @@ import {
   Track,
   VideoPresets,
 } from "livekit-client";
-import { Mic, MicOff, MonitorUp, UserPlus, Video, VideoOff } from "lucide-react";
+import { Aperture, Mic, MicOff, MonitorUp, UserPlus, Video, VideoOff } from "lucide-react";
 import { Logo } from "../components/Logo";
 import { VideoTile } from "../components/VideoTile";
 import {
@@ -22,6 +22,8 @@ import {
   setStage,
   type PublicStudio,
 } from "../lib/api";
+import { loadBlurPref, saveBlurPref } from "../lib/blur-prefs";
+import { startCameraBlur, type CameraBlurHandle } from "../lib/camera-blur";
 import { mediaPipeline } from "../lib/effects";
 import { hueFor, openUserMedia } from "../lib/media";
 import { loadSession, saveSession } from "../lib/session";
@@ -80,6 +82,10 @@ export function Studio() {
   const [peers, setPeers] = useState<(RemoteParticipant | LocalParticipant)[]>([]);
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
+  const [blurOn, setBlurOn] = useState(false);
+  const [blurBusy, setBlurBusy] = useState(false);
+  const originalVideoRef = useRef<MediaStreamTrack | null>(null);
+  const blurHandleRef = useRef<CameraBlurHandle | null>(null);
   const [error, setError] = useState("");
   const [chatDraft, setChatDraft] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -92,6 +98,11 @@ export function Studio() {
     const t = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    const saved = loadSession(id);
+    setBlurOn(loadBlurPref(saved?.cameraId ?? ""));
+  }, [id]);
 
   useEffect(() => {
     const fromUrl = params.get("host");
@@ -212,6 +223,10 @@ export function Studio() {
     })().catch((err) => setError(err instanceof Error ? err.message : "Could not connect"));
     return () => {
       cancelled = true;
+      blurHandleRef.current?.stop();
+      blurHandleRef.current = null;
+      originalVideoRef.current?.stop();
+      originalVideoRef.current = null;
       current?.disconnect();
     };
   }, [id, hostKey, isHost]);
@@ -249,7 +264,22 @@ export function Studio() {
       const processed = await mediaPipeline.process(raw);
       const video = processed.getVideoTracks()[0];
       if (video) {
-        await lk.localParticipant.publishTrack(video, {
+        originalVideoRef.current = video;
+        const deviceId = video.getSettings().deviceId ?? saved?.cameraId ?? "";
+        const wantBlur = loadBlurPref(deviceId);
+        setBlurOn(wantBlur);
+        let publishVideo = video;
+        if (wantBlur) {
+          try {
+            const handle = await startCameraBlur(video);
+            blurHandleRef.current?.stop();
+            blurHandleRef.current = handle;
+            publishVideo = handle.track;
+          } catch (err) {
+            console.warn("casthop blur", err);
+          }
+        }
+        await lk.localParticipant.publishTrack(publishVideo, {
           source: Track.Source.Camera,
           simulcast: true,
         });
@@ -273,6 +303,36 @@ export function Studio() {
     const next = !camOn;
     setCamOn(next);
     await room?.localParticipant.setCameraEnabled(next);
+  }
+
+  async function toggleBlur() {
+    if (blurBusy) return;
+    const next = !blurOn;
+    const deviceId = originalVideoRef.current?.getSettings().deviceId ?? loadSession(id)?.cameraId ?? "";
+    saveBlurPref(deviceId, next);
+    setBlurOn(next);
+    const local = room?.localParticipant.getTrackPublication(Track.Source.Camera)?.videoTrack;
+    const original = originalVideoRef.current;
+    if (!local || !original) return;
+    setBlurBusy(true);
+    try {
+      if (next) {
+        const handle = await startCameraBlur(original);
+        await local.replaceTrack(handle.track, { userProvidedTrack: true });
+        blurHandleRef.current?.stop();
+        blurHandleRef.current = handle;
+      } else {
+        await local.replaceTrack(original, { userProvidedTrack: true });
+        blurHandleRef.current?.stop();
+        blurHandleRef.current = null;
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Blur failed");
+      setBlurOn(!next);
+      saveBlurPref(deviceId, !next);
+    } finally {
+      setBlurBusy(false);
+    }
   }
 
   async function shareScreen() {
@@ -464,6 +524,15 @@ export function Studio() {
             </button>
             <button className={`ctrl ${camOn ? "" : "off"}`} type="button" onClick={toggleCam}>
               {camOn ? <Video size={16} /> : <VideoOff size={16} />} Camera
+            </button>
+            <button
+              className={`ctrl ${blurOn ? "" : "off"}`}
+              type="button"
+              onClick={() => void toggleBlur()}
+              aria-pressed={blurOn}
+              disabled={blurBusy}
+            >
+              <Aperture size={16} /> Blur
             </button>
             <button className="ctrl" type="button" onClick={shareScreen}>
               <MonitorUp size={16} /> Share screen

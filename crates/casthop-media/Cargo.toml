@@ -3,7 +3,7 @@ name = "casthop-media"
 version = "0.1.0"
 edition = "2021"
 license = "AGPL-3.0-only"
-description = "WASM media pipeline: RNNoise denoise, VAD/meters, layout compositor."
+description = "WASM media pipeline: RNNoise denoise, VAD/meters, layout compositor, camera blur."
 
 [lib]
 crate-type = ["cdylib", "rlib"]

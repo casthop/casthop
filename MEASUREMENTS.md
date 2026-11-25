@@ -54,16 +54,17 @@ Workers / D1 / DO stay inside the $5 account floor at this volume **(estimate, m
 
 ## 4. Rust / WASM vs JS
 
-Bundle: `src/wasm/casthop_media.wasm` is **374.1 KiB** (383,070 bytes), zero imports, loads in AudioWorklets and Workers. Chrome `/internal/bench` and Node `npm run bench:wasm` agree.
+Bundle: `src/wasm/casthop_media.wasm` is **384.8 KiB** (394,071 bytes), zero imports, loads in AudioWorklets and Workers. Chrome `/internal/bench` and Node `npm run bench:wasm` agree. The selfie-segmenter model (245 KiB, Apache-2.0) and MediaPipe vision WASM load only when blur is on.
 
 | Path | WASM | JS | JS/WASM | What this actually compares |
 |---|---|---|---|---|
 | Denoise, 10 ms / 480 samples @ 48 kHz | **0.084–0.088 ms/frame** (Node CPU 742 ms / 8000 frames) | **0.003 ms/frame** (cheap gate) | **0.03×** | RNNoise GRU vs a few arithmetic ops. WASM is slower and **under budget** (10 ms). The gain is quality, not cycles. |
 | Denoise CPU % of one core @ realtime | **~0.9%** | **~0.03%** | — | Both fine on the publish path. |
 | Compose 1280×720, 4 tiles, nearest blit | **5.39–5.45 ms/frame** | **4.11–4.73 ms/frame** | **0.76–0.87×** | Same algorithm. V8 wins slightly; both are ~30–45 fps CPU. Production egress uses **Canvas2D + WASM layout** (GPU `drawImage`). |
+| Background blur 1280×720 (mask 256×144, box-blur + mix) | **14.16 ms/frame** | **14.08 ms/frame** | **0.99×** | Same algorithm. Both under 33 ms (30 fps). CPU 14.2 vs 14.5 ms/frame; WASM default, `?fx=js` for the fallback. Segmentation is MediaPipe (lazy), not in this number. |
 | WebGPU | `navigator.gpu` **present** in this Chrome | — | — | Default live path is Canvas2D; `?compose=webgpu` or `?compose=wasm` to force. wgpu-in-Rust is a next step (see §5). |
 
-Takeaway: ship RNNoise in WASM because a JS gate is not the same filter. Do **not** put the CPU compositor on the live tab-capture path; keep it for overlays / Worker / measurement. Layout math from Rust is shared by Canvas2D and WebGPU.
+Takeaway: ship RNNoise in WASM because a JS gate is not the same filter. Do **not** put the CPU compositor on the live tab-capture path; keep it for overlays / Worker / measurement. Layout math from Rust is shared by Canvas2D and WebGPU. Camera blur mix is WASM by default (~14 ms/frame @ 720p, holds 30 fps); `?fx=js` is the same algorithm.
 
 ## 5. What broke, what’s hard, what next
 
@@ -83,8 +84,9 @@ What next (called out by the product-owner Rust/WASM direction, not done in v0):
 - Audio **VAD-driven** UI (worklet already posts VAD; studio chrome doesn’t show it yet).
 - **workers-rs** for hot Worker endpoints (`/api/token`, live start) instead of Hono/TS.
 - Dedicated Rust **RTMP fan-out** if we leave Cloudflare Stream unused in production (`casthop-post` is inspect/remux only).
-- Background blur / WebGPU camera effects.
 - Destination chat ingest, R2 replay viewer, TURN, email auth.
+
+Camera background blur ships: WASM mix + lazy MediaPipe selfie segmenter (toggle in the studio; `?fx=js` for the JS mix).
 
 ## 6. Silent-audio check (H3)
 

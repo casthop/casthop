@@ -33,6 +33,14 @@ type Exports = {
   ): void;
   casthop_compose_banner(h: number, title: number, titleLen: number, sub: number, subLen: number): void;
   casthop_compose_free(h: number): void;
+  casthop_blur_new(): number;
+  casthop_blur_setup(h: number, w: number, height: number, mw: number, mh: number, radius: number, temporal: number): number;
+  casthop_blur_frame_ptr(h: number): number;
+  casthop_blur_frame_len(h: number): number;
+  casthop_blur_mask_ptr(h: number): number;
+  casthop_blur_mask_len(h: number): number;
+  casthop_blur_process(h: number): number;
+  casthop_blur_free(h: number): void;
 };
 
 let instancePromise: Promise<Exports> | null = null;
@@ -200,5 +208,45 @@ export class WasmCompositor {
     const len = this.api.casthop_compose_len(this.handle);
     const pixels = new Uint8ClampedArray(this.api.memory.buffer, ptr, len).slice();
     return new ImageData(pixels, this.width, this.height);
+  }
+}
+
+export class WasmBlur {
+  private readonly api: Exports;
+  readonly handle: number;
+  width = 1280;
+  height = 720;
+  maskW = 256;
+  maskH = 144;
+
+  constructor(api: Exports) {
+    this.api = api;
+    this.handle = api.casthop_blur_new();
+  }
+
+  setup(width: number, height: number, maskW: number, maskH: number, radius = 24, temporal = 180): boolean {
+    if (!this.api.casthop_blur_setup(this.handle, width, height, maskW, maskH, radius, temporal)) return false;
+    this.width = width;
+    this.height = height;
+    this.maskW = maskW;
+    this.maskH = maskH;
+    return true;
+  }
+
+  process(frame: Uint8ClampedArray | Uint8Array, mask: Uint8Array): boolean {
+    const fp = this.api.casthop_blur_frame_ptr(this.handle);
+    const mp = this.api.casthop_blur_mask_ptr(this.handle);
+    if (!fp || !mp) return false;
+    const bytes = this.width * this.height * 4;
+    const mx = this.maskW * this.maskH;
+    new Uint8Array(this.api.memory.buffer, fp, bytes).set(frame.subarray(0, bytes));
+    new Uint8Array(this.api.memory.buffer, mp, mx).set(mask.subarray(0, mx));
+    if (!this.api.casthop_blur_process(this.handle)) return false;
+    frame.set(new Uint8Array(this.api.memory.buffer, fp, bytes));
+    return true;
+  }
+
+  free(): void {
+    this.api.casthop_blur_free(this.handle);
   }
 }

@@ -4,7 +4,7 @@ Rust/WASM rules. Root `AGENTS.md` still applies.
 
 ## casthop-media
 
-Builds to `src/wasm/casthop_media.wasm`: C ABI, no wasm-bindgen, no JS imports (AudioWorklet-safe). After crate changes, `npm run build:wasm` and commit the `.wasm`.
+Builds to `src/wasm/casthop_media.wasm`: C ABI, no wasm-bindgen, no JS imports (AudioWorklet-safe). After crate changes, `npm run build:wasm` and commit the `.wasm`. Camera background blur (mask smooth / box-blur / composite) lives here. The selfie-segmentation model is a separate lazy load.
 
 - Preallocate. No `Vec` / `String` / `Box` in `process`, `blit`, or per-sample paths.
 - No `unwrap`, `expect`, or `panic!` outside `#[cfg(test)]`. Bad handles return 0 / no-op.

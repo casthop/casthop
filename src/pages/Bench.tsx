@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { jsComposeNearest, jsDenoiseFrame, JS_FRAME } from "../lib/js-pipeline";
-import { loadWasm, wasmAssetUrl, WasmCompositor, WasmDenoiser } from "../lib/wasm";
+import { jsBlurComposite, jsComposeNearest, jsDenoiseFrame, JS_FRAME } from "../lib/js-pipeline";
+import { loadWasm, wasmAssetUrl, WasmBlur, WasmCompositor, WasmDenoiser } from "../lib/wasm";
 
 type Row = { name: string; wasmMs: number; jsMs: number; ratio: number; unit: string };
 
@@ -59,6 +59,52 @@ export function Bench() {
       }
       const jsCompose = performance.now() - t3;
 
+      const blurW = 1280;
+      const blurH = 720;
+      const blurSrc = new Uint8ClampedArray(blurW * blurH * 4);
+      const blurMask = new Uint8Array(256 * 144);
+      for (let i = 0; i < blurW * blurH; i++) {
+        const x = i % blurW;
+        const y = (i / blurW) | 0;
+        const o = i * 4;
+        const on = ((x >> 3) + (y >> 3)) & 1;
+        blurSrc[o] = on ? 240 : 20;
+        blurSrc[o + 1] = 80;
+        blurSrc[o + 2] = on ? 20 : 200;
+        blurSrc[o + 3] = 255;
+      }
+      for (let y = 0; y < 144; y++) {
+        for (let x = 0; x < 256; x++) {
+          const cx = x - 128;
+          const cy = y - 72;
+          blurMask[y * 256 + x] = cx * cx + cy * cy < 50 * 50 ? 255 : 0;
+        }
+      }
+      const blur = new WasmBlur(api);
+      blur.setup(blurW, blurH, 256, 144, 24, 0);
+      const blurFrames = 20;
+      const scratch = blurSrc.slice();
+      for (let i = 0; i < 2; i++) {
+        scratch.set(blurSrc);
+        blur.process(scratch, blurMask);
+      }
+      const t4 = performance.now();
+      for (let i = 0; i < blurFrames; i++) {
+        scratch.set(blurSrc);
+        blur.process(scratch, blurMask);
+      }
+      const wasmBlur = performance.now() - t4;
+      const jsScratch = blurSrc.slice();
+      const jsState = { smooth: null, feather: null, down: null, tmp: null };
+      jsScratch.set(blurSrc);
+      jsBlurComposite(jsScratch, blurW, blurH, blurMask, 256, 144, 24, 0, jsState);
+      const t5 = performance.now();
+      for (let i = 0; i < blurFrames; i++) {
+        jsScratch.set(blurSrc);
+        jsBlurComposite(jsScratch, blurW, blurH, blurMask, 256, 144, 24, 0, jsState);
+      }
+      const jsBlur = performance.now() - t5;
+
       const gpu = "gpu" in navigator ? "navigator.gpu present" : "no WebGPU";
       const rowsOut: Row[] = [
         {
@@ -73,6 +119,13 @@ export function Bench() {
           wasmMs: wasmCompose / composeFrames,
           jsMs: jsCompose / composeFrames,
           ratio: jsCompose / wasmCompose,
+          unit: "ms/frame",
+        },
+        {
+          name: "Background blur 1280×720",
+          wasmMs: wasmBlur / blurFrames,
+          jsMs: jsBlur / blurFrames,
+          ratio: jsBlur / wasmBlur,
           unit: "ms/frame",
         },
       ];

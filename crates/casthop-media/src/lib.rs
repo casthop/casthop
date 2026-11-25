@@ -4,6 +4,7 @@
 //! without wasm-bindgen glue. Handles live in thread-local storage (one
 //! WASM instance per worklet/worker).
 
+mod blur;
 mod compose;
 mod denoise;
 mod layout;
@@ -11,6 +12,7 @@ mod meter;
 
 use std::cell::RefCell;
 
+use blur::Pipeline;
 use compose::Compositor;
 use denoise::Denoiser;
 
@@ -19,6 +21,7 @@ const FRAME: usize = denoise::FRAME_SIZE;
 struct World {
     denoisers: Vec<Denoiser>,
     compositors: Vec<Compositor>,
+    blurs: Vec<Pipeline>,
 }
 
 impl World {
@@ -26,6 +29,7 @@ impl World {
         Self {
             denoisers: Vec::new(),
             compositors: Vec::new(),
+            blurs: Vec::new(),
         }
     }
 }
@@ -45,7 +49,7 @@ pub extern "C" fn casthop_frame_size() -> u32 {
 
 #[no_mangle]
 pub extern "C" fn casthop_version() -> u32 {
-    1
+    2
 }
 
 #[no_mangle]
@@ -99,7 +103,12 @@ pub extern "C" fn casthop_denoise_free(handle: u32) {
 
 /// RMS (0..10_000), peak (0..10_000), VAD flag packed: rms | peak<<16, vad in return via out ptr.
 #[no_mangle]
-pub unsafe extern "C" fn casthop_meter(ptr: *const f32, len: u32, out_rms: *mut f32, out_peak: *mut f32) -> u32 {
+pub unsafe extern "C" fn casthop_meter(
+    ptr: *const f32,
+    len: u32,
+    out_rms: *mut f32,
+    out_peak: *mut f32,
+) -> u32 {
     if ptr.is_null() || len == 0 {
         return 0;
     }
@@ -134,7 +143,8 @@ pub unsafe extern "C" fn casthop_layout(n: u32, mode: u32, out: *mut f32, cap: u
 #[no_mangle]
 pub extern "C" fn casthop_compose_new(width: u32, height: u32) -> u32 {
     with_world(|w| {
-        w.compositors.push(Compositor::new(width.max(16), height.max(16)));
+        w.compositors
+            .push(Compositor::new(width.max(16), height.max(16)));
         w.compositors.len() as u32
     })
 }
@@ -223,7 +233,8 @@ pub unsafe extern "C" fn casthop_compose_banner(
     let subtitle = if subtitle.is_null() {
         ""
     } else {
-        std::str::from_utf8(std::slice::from_raw_parts(subtitle, subtitle_len as usize)).unwrap_or("")
+        std::str::from_utf8(std::slice::from_raw_parts(subtitle, subtitle_len as usize))
+            .unwrap_or("")
     };
     with_world(|w| {
         if let Some(c) = w.compositors.get_mut(handle.wrapping_sub(1) as usize) {
@@ -238,6 +249,89 @@ pub extern "C" fn casthop_compose_free(handle: u32) {
         let i = handle.wrapping_sub(1) as usize;
         if i < w.compositors.len() {
             w.compositors[i] = Compositor::new(16, 16);
+        }
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn casthop_blur_new() -> u32 {
+    with_world(|w| {
+        w.blurs.push(Pipeline::new());
+        w.blurs.len() as u32
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn casthop_blur_setup(
+    handle: u32,
+    width: u32,
+    height: u32,
+    mask_w: u32,
+    mask_h: u32,
+    radius: u32,
+    temporal: u32,
+) -> u32 {
+    with_world(|w| {
+        w.blurs
+            .get_mut(handle.wrapping_sub(1) as usize)
+            .map_or(0, |b| {
+                u32::from(b.setup(width, height, mask_w, mask_h, radius, temporal))
+            })
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn casthop_blur_frame_ptr(handle: u32) -> u32 {
+    with_world(|w| {
+        w.blurs
+            .get_mut(handle.wrapping_sub(1) as usize)
+            .map_or(0, |b| b.frame.as_mut_ptr() as u32)
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn casthop_blur_frame_len(handle: u32) -> u32 {
+    with_world(|w| {
+        w.blurs
+            .get(handle.wrapping_sub(1) as usize)
+            .map_or(0, |b| b.frame.len() as u32)
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn casthop_blur_mask_ptr(handle: u32) -> u32 {
+    with_world(|w| {
+        w.blurs
+            .get_mut(handle.wrapping_sub(1) as usize)
+            .map_or(0, |b| b.mask.as_mut_ptr() as u32)
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn casthop_blur_mask_len(handle: u32) -> u32 {
+    with_world(|w| {
+        w.blurs
+            .get(handle.wrapping_sub(1) as usize)
+            .map_or(0, |b| b.mask.len() as u32)
+    })
+}
+
+/// Smooth the person mask, blur the background, composite in-place on the frame buffer.
+#[no_mangle]
+pub extern "C" fn casthop_blur_process(handle: u32) -> u32 {
+    with_world(|w| {
+        w.blurs
+            .get_mut(handle.wrapping_sub(1) as usize)
+            .map_or(0, |b| u32::from(b.process()))
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn casthop_blur_free(handle: u32) {
+    with_world(|w| {
+        let i = handle.wrapping_sub(1) as usize;
+        if i < w.blurs.len() {
+            w.blurs[i] = Pipeline::new();
         }
     });
 }
@@ -262,5 +356,18 @@ mod tests {
         assert!(p != 0);
         let vad = casthop_denoise_process(h);
         assert!(vad <= 10_000);
+    }
+
+    #[test]
+    fn blur_handle_and_bad_id() {
+        let h = casthop_blur_new();
+        assert!(h >= 1);
+        assert_eq!(casthop_blur_process(0), 0);
+        assert_eq!(casthop_blur_frame_ptr(99_999), 0);
+        assert_eq!(casthop_blur_setup(h, 64, 64, 16, 16, 24, 0), 1);
+        assert!(casthop_blur_frame_ptr(h) != 0);
+        assert!(casthop_blur_mask_ptr(h) != 0);
+        assert_eq!(casthop_blur_process(h), 1);
+        casthop_blur_free(h);
     }
 }

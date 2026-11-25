@@ -11,3 +11,5 @@ coverage
 *.tsbuildinfo
 /target
 **/*.rs.bk
+public/mediapipe/wasm/*.js
+public/mediapipe/wasm/*.wasm

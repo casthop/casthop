@@ -1,8 +1,10 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Check, Mic, MicOff, Video, VideoOff } from "lucide-react";
+import { Aperture, Check, Mic, MicOff, Video, VideoOff } from "lucide-react";
 import { Logo } from "../components/Logo";
 import { getHealth, getStudio, mintToken } from "../lib/api";
+import { loadBlurPref, saveBlurPref } from "../lib/blur-prefs";
+import { startCameraBlur, type CameraBlurHandle } from "../lib/camera-blur";
 import { attachWorkletMeter } from "../lib/effects";
 import { listDevices, openUserMedia, type DeviceSet } from "../lib/media";
 import { saveSession } from "../lib/session";
@@ -20,6 +22,7 @@ export function GuestJoin() {
   const [speakerId, setSpeakerId] = useState("");
   const [camOn, setCamOn] = useState(true);
   const [micOn, setMicOn] = useState(true);
+  const [blurOn, setBlurOn] = useState(false);
   const [level, setLevel] = useState(0);
   const [camOk, setCamOk] = useState(false);
   const [micOk, setMicOk] = useState(false);
@@ -38,15 +41,38 @@ export function GuestJoin() {
   }, [id]);
 
   useEffect(() => {
+    setBlurOn(loadBlurPref(cameraId));
+  }, [cameraId]);
+
+  useEffect(() => {
     let stopMeter = () => undefined;
     let cancelled = false;
+    let blurHandle: CameraBlurHandle | null = null;
+    let media: MediaStream | null = null;
     (async () => {
-      const media = await openUserMedia({ cameraId: cameraId || undefined, micId: micId || undefined });
+      media = await openUserMedia({ cameraId: cameraId || undefined, micId: micId || undefined });
       if (cancelled) {
         media.getTracks().forEach((t) => t.stop());
         return;
       }
-      setStream(media);
+      let preview: MediaStream = media;
+      if (blurOn) {
+        const videoTrack = media.getVideoTracks()[0];
+        if (videoTrack) {
+          try {
+            blurHandle = await startCameraBlur(videoTrack);
+            preview = new MediaStream([blurHandle.track, ...media.getAudioTracks()]);
+          } catch (err) {
+            console.warn("casthop blur", err);
+          }
+        }
+      }
+      if (cancelled) {
+        blurHandle?.stop();
+        media.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      setStream(preview);
       const video = media.getVideoTracks()[0];
       const settings = video?.getSettings();
       setCamOk(Boolean(video));
@@ -71,9 +97,11 @@ export function GuestJoin() {
     })();
     return () => {
       cancelled = true;
+      blurHandle?.stop();
       stopMeter();
+      media?.getTracks().forEach((t) => t.stop());
     };
-  }, [cameraId, micId]);
+  }, [cameraId, micId, blurOn]);
 
   useEffect(() => {
     stream?.getVideoTracks().forEach((t) => {
@@ -129,6 +157,19 @@ export function GuestJoin() {
               </button>
               <button type="button" aria-label={camOn ? "Turn camera off" : "Turn camera on"} onClick={() => setCamOn((v) => !v)}>
                 {camOn ? <Video size={16} /> : <VideoOff size={16} />}
+              </button>
+              <button
+                type="button"
+                className={blurOn ? "on" : undefined}
+                aria-label="Background blur"
+                aria-pressed={blurOn}
+                onClick={() => {
+                  const next = !blurOn;
+                  saveBlurPref(cameraId, next);
+                  setBlurOn(next);
+                }}
+              >
+                <Aperture size={16} />
               </button>
             </div>
             <div className="levels" aria-hidden="true">

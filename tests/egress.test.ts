@@ -272,11 +272,14 @@ test("unsigned webhook is 401; signed egress_ended retries start", async () => {
   listedEgress = { items: [] };
   const env = makeEnv();
   const { id, hostKey } = await createStudio(env);
-  await app.request(
-    `https://casthop.test/api/studios/${id}/live`,
-    { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
-    env,
+  const started = await json<PublicStudio>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      env,
+    ),
   );
+  assert.ok(started.egressId);
   const starts = egressStarts;
 
   const unsigned = await app.request(
@@ -290,7 +293,7 @@ test("unsigned webhook is 401; signed egress_ended retries start", async () => {
   const body = JSON.stringify({
     event: "egress_ended",
     egressInfo: {
-      egressId: "eg_1",
+      egressId: started.egressId,
       roomName: id,
       status: "EGRESS_FAILED",
       error: "chrome crashed",
@@ -314,6 +317,46 @@ test("unsigned webhook is 401; signed egress_ended retries start", async () => {
   );
   assert.equal(viaWorker.status, 200, await viaWorker.clone().text());
   assert.ok(egressStarts > starts);
+});
+
+test("late egress_ended for a previous compositor does not retry the live one", async () => {
+  listedParticipants = [{ identity: "host" }];
+  listedEgress = { items: [] };
+  const env = makeEnv();
+  const { id, hostKey } = await createStudio(env);
+  const started = await json<PublicStudio>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      env,
+    ),
+  );
+  const current = started.egressId;
+  assert.ok(current);
+  const starts = egressStarts;
+  const body = JSON.stringify({
+    event: "egress_ended",
+    egressInfo: {
+      egressId: "EG_stale",
+      roomName: id,
+      status: "EGRESS_FAILED",
+      error: "chrome crashed",
+    },
+  });
+  const token = await signLivekitWebhook(env, body);
+  const res = await app.request(
+    "https://casthop.test/api/livekit/webhook",
+    { method: "POST", headers: { Authorization: token, "Content-Type": "application/webhook+json" }, body },
+    env,
+  );
+  assert.equal(res.status, 200, await res.clone().text());
+  const snap = await json<PublicStudio>(
+    await app.request(`https://casthop.test/api/studios/${id}`, { headers: liveHeaders(hostKey) }, env),
+  );
+  assert.equal(snap.live, true);
+  assert.equal(snap.livePhase, "live");
+  assert.equal(snap.egressId, current);
+  assert.equal(egressStarts, starts);
 });
 
 test("egress_updated marks a dropped RTMP destination and reattaches it", async () => {

@@ -528,7 +528,8 @@ export class StudioDurableObject {
 
   private async applyEgress(state: StudioState, info: ReturnType<typeof parseEgressInfo>, event: string): Promise<void> {
     if (!info) return;
-    if (state.egressId && info.egressId !== state.egressId && isActiveHealth(info.status)) {
+    // A late egress_ended for the previous compositor must not tear down the current one.
+    if (state.egressId && info.egressId !== state.egressId) {
       return;
     }
     const dropped = applyStreamResults(state.destinations, info.streams, isActiveHealth(info.status));

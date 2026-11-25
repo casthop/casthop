@@ -106,6 +106,11 @@ export async function mintApiToken(env: Env, room?: string): Promise<string> {
   });
 }
 
+function twirpTimeoutMs(path: string): number {
+  if (path.includes("StartRoomComposite") || path.includes("StopEgress")) return 30_000;
+  return 8_000;
+}
+
 async function twirp<T>(env: Env, path: string, body: unknown, room?: string): Promise<T> {
   const token = await mintApiToken(env, room);
   const res = await fetch(`${env.LIVEKIT_HTTP_URL}${path}`, {
@@ -115,7 +120,7 @@ async function twirp<T>(env: Env, path: string, body: unknown, room?: string): P
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(8_000),
+    signal: AbortSignal.timeout(twirpTimeoutMs(path)),
   });
   const text = await res.text();
   if (!res.ok) {

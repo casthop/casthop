@@ -1,22 +1,8 @@
 ---
 import ExtLink from "../ExtLink.astro";
 import { GITHUB } from "../../lib/site";
-import { features, variants, type VariantKey } from "./content";
-
-interface Props { variant: VariantKey; }
-const { variant } = Astro.props;
+import { features } from "./content";
 ---
-<div class="hv-cue">
-  <div class="hv-cue-in">
-    <span>Hero preview, not the official site.</span>
-    <nav aria-label="Hero previews">
-      {variants.map((v) => (
-        <a href={v.href} aria-current={v.key === variant ? "page" : undefined}>{v.label} · {v.name}</a>
-      ))}
-    </nav>
-  </div>
-</div>
-
 <header class="hv-nav">
   <div class="hv-nav-in">
     <a href="/" class="hv-logo" aria-label="Casthop home"><span class="hv-dot" aria-hidden="true"></span>Casthop</a>
@@ -42,44 +28,48 @@ const { variant } = Astro.props;
       </div>
     </div>
     <div class="hv-shot-wrap">
-      <figure class="hv-shot">
-        <img src="/studio.png" width="1440" height="813" alt="The Casthop host studio: a dark booth with the stage, a list of RTMP destinations and a Go Live button." fetchpriority="high" />
-      </figure>
+      <div class="hv-shot-stage">
+        <figure class="hv-shot">
+          <img src="/studio.png" width="1440" height="813" alt="The Casthop host studio: a dark booth with the stage, a list of RTMP destinations and a Go Live button." fetchpriority="high" />
+        </figure>
+      </div>
     </div>
   </section>
 
-  <section class="hv-wrap hv-features" aria-labelledby="features-h">
-    <h2 id="features-h" class="hv-section-title">What it does today</h2>
-    {features.map((s) => (
-      <article class="hv-feature">
-        <p class="hv-feature-n">{s.n}</p>
-        <div>
-          <h3 class="hv-feature-t">{s.title}</h3>
-          <p class="hv-feature-b">{s.body}</p>
-          <a class="hv-link" href={s.link.href}>{s.link.label} <span aria-hidden="true">→</span></a>
-        </div>
-      </article>
-    ))}
-  </section>
+  <div class="hv-rest">
+    <section class="hv-wrap hv-features" aria-labelledby="features-h">
+      <h2 id="features-h" class="hv-section-title hv-reveal">What it does today</h2>
+      {features.map((s) => (
+        <article class="hv-feature hv-reveal">
+          <p class="hv-feature-n">{s.n}</p>
+          <div>
+            <h3 class="hv-feature-t">{s.title}</h3>
+            <p class="hv-feature-b">{s.body}</p>
+            <a class="hv-link" href={s.link.href}>{s.link.label} <span aria-hidden="true">→</span></a>
+          </div>
+        </article>
+      ))}
+    </section>
 
-  <section class="hv-wrap hv-oss" aria-labelledby="oss-h">
-    <p class="hv-eyebrow">Self-host</p>
-    <h2 id="oss-h" class="hv-display hv-display-sm">You run the media plane.</h2>
-    <div class="hv-oss-cols">
-      <p>LiveKit, Egress, Redis and an RTMP edge run in Docker on your machine or server. The control plane is a Cloudflare Worker with Durable Objects and D1. Stream keys stay in Durable Object storage and are never returned to guests.</p>
-      <p>The server is licensed AGPL-3.0-only, so hosted forks must share their changes. This is a working prototype: prove the core, measure it, then polish. Expect rough edges, and read the measurements in the repo rather than taking our word for it.</p>
-    </div>
-    <div class="hv-cta">
-      <ExtLink href={GITHUB} class="hv-btn hv-btn-outline">View on GitHub</ExtLink>
-      <a class="hv-link" href="/docs/self-hosting">Self-hosting docs <span aria-hidden="true">→</span></a>
-    </div>
-  </section>
+    <section class="hv-wrap hv-oss hv-reveal" aria-labelledby="oss-h">
+      <p class="hv-eyebrow">Self-host</p>
+      <h2 id="oss-h" class="hv-display hv-display-sm">You run the media plane.</h2>
+      <div class="hv-oss-cols">
+        <p>LiveKit, Egress, Redis and an RTMP edge run in Docker on your machine or server. The control plane is a Cloudflare Worker with Durable Objects and D1. Stream keys stay in Durable Object storage and are never returned to guests.</p>
+        <p>The server is licensed AGPL-3.0-only, so hosted forks must share their changes. This is a working prototype: prove the core, measure it, then polish. Expect rough edges, and read the measurements in the repo rather than taking our word for it.</p>
+      </div>
+      <div class="hv-cta">
+        <ExtLink href={GITHUB} class="hv-btn hv-btn-outline">View on GitHub</ExtLink>
+        <a class="hv-link" href="/docs/self-hosting">Self-hosting docs <span aria-hidden="true">→</span></a>
+      </div>
+    </section>
+  </div>
 </main>
 
 <footer class="hv-footer">
   <div class="hv-wrap hv-footer-in">
     <div>
-      <span class="hv-logo"><span class="hv-dot" aria-hidden="true"></span>Casthop</span>
+      <a href="/" class="hv-logo" aria-label="Casthop home"><span class="hv-dot" aria-hidden="true"></span>Casthop</a>
       <p class="hv-muted hv-small">Open-source browser live studio.</p>
     </div>
     <nav aria-label="Docs" class="hv-footer-col">

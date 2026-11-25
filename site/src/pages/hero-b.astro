@@ -1,14 +1,3 @@
 ---
-import "@fontsource-variable/space-grotesk";
-import HeroBase from "../layouts/HeroBase.astro";
-import HeroPage from "../components/home/HeroPage.astro";
+return Astro.redirect("/");
 ---
-<HeroBase title="Casthop — hero preview B" font="'Space Grotesk Variable'">
-  <HeroPage variant="b" />
-</HeroBase>
-<script>
-  import { mountBackground } from "../components/heroes/runtime";
-  import { grid } from "../components/heroes/grid";
-  const canvas = document.getElementById("hero-canvas");
-  if (canvas instanceof HTMLCanvasElement) mountBackground(canvas, grid);
-</script>

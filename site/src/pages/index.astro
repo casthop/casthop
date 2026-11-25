@@ -1,114 +1,15 @@
 ---
-import Base from "../layouts/Base.astro";
-import Logo from "../components/Logo.astro";
-import ExtLink from "../components/ExtLink.astro";
-import { GITHUB } from "../lib/site";
-
-const sections = [
-  {
-    n: "01",
-    title: "One encode, several destinations.",
-    body: "Casthop sends the composite to YouTube, LinkedIn and X over RTMP at the same time. LiveKit Egress transcodes once and fans out to every URL, and a recording is kept alongside.",
-    link: { href: "/docs/destinations", label: "How destinations work" },
-  },
-  {
-    n: "02",
-    title: "Guests join from a link.",
-    body: "Send the guest link. No account, no install. Guests wait backstage until you bring them on, and up to six people can be on stage together. Hosting itself needs a signed-in account.",
-    link: { href: "/docs/guests", label: "Guests" },
-  },
-  {
-    n: "03",
-    title: "Background blur, in the browser.",
-    body: "Camera blur runs on the device using MediaPipe's Selfie Segmenter. The model loads only when blur is on, and it is served from your own origin, not a CDN.",
-    link: { href: "/docs/architecture", label: "Architecture" },
-  },
-  {
-    n: "04",
-    title: "Streams recover on their own.",
-    body: "If Egress or a stream drops, the studio retries with backoff. Each destination row shows its own RTMP status, so you can see which one is down.",
-    link: { href: "/docs/destinations", label: "Per-destination status" },
-  },
-];
+import HeroBase from "../layouts/HeroBase.astro";
+import HeroPage from "../components/home/HeroPage.astro";
 ---
-<Base title="Casthop — open-source browser live studio" description="Open-source browser live studio. Guests join from a link, up to six on stage, and the composite goes live to several RTMP destinations with a recording kept." theme="dark">
-  <header class="nav">
-    <div class="nav-in">
-      <a href="/" class="nav-logo" aria-label="Casthop home"><Logo /></a>
-      <nav aria-label="Main" class="nav-links">
-        <a href="/docs">Docs</a>
-        <ExtLink href={GITHUB}>GitHub</ExtLink>
-        <a class="btn btn-quiet" href="/docs/getting-started">Get started</a>
-      </nav>
-    </div>
-  </header>
-
-  <main id="main">
-    <section class="hero">
-      <div class="streak" aria-hidden="true"></div>
-      <div class="wrap">
-        <p class="eyebrow"><span class="live">Live</span> Open source · AGPL-3.0</p>
-        <h1 class="display">Go live from a browser tab, <em>everywhere at once.</em></h1>
-        <p class="lede">Casthop is a live studio you run yourself. Bring guests in from a link, put up to six on stage, and send one composite to YouTube, LinkedIn and X.</p>
-        <div class="cta-row">
-          <ExtLink href={GITHUB} class="btn btn-primary">Open the repo</ExtLink>
-          <a class="text-link" href="/docs/getting-started">Read the docs <span aria-hidden="true">→</span></a>
-        </div>
-      </div>
-      <div class="shot-wrap">
-        <figure class="shot">
-          <img src="/studio.png" width="1440" height="813" alt="The Casthop host studio: a dark booth with the stage, a list of RTMP destinations and a Go Live button." fetchpriority="high" />
-        </figure>
-      </div>
-    </section>
-
-    <section class="wrap features" aria-labelledby="features-h">
-      <h2 id="features-h" class="section-title">What it does today</h2>
-      {sections.map((s) => (
-        <article class="feature">
-          <p class="feature-n">{s.n}</p>
-          <div>
-            <h3 class="feature-t">{s.title}</h3>
-            <p class="feature-b">{s.body}</p>
-            <a class="text-link" href={s.link.href}>{s.link.label} <span aria-hidden="true">→</span></a>
-          </div>
-        </article>
-      ))}
-    </section>
-
-    <section class="wrap oss" aria-labelledby="oss-h">
-      <p class="eyebrow">Self-host</p>
-      <h2 id="oss-h" class="display display-sm">You run the media plane.</h2>
-      <div class="oss-cols">
-        <p>LiveKit, Egress, Redis and an RTMP edge run in Docker on your machine or server. The control plane is a Cloudflare Worker with Durable Objects and D1. Stream keys stay in Durable Object storage and are never returned to guests.</p>
-        <p>The server is licensed AGPL-3.0-only, so hosted forks must share their changes. This is a working prototype: prove the core, measure it, then polish. Expect rough edges, and read the measurements in the repo rather than taking our word for it.</p>
-      </div>
-      <div class="cta-row">
-        <ExtLink href={GITHUB} class="btn btn-outline">View on GitHub</ExtLink>
-        <a class="text-link" href="/docs/self-hosting">Self-hosting docs <span aria-hidden="true">→</span></a>
-      </div>
-    </section>
-  </main>
-
-  <footer class="footer">
-    <div class="wrap footer-in">
-      <div>
-        <Logo />
-        <p class="muted small">Open-source browser live studio.</p>
-      </div>
-      <nav aria-label="Docs" class="footer-col">
-        <p class="small label">Docs</p>
-        <a href="/docs/getting-started">Getting started</a>
-        <a href="/docs/self-hosting">Self-hosting</a>
-        <a href="/docs/configuration">Configuration</a>
-        <a href="/docs/architecture">Architecture</a>
-      </nav>
-      <nav aria-label="Project" class="footer-col">
-        <p class="small label">Project</p>
-        <ExtLink href={GITHUB}>GitHub</ExtLink>
-        <ExtLink href={`${GITHUB}/blob/main/LICENSE`}>AGPL-3.0-only</ExtLink>
-      </nav>
-    </div>
-    <p class="wrap muted small footer-lic">Casthop is licensed under AGPL-3.0-only.</p>
-  </footer>
-</Base>
+<HeroBase title="Casthop — open-source browser live studio">
+  <HeroPage />
+</HeroBase>
+<script>
+  import { mountBackground } from "../components/heroes/runtime";
+  import { grid } from "../components/heroes/grid";
+  import { enhanceScroll } from "../components/home/scroll";
+  const canvas = document.getElementById("hero-canvas");
+  if (canvas instanceof HTMLCanvasElement) mountBackground(canvas, grid);
+  enhanceScroll();
+</script>

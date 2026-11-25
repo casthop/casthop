@@ -1,8 +1,10 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Check, Mic, MicOff, Video, VideoOff } from "lucide-react";
+import { Aperture, Check, Mic, MicOff, Video, VideoOff } from "lucide-react";
 import { Logo } from "../components/Logo";
 import { getHealth, getStudio, mintToken } from "../lib/api";
+import { copyBlurPref, loadBlurPref, saveBlurPrefPair } from "../lib/blur-prefs";
+import { startCameraBlur, type CameraBlurHandle } from "../lib/camera-blur";
 import { attachWorkletMeter } from "../lib/effects";
 import { listDevices, openUserMedia, type DeviceSet } from "../lib/media";
 import { saveSession } from "../lib/session";
@@ -20,6 +22,7 @@ export function GuestJoin() {
   const [speakerId, setSpeakerId] = useState("");
   const [camOn, setCamOn] = useState(true);
   const [micOn, setMicOn] = useState(true);
+  const [blurOn, setBlurOn] = useState(false);
   const [level, setLevel] = useState(0);
   const [camOk, setCamOk] = useState(false);
   const [micOk, setMicOk] = useState(false);
@@ -27,6 +30,8 @@ export function GuestJoin() {
   const [resLabel, setResLabel] = useState("—");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Canvas preview tracks have no deviceId; keep the real camera's.
+  const rawCameraIdRef = useRef("");
 
   useEffect(() => {
     getStudio(id)
@@ -41,18 +46,41 @@ export function GuestJoin() {
   }, [id, navigate]);
 
   useEffect(() => {
+    if (cameraId) copyBlurPref("", cameraId);
+    setBlurOn(loadBlurPref(cameraId));
+  }, [cameraId]);
+
+  useEffect(() => {
     let stopMeter = () => undefined;
     let cancelled = false;
+    let blurHandle: CameraBlurHandle | null = null;
+    let media: MediaStream | null = null;
     (async () => {
-      const media = await openUserMedia({ cameraId: cameraId || undefined, micId: micId || undefined });
+      media = await openUserMedia({ cameraId: cameraId || undefined, micId: micId || undefined });
       if (cancelled) {
         media.getTracks().forEach((t) => t.stop());
         return;
       }
-      setStream(media);
-      const video = media.getVideoTracks()[0];
-      const settings = video?.getSettings();
-      setCamOk(Boolean(video));
+      let preview: MediaStream = media;
+      const videoTrack = media.getVideoTracks()[0];
+      const rawId = videoTrack?.getSettings().deviceId ?? "";
+      if (rawId) rawCameraIdRef.current = rawId;
+      if (blurOn && videoTrack) {
+        try {
+          blurHandle = await startCameraBlur(videoTrack);
+          preview = new MediaStream([blurHandle.track, ...media.getAudioTracks()]);
+        } catch (err) {
+          console.warn("casthop blur", err);
+        }
+      }
+      if (cancelled) {
+        blurHandle?.stop();
+        media.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      setStream(preview);
+      const settings = videoTrack?.getSettings();
+      setCamOk(Boolean(videoTrack));
       setResLabel(settings?.height ? `${settings.height}p` : "720p");
       const audio = media.getAudioTracks()[0];
       setMicOk(Boolean(audio));
@@ -74,9 +102,11 @@ export function GuestJoin() {
     })();
     return () => {
       cancelled = true;
+      blurHandle?.stop();
       stopMeter();
+      media?.getTracks().forEach((t) => t.stop());
     };
-  }, [cameraId, micId]);
+  }, [cameraId, micId, blurOn]);
 
   useEffect(() => {
     stream?.getVideoTracks().forEach((t) => {
@@ -132,6 +162,19 @@ export function GuestJoin() {
               </button>
               <button type="button" aria-label={camOn ? "Turn camera off" : "Turn camera on"} onClick={() => setCamOn((v) => !v)}>
                 {camOn ? <Video size={16} /> : <VideoOff size={16} />}
+              </button>
+              <button
+                type="button"
+                className={blurOn ? "on" : undefined}
+                aria-label="Background blur"
+                aria-pressed={blurOn}
+                onClick={() => {
+                  const next = !blurOn;
+                  saveBlurPrefPair(cameraId, rawCameraIdRef.current, next);
+                  setBlurOn(next);
+                }}
+              >
+                <Aperture size={16} />
               </button>
             </div>
             <div className="levels" aria-hidden="true">

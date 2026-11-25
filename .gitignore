@@ -1,4 +1,5 @@
 node_modules
+package-lock.json
 dist
 .wrangler
 .dev.vars
@@ -11,3 +12,5 @@ coverage
 *.tsbuildinfo
 /target
 **/*.rs.bk
+public/mediapipe/wasm/*.js
+public/mediapipe/wasm/*.wasm

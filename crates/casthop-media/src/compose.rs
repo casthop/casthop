@@ -45,7 +45,16 @@ impl Compositor {
         }
     }
 
-    pub fn blit(&mut self, src_w: u32, src_h: u32, dx: u32, dy: u32, dw: u32, dh: u32, bilinear: bool) {
+    pub fn blit(
+        &mut self,
+        src_w: u32,
+        src_h: u32,
+        dx: u32,
+        dy: u32,
+        dw: u32,
+        dh: u32,
+        bilinear: bool,
+    ) {
         if src_w == 0 || src_h == 0 || dw == 0 || dh == 0 {
             return;
         }
@@ -61,7 +70,16 @@ impl Compositor {
         }
     }
 
-    fn blit_nearest(&mut self, _src_len: usize, src_w: u32, src_h: u32, dx: u32, dy: u32, dw: u32, dh: u32) {
+    fn blit_nearest(
+        &mut self,
+        _src_len: usize,
+        src_w: u32,
+        src_h: u32,
+        dx: u32,
+        dy: u32,
+        dw: u32,
+        dh: u32,
+    ) {
         let dst_w = self.width;
         let dst_h = self.height;
         for y in 0..dh {
@@ -85,7 +103,16 @@ impl Compositor {
         }
     }
 
-    fn blit_bilinear(&mut self, src_len: usize, src_w: u32, src_h: u32, dx: u32, dy: u32, dw: u32, dh: u32) {
+    fn blit_bilinear(
+        &mut self,
+        src_len: usize,
+        src_w: u32,
+        src_h: u32,
+        dx: u32,
+        dy: u32,
+        dw: u32,
+        dh: u32,
+    ) {
         let dst_w = self.width;
         let dst_h = self.height;
         let max_x = src_w.saturating_sub(1);
@@ -307,7 +334,11 @@ fn glyph(c: u8) -> [u8; 8] {
         [0x76, 0xDC, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
         [0x00, 0x10, 0x38, 0x6C, 0xC6, 0xC6, 0xFE, 0x00],
     ];
-    let i = if (32..128).contains(&c) { (c - 32) as usize } else { 0 };
+    let i = if (32..128).contains(&c) {
+        (c - 32) as usize
+    } else {
+        0
+    };
     FONT[i]
 }
 
@@ -319,7 +350,16 @@ fn draw_text(dst: &mut [u8], dw: u32, dh: u32, x: u32, y: u32, text: &str, scale
     let mut cx = x;
     for ch in text.chars() {
         if ch == '·' || ch == '•' {
-            fill_rect(dst, dw, dh, cx + scale, y + 3 * scale, 2 * scale, 2 * scale, rgba);
+            fill_rect(
+                dst,
+                dw,
+                dh,
+                cx + scale,
+                y + 3 * scale,
+                2 * scale,
+                2 * scale,
+                rgba,
+            );
             cx += 6 * scale;
             continue;
         }

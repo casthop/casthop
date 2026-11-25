@@ -1,4 +1,4 @@
-# Self-host the media plane. The app is `npm run dev` (Cloudflare Worker + UI).
+# Self-host the media plane. The app is `bun run dev` (Cloudflare Worker + UI).
 # Host networking is Linux-only. LiveKit, Redis, and MediaMTX bind 127.0.0.1
 # (see infra/*.yaml) so the published devkey is not reachable on the LAN.
 # On macOS/Windows see README ("Docker Desktop networking").

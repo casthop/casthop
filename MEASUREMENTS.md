@@ -1,6 +1,6 @@
 # Measurements
 
-Prototype run on a 4 vCPU / 15 GB Linux VM, 2026-11-25. LiveKit, Egress, Redis, and MediaMTX on Docker host networking. App via `npm run dev` (Cloudflare Worker locally). Publishers: Chrome fake camera, canvas fallback, and `lk room join --publish-demo`.
+Prototype run on a 4 vCPU / 15 GB Linux VM, 2026-11-25. LiveKit, Egress, Redis, and MediaMTX on Docker host networking. App via `bun run dev` (Cloudflare Worker locally). Publishers: Chrome fake camera, canvas fallback, and `lk room join --publish-demo`.
 
 Estimates are marked **(estimate)**. Direct observations are not.
 
@@ -9,7 +9,7 @@ Estimates are marked **(estimate)**. Direct observations are not.
 1. **On-stage glass-to-glass.** Canvas flash (white 180 ms every 2.5 s) published through LiveKit, read back from the subscribed video element. Delay = `performance.now()` at flash minus first frame whose luma &gt; 180. Page: `/internal/probe`.
 2. **RTMP delay.** Time from Go Live until Egress logs `pipeline playing` and `stream started`, plus `ffprobe` on `rtmp://127.0.0.1:1935/live/youtube`. MediaMTX HLS (`/live/youtube/index.m3u8`) 404s on this image, so HLS is **not** the proof path.
 3. **CPU / memory.** `docker stats` after ~45 s of live composite. Egress also reports `avgCPU` / `maxCPU` in its own metrics.
-4. **WASM vs JS.** `npm run bench:wasm` (Node, same algorithms) and Chrome `/internal/bench`. Denoise: RNNoise (nnnoiseless) vs a JS DC-remove + gate. Compose: WASM nearest-neighbor blit vs the same blit in JS. Canvas2D/WebGPU use the GPU and are a different class of work.
+4. **WASM vs JS.** `bun run bench:wasm` (Bun, same algorithms) and Chrome `/internal/bench`. Denoise: RNNoise (nnnoiseless) vs a JS DC-remove + gate. Compose: WASM nearest-neighbor blit vs the same blit in JS. Canvas2D/WebGPU use the GPU and are a different class of work.
 
 Cost unit prices are from the attached OpenStudio model (2026-11-24): Stream delivery $1/1,000 min, Realtime SFU $0.05/GB, R2 $0.015/GB-month, Containers compositor **(model estimate)** $0.45/h + N×0.675 GB×$0.05.
 
@@ -54,13 +54,14 @@ Workers / D1 / DO stay inside the $5 account floor at this volume **(estimate, m
 
 ## 4. Rust / WASM vs JS
 
-Bundle: `src/wasm/casthop_media.wasm` is **373.8 KiB** (382,735 bytes), zero imports, loads in AudioWorklets and Workers. The WebGPU compositor is a second module, `casthop_gpu_bg.wasm` **29.5 KiB** (30,161 bytes) plus `casthop_gpu.js` **24.6 KiB**, loaded only when `?compose=webgpu`. Chrome `/internal/bench` and Node `npm run bench:wasm` agree.
+Bundle: `src/wasm/casthop_media.wasm` is **383.7 KiB** (392,879 bytes), zero imports, loads in AudioWorklets and Workers. The WebGPU compositor is a second module, `casthop_gpu_bg.wasm` **31.5 KiB** (32,260 bytes) plus `casthop_gpu.js` **26.8 KiB**, loaded only when `?compose=webgpu`. Chrome `/internal/bench` and Bun `bun run bench:wasm` agree. The selfie-segmenter model (245 KiB, Apache-2.0) and MediaPipe vision WASM load only when blur is on.
 
 | Path | WASM | JS | JS/WASM | What this actually compares |
 |---|---|---|---|---|
 | Denoise, 10 ms / 480 samples @ 48 kHz | **0.084–0.088 ms/frame** (Node CPU 742 ms / 8000 frames) | **0.003 ms/frame** (cheap gate) | **0.03×** | RNNoise GRU vs a few arithmetic ops. WASM is slower and **under budget** (10 ms). The gain is quality, not cycles. |
 | Denoise CPU % of one core @ realtime | **~0.9%** | **~0.03%** | — | Both fine on the publish path. |
 | Compose 1280×720, 4 tiles, nearest blit | **5.39–5.45 ms/frame** | **4.11–4.73 ms/frame** | **0.76–0.87×** | Same algorithm. V8 wins slightly; both are ~30–45 fps CPU. Production egress uses **Canvas2D + WASM layout** (GPU `drawImage`). |
+| Background blur 1280×720 (mask 256×144, box-blur + mix) | **14.16 ms/frame** | **14.08 ms/frame** | **0.99×** | Same algorithm. Both under 33 ms (30 fps). CPU 14.2 vs 14.5 ms/frame; WASM default, `?fx=js` for the fallback. Segmentation is MediaPipe (lazy), not in this number. |
 | WebGPU | `navigator.gpu` **present** in this Chrome | — | — | Default live path is **Canvas2D**. Rust WebGPU is `?compose=webgpu`; TS WebGPU is `?compose=webgpu-ts`. See the compose table below. |
 
 Compose 1280×720, Chrome 157 headless + SwiftShader, `/internal/bench`, 30 frames after one warmup, reused GPU device. Canvas2D times are JS `drawImage` submit, not GPU-synced.
@@ -73,7 +74,7 @@ Compose 1280×720, Chrome 157 headless + SwiftShader, `/internal/bench`, 30 fram
 
 Rust WebGPU is **not** the live default. It does not beat Canvas2D on this bench. Use `?compose=webgpu` to force it. Device creation stays in JS: the `wgpu` crate’s `Adapter::request_device` fails on this Chrome (`A valid external Instance reference no longer exists`). Draw/layout run in Rust against the WebGPU API.
 
-Takeaway: ship RNNoise in WASM because a JS gate is not the same filter. Do **not** put the CPU compositor on the live tab-capture path; keep it for overlays / Worker / measurement. Layout math from Rust is shared by Canvas2D and WebGPU.
+Takeaway: ship RNNoise in WASM because a JS gate is not the same filter. Do **not** put the CPU compositor on the live tab-capture path; keep it for overlays / Worker / measurement. Layout math from Rust is shared by Canvas2D and WebGPU. Camera blur mix is WASM by default (~14 ms/frame @ 720p, holds 30 fps); `?fx=js` is the same algorithm.
 
 ## 5. What broke, what’s hard, what next
 
@@ -92,8 +93,9 @@ What next (called out by the product-owner Rust/WASM direction, not done in v0):
 - Audio **VAD-driven** UI (worklet already posts VAD; studio chrome doesn’t show it yet).
 - **workers-rs** for hot Worker endpoints (`/api/token`, live start) instead of Hono/TS.
 - Dedicated Rust **RTMP fan-out** if we leave Cloudflare Stream unused in production (`casthop-post` is inspect/remux only).
-- Background blur / WebGPU camera effects.
 - Destination chat ingest, R2 replay viewer, TURN.
+
+Camera background blur ships: WASM mix + lazy MediaPipe selfie segmenter (toggle in the studio; `?fx=js` for the JS mix). Rust WebGPU compositor ships behind `?compose=webgpu`; Canvas2D stays the live default.
 
 ## 6. Silent-audio check (H3)
 
@@ -105,6 +107,6 @@ bash scripts/check-silent-audio.sh data/recordings/<file>.mp4
 
 That runs `ffmpeg -af volumedetect` and fails if `mean_volume` is at or below −90 dB (typical of a silent AAC track). The 2026-11-25 recordings were captured before the template attached audio; re-run after this fix and store the volumedetect lines under `data/measure/silent-audio.txt`.
 
-CI asserts the template source attaches audio (`el.muted = false` on `Track.Kind.Audio`) so a regression cannot drop the attach path without failing `npm test`.
+CI asserts the template source attaches audio (`el.muted = false` on `Track.Kind.Audio`) so a regression cannot drop the attach path without failing `bun test`.
 
-Raw command output from `npm run measure` / `npm run bench:wasm` is stored under `data/measure/` (gitignored).
+Raw command output from `bun run measure` / `bun run bench:wasm` is stored under `data/measure/` (gitignored).

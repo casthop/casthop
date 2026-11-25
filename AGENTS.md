@@ -11,42 +11,47 @@ This file is the source of truth. Nested `AGENTS.md` files add tree-specific rul
 - `crates/casthop-media` — WASM media (C ABI, zero JS imports)
 - `crates/casthop-post` — inspect / remux recordings
 - `tests/auth.test.ts` — owner / co-host / guest / signed-out / expired session matrix for every Worker route
+- `tests/egress.test.ts` — start/stop, crash retry, RTMP dest status, empty-studio cleanup
 - `MEASUREMENTS.md` — recorded numbers; update on hot-path changes
 - `PRODUCT.md` — product intent
 
 ## Commands
 
-Node 20+. Linux + Docker host networking is the supported local path. Rebuild WASM only with rustc 1.83+ and `wasm32-unknown-unknown`.
+Bun is the package manager and script runner (`packageManager` in `package.json`). Do not use npm or npx. Linux + Docker host networking is the supported local path. Rebuild WASM only with rustc 1.83+ and `wasm32-unknown-unknown`.
 
 ```bash
 cp .env.example .env
 cp .dev.vars.example .dev.vars
 mkdir -p data/recordings data/rtmp && chmod 777 data/recordings
 docker compose up -d
-npm install
-npm run dev                 # http://127.0.0.1:5173
+bun install
+bun run dev                 # http://127.0.0.1:5173
 ```
 
 ```bash
-npm run build               # Vite + Worker
-npm run typecheck           # tsc --noEmit (strict)
-npm test                    # tsx --test tests/*.test.ts
-tsx --test tests/auth.test.ts
-npm audit --audit-level=high
+bun run build               # Vite + Worker
+bun run typecheck           # tsc --noEmit (strict)
+bun run test                # bun test --max-concurrency=1
+bun test tests/auth.test.ts
+bun test tests/egress.test.ts
+bun run check:wasm          # < 500 KiB, zero imports
+bun audit --audit-level=high
+cargo audit                  # needs rustc 1.88+ (CI audit job uses stable)
 
 cargo test -p casthop-media
-cargo test --workspace
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings -W clippy::pedantic
+cargo test -p casthop-media -p casthop-post
+cargo fmt -p casthop-media -p casthop-post -- --check
+cargo clippy -p casthop-media -p casthop-post --all-targets --no-deps -- -D warnings
 
-npm run build:wasm          # crate → src/wasm/casthop_media.wasm
-npm run bench:wasm          # Node WASM vs JS
-npm run measure             # load + silent-audio check
+bun run build:wasm          # crate → src/wasm/casthop_media.wasm
+bun run bench:wasm          # Bun WASM vs JS
+bun run measure             # load + silent-audio check
 bash scripts/check-silent-audio.sh data/recordings/<file>.mp4
 cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
+E2E=1 bun run test:e2e      # headless Go Live → MediaMTX, audio not silent
 ```
 
-CI (`.github/workflows/ci.yml`): `npm ci`, `typecheck`, `test`, `npm audit --audit-level=high`, `cargo test -p casthop-media`. Run the same before you finish. No ESLint script; typecheck is the TS gate.
+CI (`.github/workflows/ci.yml`): parallel `lint` (rustfmt), `typecheck`, `test`, `rust` (test + clippy), `wasm` budget, `audit` (`bun audit` + `cargo audit`), `e2e` (compose + Chrome). No ESLint script; typecheck is the TS gate. Dependabot: `.github/dependabot.yml`.
 
 ## Code
 
@@ -64,16 +69,17 @@ Budgets from `MEASUREMENTS.md`. Beat them, or record why not:
 |---|---|---|
 | Denoise | < 1 ms / 10 ms frame | WASM RNNoise 0.088 ms |
 | CPU compose blit | not on the live path if ≥ 8 ms/frame @ 1280×720 | WASM ~5.4 ms, JS ~4.1 ms; live is Canvas2D |
-| WASM binary | < 500 KiB, zero imports | ~374 KiB |
+| WASM binary | < 500 KiB, zero imports | ~384 KiB |
+| Camera blur 1280×720 | < 33 ms/frame (30 fps) | WASM 14.2 ms, JS 14.1 ms |
 | Worker HTTP glue | < 10 ms CPU | Cloudflare Worker CPU |
 | Durable Object write | < 50 ms | stage / live / destinations |
 | Glass-to-glass (loopback) | p50 < 80 ms | 45 ms |
 
-Hot-path change: measure before and after (`npm run bench:wasm`, `/internal/bench`, `/internal/probe`, or `npm run measure`). Put both numbers in `MEASUREMENTS.md` in the same PR. No allocations in audio/video loops. Use Rust/WASM or GPU only when it measurably wins; keep the JS fallback (`?fx=js`, `?compose=wasm` / `?compose=webgpu` / `?compose=webgpu-ts`).
+Hot-path change: measure before and after (`bun run bench:wasm`, `/internal/bench`, `/internal/probe`, or `bun run measure`). Put both numbers in `MEASUREMENTS.md` in the same PR. No allocations in audio/video loops. Use Rust/WASM or GPU only when it measurably wins; keep the JS fallback (`?fx=js`, `?compose=wasm` / `?compose=webgpu` / `?compose=webgpu-ts`).
 
 ## Security
 
-- Stream keys and full destination URLs never go to guests or public GET / WebSocket state. Hosts get full URLs only after `x-casthop-host-key`.
+- Stream keys and full destination URLs never go to guests or public GET / WebSocket state. Owners and co-hosts get full URLs on a signed-in GET (session cookie).
 - Auth every action on the server. Hosting is an account session (owner or invited co-host). Identities are assigned by the Worker (`host` / `host-…` / `g-…`). Guests cannot impersonate host. Guests join by invite link without an account.
 - Validate input (names, layout, RTMP URLs). Reject non-`rtmp:` and RFC1918 destinations from clients.
 - Secrets live in `.dev.vars` / Worker secrets. Never in git, client bundles, or logs. Default `devkey` is loopback-only.

@@ -25,3 +25,8 @@ declare module "*casthop_gpu.js" {
   ): void;
   export function gpu_compositor_draw(sources: ArrayLike<CanvasImageSource>, mode: number): number;
 }
+
+declare module "*.tflite?url" {
+  const src: string;
+  export default src;
+}

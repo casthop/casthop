@@ -7,6 +7,15 @@
 //! `--features gpu --no-default-features` builds the WebGPU compositor as a
 //! second artifact (`casthop_gpu_bg.wasm`) with JS imports.
 
+#![expect(
+    clippy::too_many_arguments,
+    reason = "blit geometry is explicit x/y/w/h, not a struct on the hot path"
+)]
+#![expect(
+    clippy::needless_range_loop,
+    reason = "glyph rows are bitmaps indexed by row and column"
+)]
+
 mod layout;
 
 #[cfg(feature = "gpu")]
@@ -16,6 +25,8 @@ mod gpu;
 mod gpu_web;
 
 #[cfg(feature = "media")]
+mod blur;
+#[cfg(feature = "media")]
 mod compose;
 #[cfg(feature = "media")]
 mod denoise;
@@ -24,6 +35,3 @@ mod meter;
 
 #[cfg(feature = "media")]
 mod media_abi;
-
-#[cfg(feature = "media")]
-pub use media_abi::*;

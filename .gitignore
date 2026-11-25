@@ -14,3 +14,6 @@ coverage
 **/*.rs.bk
 public/mediapipe/wasm/*.js
 public/mediapipe/wasm/*.wasm
+.e2e/*
+!.e2e/cache/
+!.e2e/cache/**

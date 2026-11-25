@@ -84,7 +84,28 @@ Load measurement (2 / 4 / 6 publishers + Go Live):
 ```bash
 bun run measure
 E2E=1 bun run test:e2e   # Chrome joins, Go Live, MediaMTX audio is not silent
+bun run test:e2e-ui      # studio UI flows (sign-in, guest on stage, layout, branding, destinations)
 ```
+
+### Studio UI tests (e2e)
+
+Playwright-based flows in `tests/studio/`, using the open-source [`e2e`](https://github.com/e2e-inc/e2e) runner. Locators and assertions only — no model, no API key. Chromium is launched with fake camera/mic flags.
+
+```bash
+cp .env.example .env
+cp .dev.vars.example .dev.vars
+mkdir -p data/recordings data/rtmp && chmod 777 data/recordings
+docker compose up -d
+bun install
+bunx --bun @e2e-dev/web install chromium   # once per machine
+bun run test:e2e-ui
+```
+
+`test:e2e-ui` is `bunx --bun e2e run --strict-cache`. It starts `bun run dev` if nothing is on :5173 (`reuseExisting` locally). First-time Chromium install on Linux may need `bunx --bun @e2e-dev/web install chromium --with-deps`.
+
+The Go Live → MediaMTX check (`E2E=1 bun run test:e2e`) is a separate release gate and is not replaced by this suite.
+
+Coding agents can drive a running studio through the e2e MCP server (`.cursor/mcp.json`). See `AGENTS.md`.
 
 ### Docker Desktop (macOS / Windows)
 

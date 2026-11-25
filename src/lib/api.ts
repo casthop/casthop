@@ -61,6 +61,14 @@ export function getStudio(id: string) {
   return api<StudioView>(`/api/studios/${id}`);
 }
 
+export function sendEgressBeat(id: string, token: string) {
+  return api<{ ok: true }>(`/api/studios/${id}/egress-beat`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: "{}",
+  });
+}
+
 export function getConfig() {
   return api<{ livekitUrl: string; maxOnStage: number; github: boolean; signedIn: boolean }>("/api/config");
 }

@@ -1,6 +1,6 @@
 import type { Env, LayoutId } from "./types";
 import { layoutToEgress } from "./types";
-import { publicError } from "./egress";
+import { publicError, START_EGRESS_TIMEOUT_MS } from "./egress";
 import { bytesToB64Url, hmacSha256B64Url, randomId, sha256hex, timingSafeEqual } from "./security";
 
 export { randomId, sha256hex };
@@ -106,7 +106,7 @@ export async function mintApiToken(env: Env, room?: string): Promise<string> {
 }
 
 function twirpTimeoutMs(path: string): number {
-  if (path.includes("StartRoomComposite") || path.includes("StopEgress")) return 30_000;
+  if (path.includes("StartRoomComposite") || path.includes("StopEgress")) return START_EGRESS_TIMEOUT_MS;
   return 8_000;
 }
 
@@ -166,6 +166,7 @@ export async function startRoomComposite(opts: {
   layout: LayoutId;
   urls: string[];
   filepath: string;
+  timeoutMs?: number;
 }): Promise<{ egressId: string }> {
   const layout = opts.env.EGRESS_TEMPLATE_URL ? opts.layout : layoutToEgress(opts.layout);
   const body: Record<string, unknown> = {
@@ -194,6 +195,7 @@ export async function startRoomComposite(opts: {
     "/twirp/livekit.Egress/StartRoomCompositeEgress",
     body,
     opts.room,
+    opts.timeoutMs,
   );
   const egressId = started.egress_id || started.egressId;
   if (!egressId) throw new Error("Egress started but no egress_id in response");
@@ -259,6 +261,39 @@ function timingEqual(a: string, b: string): boolean {
   let diff = 0;
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
+}
+
+export type ParticipantTokenClaims = {
+  identity: string;
+  room: string;
+};
+
+/** Verify a LiveKit participant JWT (egress Chrome posts this on the heartbeat). */
+export async function verifyParticipantToken(env: Env, authorization: string | undefined): Promise<ParticipantTokenClaims | null> {
+  if (!authorization) return null;
+  const token = bearerToken(authorization);
+  const parts = token.split(".");
+  if (parts.length !== 3 || !parts[0] || !parts[1] || !parts[2]) return null;
+  const unsigned = `${parts[0]}.${parts[1]}`;
+  const expected = await hmacSha256B64Url(env.LIVEKIT_API_SECRET, unsigned);
+  const got = parts[2].replace(/=+$/, "");
+  if (!timingEqual(expected, got)) return null;
+  let claims: { iss?: unknown; sub?: unknown; exp?: unknown; nbf?: unknown; video?: unknown };
+  try {
+    claims = JSON.parse(new TextDecoder().decode(b64UrlToBytes(parts[1]))) as typeof claims;
+  } catch {
+    return null;
+  }
+  if (claims.iss !== env.LIVEKIT_API_KEY) return null;
+  if (typeof claims.sub !== "string" || !claims.sub) return null;
+  if (typeof claims.exp !== "number") return null;
+  const now = Math.floor(Date.now() / 1000);
+  if (claims.exp + 10 < now) return null;
+  if (typeof claims.nbf === "number" && claims.nbf - 10 > now) return null;
+  const video = claims.video && typeof claims.video === "object" ? (claims.video as { room?: unknown }) : null;
+  const room = typeof video?.room === "string" ? video.room : "";
+  if (!room) return null;
+  return { identity: claims.sub, room };
 }
 
 export async function verifyLivekitWebhook(env: Env, authorization: string | undefined, body: string): Promise<boolean> {

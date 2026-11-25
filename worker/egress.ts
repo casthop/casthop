@@ -6,10 +6,12 @@ export const EMPTY_GRACE_MS = 45_000;
 export const COMPOSITOR_GRACE_MS = 15_000;
 /** Give up restarting a dead compositor after this window; host can Retry. */
 export const RECOVERY_BUDGET_MS = 30_000;
+/** Bound StartRoomComposite so recovery and the RPC timeout share one deadline. */
+export const START_EGRESS_TIMEOUT_MS = 30_000;
 /** Don't block recovery on a hung StopEgress. */
 export const STOP_ABANDON_MS = 2_500;
-/** ListEgress "active" with no recent update is a dead worker. */
-export const EGRESS_STALE_MS = 12_000;
+/** Compositor page posts a beat every 2s; miss a couple and reconnect. */
+export const HEARTBEAT_STALE_MS = 5_000;
 export const MAX_ABANDONED_EGRESS = 16;
 export const MAX_BACKOFF_MS = 30_000;
 export const BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 16_000, MAX_BACKOFF_MS] as const;
@@ -24,6 +26,9 @@ export type StreamResult = {
   status: StreamHealth;
   error: string;
   destId?: string;
+  startedAt?: number | null;
+  duration?: number | null;
+  bytes?: number | null;
 };
 
 export type ParsedEgress = {
@@ -58,6 +63,48 @@ export function recoveryTimedOut(state: Pick<StudioState, "egressRecoveringSince
   const since = state.egressRecoveringSince;
   if (!since) return false;
   return now - since >= budgetMs;
+}
+
+/** Remaining time in the recovery window, or null when not recovering. */
+export function remainingRecoveryMs(
+  state: Pick<StudioState, "egressRecoveringSince">,
+  now = Date.now(),
+  budgetMs = RECOVERY_BUDGET_MS,
+): number | null {
+  const since = state.egressRecoveringSince;
+  if (!since) return null;
+  return Math.max(0, budgetMs - (now - since));
+}
+
+export function startEgressTimeoutMs(remainingMs: number | null, capMs = START_EGRESS_TIMEOUT_MS): number {
+  if (remainingMs == null) return capMs;
+  return Math.min(capMs, Math.max(0, Math.floor(remainingMs)));
+}
+
+export function heartbeatStaleMs(raw: string | undefined): number {
+  if (raw == null || raw === "") return HEARTBEAT_STALE_MS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : HEARTBEAT_STALE_MS;
+}
+
+/** True once the compositor page has posted a beat and then gone quiet. */
+export function heartbeatLost(
+  state: Pick<StudioState, "egressHeartbeatAt">,
+  now = Date.now(),
+  staleMs = HEARTBEAT_STALE_MS,
+): boolean {
+  const at = state.egressHeartbeatAt;
+  if (!at) return false;
+  return now - at >= staleMs;
+}
+
+/** Start the recovery clock at the last compositor beat so crash→failed stays ~30s. */
+export function beginRecovery(
+  state: Pick<StudioState, "egressRecoveringSince" | "egressHeartbeatAt">,
+  now = Date.now(),
+): void {
+  if (state.egressRecoveringSince) return;
+  state.egressRecoveringSince = state.egressHeartbeatAt ?? now;
 }
 
 export function rememberAbandoned(ids: string[] | undefined, egressId: string): string[] {
@@ -113,8 +160,10 @@ export function livePhaseOf(state: StudioState, now = Date.now()): LivePhase {
   if (!want) return "idle";
   if (state.liveFailed) return "failed";
   if (state.live && state.egressId) return "live";
+  if (state.egressRecoveringSince && !state.egressId) return "retrying";
+  if (state.egressId) return "starting";
   const starting = typeof state.liveStartingAt === "number" && now - state.liveStartingAt < 30_000;
-  if (starting && !state.egressId) return "starting";
+  if (starting) return "starting";
   return "retrying";
 }
 
@@ -304,7 +353,7 @@ export function applyStreamResults(
       d.status = d.status === "failed" || d.status === "retrying" ? d.status : "connecting";
       continue;
     }
-    if (stream.status === "active") {
+    if (stream.status === "active" && streamOutputStarted(stream)) {
       d.status = "live";
       d.error = null;
       d.retryCount = 0;
@@ -322,6 +371,23 @@ export function applyStreamResults(
       d.error = publicError(stream.error);
     } else {
       d.status = "connecting";
+    }
+  }
+  if (producing) {
+    const leftoverStarted = bound.filter((s, i) => !used.has(i) && s.status === "active" && streamOutputStarted(s));
+    const leftoverDests = destinations.filter((d) => d.enabled && d.url && d.status === "connecting");
+    const assign =
+      leftoverDests.length === leftoverStarted.length
+        ? leftoverDests.length
+        : leftoverDests.length === 1 && leftoverStarted.length >= 1
+          ? 1
+          : 0;
+    for (let i = 0; i < assign; i++) {
+      const dest = leftoverDests[i]!;
+      dest.status = "live";
+      dest.error = null;
+      dest.retryCount = 0;
+      dest.retryAt = null;
     }
   }
   return needsRetry;
@@ -378,17 +444,29 @@ export function parseStreamHealth(raw: unknown): StreamHealth {
   return "unknown";
 }
 
+function int64(raw: unknown): number | null {
+  const n = typeof raw === "string" ? Number(raw) : raw;
+  if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
 export function parseStreamResult(raw: unknown): StreamResult | null {
   const obj = asRecord(raw);
   if (!obj) return null;
   const url = str(obj, "url", "Url");
   if (!url) return null;
   const destId = str(obj, "destId", "dest_id");
+  const startedAt = egressTimeMs(obj.startedAt ?? obj.started_at);
+  const duration = int64(obj.duration);
+  const bytes = int64(obj.size ?? obj.bytes);
   return {
     url,
     status: parseStreamHealth(obj.status),
     error: str(obj, "error", "Error"),
     ...(destId ? { destId } : {}),
+    ...(startedAt != null ? { startedAt } : {}),
+    ...(duration != null ? { duration } : {}),
+    ...(bytes != null ? { bytes } : {}),
   };
 }
 
@@ -483,24 +561,29 @@ export function pickActiveEgress(
   return items.find((e) => isRunningHealth(e.status) && !skip.has(e.egressId)) ?? null;
 }
 
-/** ListEgress "active" is not enough; the worker must still be producing. */
+/** True when this stream has actually started sending. */
+export function streamOutputStarted(stream: StreamResult): boolean {
+  if ((stream.startedAt ?? 0) > 0 || (stream.duration ?? 0) > 0 || (stream.bytes ?? 0) > 0) return true;
+  return stream.status === "active" && stream.startedAt == null && stream.duration == null && stream.bytes == null;
+}
+
+/** LiveKit stream started_at / duration / bytes, or ACTIVE when those fields are absent. */
+export function egressOutputStarted(info: ParsedEgress): boolean {
+  return info.streams.some(streamOutputStarted);
+}
+
+/** ListEgress "active" is not enough; RTMP (or equivalent) must have started. */
 export function egressIsProducing(
   info: ParsedEgress,
-  opts: {
-    identities: string[] | null;
+  _opts?: {
+    identities?: string[] | null;
     now?: number;
     staleMs?: number;
     fromUpdate?: boolean;
   },
 ): boolean {
   if (!isRunningHealth(info.status)) return false;
-  if (opts.fromUpdate) return true;
-  if (opts.identities && studioHasCompositor(opts.identities)) return true;
-  const now = opts.now ?? Date.now();
-  const staleMs = opts.staleMs ?? EGRESS_STALE_MS;
-  if (info.updatedAt && now - info.updatedAt <= staleMs) return true;
-  if (info.status === "starting") return true;
-  return false;
+  return egressOutputStarted(info);
 }
 
 export function recordingPathFor(studioId: string, at = new Date()): string {
@@ -519,6 +602,7 @@ export function normalizeStudio(state: StudioState): StudioState {
     egressRetryAt: state.egressRetryAt ?? null,
     egressRecoveringSince: state.egressRecoveringSince ?? null,
     abandonedEgressIds: state.abandonedEgressIds ?? [],
+    egressHeartbeatAt: state.egressHeartbeatAt ?? null,
     emptySince: state.emptySince ?? null,
     destinations: state.destinations.map((d) => ({
       ...d,

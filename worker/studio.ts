@@ -27,13 +27,17 @@ import {
 } from "./livekit";
 import {
   applyStreamResults,
+  beginRecovery,
   compositorGraceMs,
   egressIsProducing,
   emptyGraceMs,
   enabledUrls,
   failedStreamUrls,
+  heartbeatLost,
+  heartbeatStaleMs,
   isActiveHealth,
   isForeignEgress,
+  isRunningHealth,
   isTerminalHealth,
   MAX_STREAM_RETRIES,
   nextBackoffMs,
@@ -46,8 +50,10 @@ import {
   recordingPathFor,
   recoveryBudgetMs,
   recoveryTimedOut,
+  remainingRecoveryMs,
   rememberAbandoned,
   setDestStatuses,
+  startEgressTimeoutMs,
   STOP_ABANDON_MS,
   studioHasCompositor,
   studioHasPeople,
@@ -215,7 +221,7 @@ export class StudioDurableObject {
       }
       state.layout = layout;
       await this.putState(state);
-      if (state.live && state.egressId) {
+      if (state.wantLive && state.egressId) {
         try {
           await updateEgressLayout(this.env, state.egressId, layout);
         } catch (err) {
@@ -264,9 +270,19 @@ export class StudioDurableObject {
       return json(publicState(state, { includeUrls: true }));
     }
 
+    if (action === "egress-beat") {
+      const latest = (await this.getState()) ?? state;
+      if (!latest.wantLive && !latest.egressId) return json({ ok: true, ignored: true });
+      const now = Date.now();
+      latest.egressHeartbeatAt = now;
+      await this.putState(latest);
+      await this.scheduleWatch(now + heartbeatStaleMs(this.env.CASTHOP_HEARTBEAT_MS));
+      return json({ ok: true });
+    }
+
     if (action === "claim-live") {
       if (!isHost) return json({ error: "host key required" }, 403);
-      if (state.live && state.egressId) {
+      if (state.egressId && state.wantLive) {
         return json({
           ok: true,
           already: true,
@@ -303,7 +319,8 @@ export class StudioDurableObject {
     }
 
     if (action === "webhook") {
-      return this.onWebhook(state, body);
+      const latest = (await this.getState()) ?? state;
+      return this.onWebhook(latest, body);
     }
 
     if (action === "watch") {
@@ -390,6 +407,10 @@ export class StudioDurableObject {
       await this.scheduleWatch(Date.now() + WATCH_MS);
       return json(publicState(state, { includeUrls: true }));
     }
+    if (!fromWatch && state.egressId && state.wantLive && !state.liveFailed) {
+      await this.scheduleWatch(Date.now() + WATCH_MS);
+      return json(publicState(state, { includeUrls: true }));
+    }
     const claimed = claimIsHeld(state.liveStartingAt) && !state.egressId;
     if (!fromWatch && (this.launching || claimed || (claimIsHeld(state.liveStartingAt) && !state.wantLive))) {
       return json({ error: "already starting" }, 409);
@@ -439,10 +460,8 @@ export class StudioDurableObject {
     const occupied = identities ? studioHasPeople(identities) : false;
 
     const active = pickActiveEgress(listed, state.egressId, state.abandonedEgressIds);
-    const producing = active
-      ? egressIsProducing(active, { identities, fromUpdate: false })
-      : false;
-    if (active && producing && !this.compositorGone(state, identities, active.egressId)) {
+    const producing = active ? egressIsProducing(active) : false;
+    if (active && producing && !this.compositorGone(state, identities, active.egressId) && !heartbeatLost(state, Date.now(), heartbeatStaleMs(this.env.CASTHOP_HEARTBEAT_MS))) {
       state.wantLive = true;
       state.live = true;
       state.liveFailed = false;
@@ -454,6 +473,12 @@ export class StudioDurableObject {
       state.egressRetryAt = null;
       state.egressRecoveringSince = null;
       applyStreamResults(state.destinations, active.streams, true, Date.now(), true);
+      await this.putState(state);
+      await this.scheduleWatch(Date.now() + WATCH_MS);
+      return json(publicState(state, { includeUrls: true }));
+    }
+    if (active && state.egressId === active.egressId && isRunningHealth(active.status)) {
+      setDestStatuses(state.destinations, "connecting");
       await this.putState(state);
       await this.scheduleWatch(Date.now() + WATCH_MS);
       return json(publicState(state, { includeUrls: true }));
@@ -476,6 +501,9 @@ export class StudioDurableObject {
 
     const urls = enabledUrls(state.destinations);
     const filepath = recordingPathFor(state.id);
+    const budget = recoveryBudgetMs(this.env.CASTHOP_RECOVERY_MS);
+    const remaining = remainingRecoveryMs(state, Date.now(), budget);
+    if (remaining !== null && remaining < 1) return this.markFailed(state, state.liveError ?? "Could not go live");
     try {
       const { egressId } = await startRoomComposite({
         env: this.env,
@@ -483,6 +511,7 @@ export class StudioDurableObject {
         layout: state.layout,
         urls,
         filepath,
+        timeoutMs: startEgressTimeoutMs(remaining),
       });
       const latest = await this.getState();
       if (!latest) return json({ error: "Studio not found" }, 404);
@@ -494,14 +523,14 @@ export class StudioDurableObject {
         }
         return json(publicState(latest, { includeUrls: true }));
       }
-      latest.live = true;
-      latest.liveStartedAt = Date.now();
-      latest.liveStartingAt = undefined;
+      latest.live = false;
+      latest.liveStartingAt = latest.liveStartingAt ?? Date.now();
       latest.egressId = egressId;
       latest.recordingPath = filepath;
-      latest.liveError = null;
+      latest.liveError = fromWatch ? latest.liveError : null;
       latest.egressRetryCount = 0;
       latest.egressRetryAt = null;
+      latest.egressHeartbeatAt = null;
       setDestStatuses(latest.destinations, "connecting");
       await this.putState(latest);
       await this.scheduleWatch(Date.now() + WATCH_MS);
@@ -532,6 +561,7 @@ export class StudioDurableObject {
     latest.egressRetryCount = 0;
     latest.egressRetryAt = null;
     latest.egressRecoveringSince = null;
+    latest.egressHeartbeatAt = null;
     setDestStatuses(latest.destinations, reason === "stopped" ? "stopped" : "idle", null);
     if (reason === "stopped") {
       for (const d of latest.destinations) {
@@ -583,6 +613,16 @@ export class StudioDurableObject {
       await this.scheduleWatch(latest.emptySince + emptyGraceMs(this.env.CASTHOP_EMPTY_GRACE_MS));
       return;
     }
+    const now = Date.now();
+    const budget = recoveryBudgetMs(this.env.CASTHOP_RECOVERY_MS);
+    if (!latest.live && recoveryTimedOut(latest, now, budget)) {
+      await this.markFailed(latest, latest.liveError ?? "Could not go live");
+      return;
+    }
+    if (heartbeatLost(latest, now, heartbeatStaleMs(this.env.CASTHOP_HEARTBEAT_MS))) {
+      await this.restartDeadEgress(latest, latest.egressId, "Egress heartbeat lost");
+      return;
+    }
     if (this.compositorGone(latest, identities)) {
       await this.restartDeadEgress(latest, latest.egressId, "Compositor left");
       return;
@@ -601,11 +641,15 @@ export class StudioDurableObject {
         return;
       }
       if (latest.live || latest.egressId) {
-        const started = latest.liveStartedAt ?? 0;
-        const grace = compositorGraceMs(this.env.CASTHOP_COMPOSITOR_GRACE_MS);
-        if (started && Date.now() - started < grace) {
-          await this.scheduleWatch(Date.now() + WATCH_MS);
-          return;
+        if (!latest.live) {
+          const started = latest.liveStartingAt ?? latest.liveStartedAt ?? 0;
+          const grace = compositorGraceMs(this.env.CASTHOP_COMPOSITOR_GRACE_MS);
+          const remaining = remainingRecoveryMs(latest, Date.now(), recoveryBudgetMs(this.env.CASTHOP_RECOVERY_MS));
+          const wait = remaining == null ? grace : Math.min(grace, remaining);
+          if (started && Date.now() - started < wait) {
+            await this.scheduleWatch(Date.now() + WATCH_MS);
+            return;
+          }
         }
         await this.restartDeadEgress(latest, latest.egressId, latest.liveError ?? "Egress disappeared");
         return;
@@ -631,8 +675,7 @@ export class StudioDurableObject {
     if (isForeignEgress(state.egressId, info.egressId, info.status, state.wantLive, state.abandonedEgressIds)) {
       return;
     }
-    const fromUpdate = event !== "poll";
-    const producing = egressIsProducing(info, { identities, fromUpdate });
+    const producing = egressIsProducing(info);
     const dropped = applyStreamResults(
       state.destinations,
       info.streams,
@@ -641,18 +684,19 @@ export class StudioDurableObject {
       producing && isActiveHealth(info.status),
     );
     if (isActiveHealth(info.status)) {
-      if (!producing && !fromUpdate) {
-        const listedDead =
-          this.compositorGone(state, identities, info.egressId) || (!state.live && !state.egressId);
-        if (listedDead) {
-          await this.restartDeadEgress(state, info.egressId, "Compositor left");
-          return;
-        }
-        await this.putState(state);
-        await this.scheduleWatch(Date.now() + WATCH_MS);
+      if (
+        heartbeatLost(state, Date.now(), heartbeatStaleMs(this.env.CASTHOP_HEARTBEAT_MS)) ||
+        this.compositorGone(state, identities, info.egressId)
+      ) {
+        await this.restartDeadEgress(state, info.egressId, "Compositor left");
         return;
       }
       if (!producing) {
+        if (state.live) {
+          await this.restartDeadEgress(state, info.egressId, "Egress output stopped");
+          return;
+        }
+        state.egressId = info.egressId;
         await this.putState(state);
         await this.scheduleWatch(Date.now() + WATCH_MS);
         return;
@@ -712,6 +756,7 @@ export class StudioDurableObject {
       if (state.egressId === egressId) {
         state.egressId = null;
         state.live = false;
+        state.egressHeartbeatAt = null;
       }
       await this.putState(state);
       try {
@@ -729,7 +774,9 @@ export class StudioDurableObject {
   }
 
   private async restartDeadEgress(state: StudioState, egressId: string | null, error: string): Promise<Response> {
-    if (!state.egressRecoveringSince) state.egressRecoveringSince = Date.now();
+    beginRecovery(state);
+    state.live = false;
+    setDestStatuses(state.destinations, "retrying", error);
     await this.abandonEgress(state, egressId);
     const latest = (await this.getState()) ?? state;
     if (!latest.wantLive || latest.liveFailed) return json(publicState(latest, { includeUrls: true }));
@@ -753,6 +800,7 @@ export class StudioDurableObject {
     state.egressId = null;
     state.liveError = error;
     state.egressRetryAt = null;
+    state.egressHeartbeatAt = null;
     setDestStatuses(state.destinations, "failed", error);
     await this.putState(state);
     await this.clearWatch();
@@ -760,7 +808,7 @@ export class StudioDurableObject {
   }
 
   private async markRetry(state: StudioState, error: string): Promise<Response> {
-    if (!state.egressRecoveringSince) state.egressRecoveringSince = Date.now();
+    beginRecovery(state);
     if (recoveryTimedOut(state, Date.now(), recoveryBudgetMs(this.env.CASTHOP_RECOVERY_MS))) {
       return this.markFailed(state, error);
     }
@@ -782,10 +830,13 @@ export class StudioDurableObject {
   private compositorGone(state: StudioState, identities: string[] | null, egressId = state.egressId): boolean {
     if (!identities || studioHasCompositor(identities)) return false;
     if (!state.live && !egressId) return false;
+    if (state.live) return true;
     const ours = Boolean(egressId) && egressId === state.egressId;
-    const started = state.liveStartedAt ?? 0;
+    const started = state.liveStartingAt ?? state.liveStartedAt ?? 0;
     const grace = compositorGraceMs(this.env.CASTHOP_COMPOSITOR_GRACE_MS);
-    if (ours && started && Date.now() - started < grace) return false;
+    const remaining = remainingRecoveryMs(state, Date.now(), recoveryBudgetMs(this.env.CASTHOP_RECOVERY_MS));
+    const wait = remaining == null ? grace : Math.min(grace, remaining);
+    if (ours && started && Date.now() - started < wait) return false;
     return true;
   }
 

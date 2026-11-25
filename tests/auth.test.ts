@@ -455,6 +455,12 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
       expect: { owner: 200, cohost: 200, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
     },
     {
+      name: "POST egress-beat",
+      path: `/api/studios/${id}/egress-beat`,
+      init: { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
+      expect: { owner: 401, cohost: 401, guest: 401, signedOut: 401, expired: 401, outsider: 401 },
+    },
+    {
       name: "GET cohosts",
       path: `/api/studios/${id}/cohosts`,
       init: {},

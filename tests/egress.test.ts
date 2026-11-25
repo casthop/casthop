@@ -3,12 +3,15 @@ import { after, before, test } from "node:test";
 import { app, StudioDurableObject } from "../worker/index.ts";
 import { DEV_API_KEY, DEV_API_SECRET, SESSION_COOKIE } from "../worker/security.ts";
 import { FakeD1 } from "./fake-d1.ts";
-import { mintApiToken, signLivekitWebhook, startRoomComposite } from "../worker/livekit.ts";
+import { mintApiToken, mintParticipantToken, signLivekitWebhook, startRoomComposite } from "../worker/livekit.ts";
 import {
   applyStreamResults,
+  beginRecovery,
   egressIsProducing,
+  egressOutputStarted,
   egressTimeMs,
   failedStreamUrls,
+  heartbeatLost,
   isForeignEgress,
   livePhaseOf,
   MAX_STREAM_RETRIES,
@@ -17,7 +20,10 @@ import {
   parseEgressList,
   pickActiveEgress,
   publicError,
+  remainingRecoveryMs,
   redactStreamKey,
+  startEgressTimeoutMs,
+  streamOutputStarted,
   studioHasPeople,
 } from "../worker/egress.ts";
 import type { Destination, Env, PublicStudio, StudioState } from "../worker/types.ts";
@@ -40,6 +46,9 @@ let updateStreamHold: Promise<void> | null = null;
 let updateStreamStarted: (() => void) | null = null;
 let holdNextUpdateStream = false;
 let stopEgressStatus = 200;
+let startRoomCompositeHold: Promise<void> | null = null;
+let startRoomCompositeStarted: (() => void) | null = null;
+let holdNextStartRoomComposite = false;
 const realFetch = globalThis.fetch;
 
 function fakeCtx(): DurableObjectState {
@@ -172,6 +181,20 @@ before(() => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (url.includes("StartRoomCompositeEgress")) {
       egressStarts += 1;
+      startRoomCompositeStarted?.();
+      if (holdNextStartRoomComposite && startRoomCompositeHold) {
+        holdNextStartRoomComposite = false;
+        const signal = init?.signal;
+        await Promise.race([
+          startRoomCompositeHold,
+          new Promise<never>((_, reject) => {
+            const fail = () => reject(Object.assign(new Error("aborted"), { name: "TimeoutError" }));
+            if (!signal) return;
+            if (signal.aborted) fail();
+            else signal.addEventListener("abort", fail, { once: true });
+          }),
+        ]);
+      }
       if (startRoomCompositeFail) return new Response(`cannot publish ${YT}`, { status: 500 });
       const body = JSON.parse(String(init?.body ?? "{}")) as { stream_outputs?: { urls?: string[] }[] };
       assert.ok((body.stream_outputs?.[0]?.urls?.length ?? 0) >= 1, "fan-out must send RTMP urls");
@@ -353,6 +376,63 @@ test("applyStreamResults sets per-destination status without exposing urls", () 
   assert.equal(dests[1]?.error?.includes("super-secret"), false);
 });
 
+test("applyStreamResults matches a short MediaMTX key redacted as {...}", () => {
+  const dests: Destination[] = [
+    {
+      id: "youtube",
+      kind: "youtube",
+      label: "YouTube",
+      detail: "",
+      url: "rtmp://127.0.0.1:1935/live/qa",
+      enabled: true,
+      status: "connecting",
+      error: null,
+    },
+    {
+      id: "linkedin",
+      kind: "linkedin",
+      label: "LinkedIn",
+      detail: "",
+      url: "rtmp://127.0.0.1:1935/live/linkedin",
+      enabled: false,
+      status: "idle",
+      error: null,
+    },
+  ];
+  applyStreamResults(
+    dests,
+    [{ url: "rtmp://127.0.0.1:1935/live/{...}", status: "active", error: "", startedAt: Date.now(), duration: 0 }],
+    true,
+    Date.now(),
+    true,
+  );
+  assert.equal(dests[0]?.status, "live");
+  assert.equal(dests[1]?.status, "idle");
+});
+
+test("applyStreamResults marks the leftover dest live when stream URL matching fails", () => {
+  const dests: Destination[] = [
+    {
+      id: "youtube",
+      kind: "youtube",
+      label: "YouTube",
+      detail: "",
+      url: "rtmp://127.0.0.1:1935/live/qa",
+      enabled: true,
+      status: "connecting",
+      error: null,
+    },
+  ];
+  applyStreamResults(
+    dests,
+    [{ url: "rtmp://127.0.0.1:1935/live/{redacted}", status: "active", error: "", startedAt: Date.now() }],
+    true,
+    Date.now(),
+    true,
+  );
+  assert.equal(dests[0]?.status, "live");
+});
+
 test("applyStreamResults matches LiveKit-redacted stream URLs", () => {
   const dests: Destination[] = [
     { id: "youtube", kind: "youtube", label: "YouTube", detail: "", url: "rtmp://127.0.0.1:1935/live/youtube", enabled: true, status: "connecting", error: null },
@@ -421,6 +501,10 @@ test("livePhaseOf maps host intent vs compositor health", () => {
   assert.equal(livePhaseOf({ ...base, wantLive: false, live: true, egressId: "eg" }), "stopping");
   assert.equal(livePhaseOf(base), "retrying");
   assert.equal(livePhaseOf({ ...base, liveFailed: true }), "failed");
+  assert.equal(livePhaseOf({ ...base, egressId: "eg" }), "starting");
+  assert.equal(livePhaseOf({ ...base, liveStartingAt: Date.now() }), "starting");
+  assert.equal(livePhaseOf({ ...base, egressRecoveringSince: Date.now() }), "retrying");
+  assert.equal(livePhaseOf({ ...base, egressRecoveringSince: Date.now(), egressId: "eg" }), "starting");
 });
 
 test("studioHasPeople ignores compositor identities", () => {
@@ -624,9 +708,10 @@ test("go live fans out enabled destinations and stop tears down egress", async (
   assert.equal(go.status, 200, await go.clone().text());
   assert.equal(egressStarts, starts + 1);
   const live = await json<PublicStudio>(go);
-  assert.equal(live.live, true);
-  assert.equal(live.livePhase, "live");
-  assert.equal(live.destinations.filter((d) => d.enabled).every((d) => d.status === "connecting" || d.status === "live"), true);
+  assert.equal(live.live, false);
+  assert.equal(live.livePhase, "starting");
+  assert.ok(live.egressId);
+  assert.equal(live.destinations.filter((d) => d.enabled).every((d) => d.status === "connecting"), true);
 
   const guest = await json<PublicStudio>(await app.request(`https://casthop.test/api/studios/${id}`, {}, env));
   assert.equal(JSON.stringify(guest).includes("super-secret"), false);
@@ -809,8 +894,8 @@ test("late egress_ended for a previous compositor does not retry the live one", 
   const snap = await json<PublicStudio>(
     await app.request(`https://casthop.test/api/studios/${id}`, { headers: liveHeaders(cookie) }, env),
   );
-  assert.equal(snap.live, true);
-  assert.equal(snap.livePhase, "live");
+  assert.equal(snap.live, false);
+  assert.equal(snap.livePhase, "starting");
   assert.equal(snap.egressId, current);
   assert.equal(egressStarts, starts);
 });
@@ -945,7 +1030,8 @@ test("missing compositor while ListEgress is still active starts a new composito
       env,
     ),
   );
-  assert.equal(started.live, true);
+  assert.equal(started.live, false);
+  assert.equal(started.livePhase, "starting");
   const starts = egressStarts;
   const stops = egressStops;
   listedParticipants = [{ identity: "host" }];
@@ -955,7 +1041,7 @@ test("missing compositor while ListEgress is still active starts a new composito
   const stub = env.STUDIO.get(env.STUDIO.idFromName(id));
   const first = await stub.fetch(new Request(`https://studio/${id}?action=watch`, { method: "POST", body: "{}" }));
   const after = await json<PublicStudio>(first);
-  assert.equal(after.livePhase, "live");
+  assert.equal(after.livePhase, "starting");
   assert.ok(egressStops > stops);
   assert.equal(egressStarts, starts + 1);
   const snap = await json<PublicStudio>(
@@ -1156,23 +1242,31 @@ test("colliding redacted stream keys match by destination id", () => {
   assert.equal(dests.find((d) => d.id === "x")?.status, "live");
 });
 
-test("egressIsProducing ignores a listed-active compositor with no heartbeat", () => {
+test("egressIsProducing needs stream output, not listed-active or a compositor identity", () => {
   const dead = {
     egressId: "EG_dead",
     roomName: "r",
     status: "active" as const,
     error: "",
-    streams: [{ url: YT, status: "active" as const, error: "" }],
-    updatedAt: null,
-    startedAt: null,
+    streams: [] as { url: string; status: "active"; error: string }[],
+    updatedAt: Date.now(),
+    startedAt: Date.now(),
   };
-  assert.equal(egressIsProducing(dead, { identities: ["host"], fromUpdate: false }), false);
-  assert.equal(egressIsProducing(dead, { identities: ["host", "EG_abc"], fromUpdate: false }), true);
-  assert.equal(egressIsProducing(dead, { identities: ["host"], fromUpdate: true }), true);
+  assert.equal(egressIsProducing(dead, { identities: ["host", "EG_abc"], fromUpdate: true }), false);
+  const flowing = {
+    ...dead,
+    streams: [{ url: YT, status: "active" as const, error: "", startedAt: Date.now() }],
+  };
+  assert.equal(egressIsProducing(flowing, { identities: ["host"], fromUpdate: false }), true);
   assert.equal(
-    egressIsProducing({ ...dead, updatedAt: Date.now() }, { identities: ["host"], fromUpdate: false }),
+    streamOutputStarted({ url: YT, status: "active", error: "", startedAt: Date.now() }),
     true,
   );
+  assert.equal(streamOutputStarted({ url: YT, status: "active", error: "", duration: 1 }), true);
+  assert.equal(streamOutputStarted({ url: YT, status: "active", error: "", bytes: 12 }), true);
+  assert.equal(streamOutputStarted({ url: YT, status: "active", error: "", duration: 0 }), false);
+  assert.equal(streamOutputStarted({ url: YT, status: "failed", error: "" }), false);
+  assert.equal(egressOutputStarted(flowing), true);
 });
 
 test("dead compositor with StopEgress 408 starts a fresh egress and does not re-adopt the corpse", async () => {
@@ -1211,7 +1305,7 @@ test("dead compositor with StopEgress 408 starts a fresh egress and does not re-
     const recovered = await json<PublicStudio>(first);
     assert.equal(egressStarts, starts + 1);
     assert.equal(egressStops, stops + 1);
-    assert.equal(recovered.livePhase, "live");
+    assert.equal(recovered.livePhase, "starting");
     const recoveredSnap = await json<PublicStudio>(
       await app.request(`https://casthop.test/api/studios/${id}`, { headers: liveHeaders(cookie) }, env),
     );
@@ -1240,7 +1334,7 @@ test("dead compositor with StopEgress 408 starts a fresh egress and does not re-
     };
     const second = await stub.fetch(new Request(`https://studio/${id}?action=watch`, { method: "POST", body: "{}" }));
     const still = await json<PublicStudio>(second);
-    assert.equal(still.livePhase, "live");
+    assert.equal(still.livePhase, "starting");
     const stillSnap = await json<PublicStudio>(
       await app.request(`https://casthop.test/api/studios/${id}`, { headers: liveHeaders(cookie) }, env),
     );
@@ -1288,6 +1382,208 @@ test("recovery budget exceeded marks live failed; retry starts a new compositor"
       env,
     ),
   );
-  assert.equal(retry.livePhase, "live");
+  assert.equal(retry.livePhase, "starting");
   assert.equal(egressStarts, starts + 1);
+});
+
+test("recovery timers overlap the start RPC with the 30s budget", () => {
+  const now = 1_000_000;
+  const state = { egressRecoveringSince: now - 10_000, egressHeartbeatAt: now - 12_000 };
+  assert.equal(remainingRecoveryMs(state, now, 30_000), 20_000);
+  assert.equal(startEgressTimeoutMs(20_000), 20_000);
+  assert.equal(startEgressTimeoutMs(null), 30_000);
+  assert.equal(startEgressTimeoutMs(0), 0);
+  const recovering = { egressRecoveringSince: null as number | null, egressHeartbeatAt: now - 4_000 };
+  beginRecovery(recovering, now);
+  assert.equal(recovering.egressRecoveringSince, now - 4_000);
+  beginRecovery(recovering, now + 50);
+  assert.equal(recovering.egressRecoveringSince, now - 4_000);
+  assert.equal(heartbeatLost({ egressHeartbeatAt: now - 5_000 }, now, 5_000), true);
+  assert.equal(heartbeatLost({ egressHeartbeatAt: now - 4_999 }, now, 5_000), false);
+  assert.equal(heartbeatLost({ egressHeartbeatAt: null }, now, 5_000), false);
+});
+
+test("go live stays Starting until stream started_at, then Live", async () => {
+  listedParticipants = [{ identity: "host" }, { identity: "EG_abc" }];
+  listedEgress = { items: [] };
+  const env = makeEnv();
+  const { id, cookie } = await createStudio(env);
+  const started = await json<PublicStudio>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
+      env,
+    ),
+  );
+  assert.equal(started.livePhase, "starting");
+  assert.equal(started.live, false);
+  assert.equal(started.destinations.find((d) => d.id === "youtube")?.status, "connecting");
+
+  const startingBody = JSON.stringify({
+    event: "egress_updated",
+    egressInfo: {
+      egressId: started.egressId,
+      roomName: id,
+      status: "EGRESS_ACTIVE",
+      streamResults: [{ url: redactStreamKey(YT), status: "ACTIVE", duration: 0 }],
+    },
+  });
+  const startingRes = await app.request(
+    "https://casthop.test/api/livekit/webhook",
+    { method: "POST", headers: { Authorization: await signLivekitWebhook(env, startingBody) }, body: startingBody },
+    env,
+  );
+  const stillStarting = await json<PublicStudio>(startingRes);
+  assert.equal(stillStarting.livePhase, "starting");
+  assert.equal(stillStarting.destinations.find((d) => d.id === "youtube")?.status, "connecting");
+
+  const liveBody = JSON.stringify({
+    event: "egress_updated",
+    egressInfo: {
+      egressId: started.egressId,
+      roomName: id,
+      status: "EGRESS_ACTIVE",
+      streamResults: [
+        { url: redactStreamKey(YT), status: "ACTIVE", started_at: "1700000000000000000" },
+        { url: redactStreamKey(LI), status: "ACTIVE", started_at: "1700000000000000000" },
+        { url: redactStreamKey(X), status: "ACTIVE", started_at: "1700000000000000000" },
+      ],
+    },
+  });
+  const liveRes = await app.request(
+    "https://casthop.test/api/livekit/webhook",
+    { method: "POST", headers: { Authorization: await signLivekitWebhook(env, liveBody) }, body: liveBody },
+    env,
+  );
+  const live = await json<PublicStudio>(liveRes);
+  assert.equal(live.livePhase, "live");
+  assert.equal(live.live, true);
+  assert.equal(live.destinations.find((d) => d.id === "youtube")?.status, "live");
+});
+
+test("a missed compositor heartbeat drops Live to Reconnecting while ListEgress is still active", async () => {
+  listedParticipants = [{ identity: "host" }, { identity: "EG_abc" }];
+  listedEgress = { items: [] };
+  const env = makeEnv({ CASTHOP_HEARTBEAT_MS: "5", CASTHOP_COMPOSITOR_GRACE_MS: "60000" });
+  const { id, cookie } = await createStudio(env);
+  const started = await json<PublicStudio>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
+      env,
+    ),
+  );
+  const liveBody = JSON.stringify({
+    event: "egress_updated",
+    egressInfo: {
+      egressId: started.egressId,
+      roomName: id,
+      status: "EGRESS_ACTIVE",
+      streamResults: [
+        { url: redactStreamKey(YT), status: "ACTIVE", started_at: "1700000000000000000" },
+        { url: redactStreamKey(LI), status: "ACTIVE", started_at: "1700000000000000000" },
+        { url: redactStreamKey(X), status: "ACTIVE", started_at: "1700000000000000000" },
+      ],
+    },
+  });
+  await app.request(
+    "https://casthop.test/api/livekit/webhook",
+    { method: "POST", headers: { Authorization: await signLivekitWebhook(env, liveBody) }, body: liveBody },
+    env,
+  );
+  const token = await mintParticipantToken({
+    env,
+    identity: "EG_abc",
+    name: "egress",
+    room: id,
+    canPublish: false,
+  });
+  const beat = await app.request(
+    `https://casthop.test/api/studios/${id}/egress-beat`,
+    { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: "{}" },
+    env,
+  );
+  assert.equal(beat.status, 200, await beat.clone().text());
+  const stillLive = await json<PublicStudio>(
+    await app.request(`https://casthop.test/api/studios/${id}`, { headers: liveHeaders(cookie) }, env),
+  );
+  assert.equal(stillLive.livePhase, "live");
+  assert.equal(stillLive.destinations.find((d) => d.id === "youtube")?.status, "live");
+  await new Promise((r) => setTimeout(r, 15));
+  listedEgress = {
+    items: [
+      {
+        egressId: started.egressId,
+        roomName: id,
+        status: "EGRESS_ACTIVE",
+        streamResults: [{ url: redactStreamKey(YT), status: "ACTIVE", started_at: "1700000000000000000" }],
+      },
+    ],
+  };
+  const starts = egressStarts;
+  const stub = env.STUDIO.get(env.STUDIO.idFromName(id));
+  const res = await stub.fetch(new Request(`https://studio/${id}?action=watch`, { method: "POST", body: "{}" }));
+  const after = await json<PublicStudio>(res);
+  assert.notEqual(after.livePhase, "live");
+  assert.ok(after.livePhase === "retrying" || after.livePhase === "starting");
+  assert.equal(after.live, false);
+  assert.equal(after.destinations.some((d) => d.status === "live"), false);
+  assert.ok(
+    after.destinations.filter((d) => d.enabled).every((d) => d.status === "retrying" || d.status === "connecting"),
+  );
+  assert.ok(egressStarts > starts);
+});
+
+test("egress-beat rejects guest and host tokens", async () => {
+  listedParticipants = [{ identity: "host" }];
+  listedEgress = { items: [] };
+  const env = makeEnv();
+  const { id } = await createStudio(env);
+  const guest = await mintParticipantToken({ env, identity: "g-1", name: "G", room: id, canPublish: true });
+  const host = await mintParticipantToken({ env, identity: "host", name: "Host", room: id, canPublish: true });
+  const guestRes = await app.request(
+    `https://casthop.test/api/studios/${id}/egress-beat`,
+    { method: "POST", headers: { Authorization: `Bearer ${guest}` }, body: "{}" },
+    env,
+  );
+  assert.equal(guestRes.status, 403);
+  const hostRes = await app.request(
+    `https://casthop.test/api/studios/${id}/egress-beat`,
+    { method: "POST", headers: { Authorization: `Bearer ${host}` }, body: "{}" },
+    env,
+  );
+  assert.equal(hostRes.status, 403);
+  const none = await app.request(`https://casthop.test/api/studios/${id}/egress-beat`, { method: "POST", body: "{}" }, env);
+  assert.equal(none.status, 401);
+});
+
+test("StartRoomComposite timeout is bounded by the remaining recovery budget", async () => {
+  listedParticipants = [{ identity: "host" }, { identity: "EG_abc" }];
+  listedEgress = { items: [] };
+  const env = makeEnv({ CASTHOP_COMPOSITOR_GRACE_MS: "0", CASTHOP_RECOVERY_MS: "80", CASTHOP_BACKOFF_MS: "0" });
+  const { id, cookie } = await createStudio(env);
+  await app.request(
+    `https://casthop.test/api/studios/${id}/live`,
+    { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
+    env,
+  );
+  listedParticipants = [{ identity: "host" }];
+  listedEgress = { items: [] };
+  let release!: () => void;
+  startRoomCompositeHold = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  holdNextStartRoomComposite = true;
+  const stub = env.STUDIO.get(env.STUDIO.idFromName(id));
+  try {
+    const failedRes = await stub.fetch(new Request(`https://studio/${id}?action=watch`, { method: "POST", body: "{}" }));
+    const failed = await json<PublicStudio>(failedRes);
+    assert.equal(failed.livePhase, "failed");
+    assert.equal(failed.live, false);
+  } finally {
+    release();
+    startRoomCompositeHold = null;
+    startRoomCompositeStarted = null;
+    holdNextStartRoomComposite = false;
+  }
 });

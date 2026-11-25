@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import { composeFrame, pickComposeBackend, type ComposeBackend } from "../lib/compositor";
-import { getStudio } from "../lib/api";
+import { getStudio, sendEgressBeat } from "../lib/api";
 import type { LayoutMode } from "../lib/wasm";
 
 /**
@@ -79,6 +79,7 @@ export function EgressTemplate() {
         titleRef.current = s.bannerTitle || s.title || "Casthop";
         subtitleRef.current = s.bannerSubtitle || "live";
       });
+      if (token) void sendEgressBeat(studioId, token).catch(() => undefined);
     };
     pullMeta();
     const metaTimer = window.setInterval(pullMeta, 2000);

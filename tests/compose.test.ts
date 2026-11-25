@@ -116,6 +116,8 @@ test("egress template still falls back through pickComposeBackend", () => {
   assert.match(src, /pickComposeBackend/);
   assert.match(src, /startProgramCompose/);
   assert.match(src, /sendEgressBeat/);
+  assert.match(src, /q\.get\("egressId"\) \|\| fromToken\.egressId/);
+  assert.match(src, /sendEgressBeat\(studioId, token, egressId\)/);
 });
 
 test("gpu compositor accepts OffscreenCanvas and VideoFrame", () => {

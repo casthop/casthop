@@ -61,11 +61,11 @@ export function getStudio(id: string) {
   return api<StudioView>(`/api/studios/${id}`);
 }
 
-export function sendEgressBeat(id: string, token: string) {
+export function sendEgressBeat(id: string, token: string, egressId: string) {
   return api<{ ok: true }>(`/api/studios/${id}/egress-beat`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
-    body: "{}",
+    body: JSON.stringify({ egressId }),
   });
 }
 

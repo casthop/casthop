@@ -176,6 +176,25 @@ function liveHeaders(cookie: string): HeadersInit {
   return { "Content-Type": "application/json", Cookie: cookie };
 }
 
+async function postEgressBeat(env: Env, id: string, identity: string, egressId: string) {
+  const token = await mintParticipantToken({
+    env,
+    identity,
+    name: "egress",
+    room: id,
+    canPublish: false,
+  });
+  return app.request(
+    `https://casthop.test/api/studios/${id}/egress-beat`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ egressId }),
+    },
+    env,
+  );
+}
+
 before(() => {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -1520,19 +1539,9 @@ test("a missed compositor heartbeat drops Live to Reconnecting while ListEgress 
     { method: "POST", headers: { Authorization: await signLivekitWebhook(env, liveBody) }, body: liveBody },
     env,
   );
-  const token = await mintParticipantToken({
-    env,
-    identity: "EG_abc",
-    name: "egress",
-    room: id,
-    canPublish: false,
-  });
-  const beat = await app.request(
-    `https://casthop.test/api/studios/${id}/egress-beat`,
-    { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: "{}" },
-    env,
-  );
+  const beat = await postEgressBeat(env, id, "EG_abc", started.egressId ?? "");
   assert.equal(beat.status, 200, await beat.clone().text());
+  assert.equal((await json<{ ignored?: boolean }>(beat)).ignored, undefined);
   const stillLive = await json<PublicStudio>(
     await app.request(`https://casthop.test/api/studios/${id}`, { headers: liveHeaders(cookie) }, env),
   );
@@ -1561,6 +1570,84 @@ test("a missed compositor heartbeat drops Live to Reconnecting while ListEgress 
     after.destinations.filter((d) => d.enabled).every((d) => d.status === "retrying" || d.status === "connecting"),
   );
   assert.ok(egressStarts > starts);
+});
+
+test("egress-beat ignores a compositor for a previous egress id", async () => {
+  listedParticipants = [{ identity: "host" }, { identity: "EG_abc" }];
+  listedEgress = { items: [] };
+  const env = makeEnv({ CASTHOP_HEARTBEAT_MS: "5", CASTHOP_COMPOSITOR_GRACE_MS: "60000" });
+  const { id, cookie } = await createStudio(env);
+  const started = await json<PublicStudio>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
+      env,
+    ),
+  );
+  const liveBody = JSON.stringify({
+    event: "egress_updated",
+    egressInfo: {
+      egressId: started.egressId,
+      roomName: id,
+      status: "EGRESS_ACTIVE",
+      streamResults: [
+        { url: redactStreamKey(YT), status: "ACTIVE", started_at: "1700000000000000000" },
+        { url: redactStreamKey(LI), status: "ACTIVE", started_at: "1700000000000000000" },
+        { url: redactStreamKey(X), status: "ACTIVE", started_at: "1700000000000000000" },
+      ],
+    },
+  });
+  await app.request(
+    "https://casthop.test/api/livekit/webhook",
+    { method: "POST", headers: { Authorization: await signLivekitWebhook(env, liveBody) }, body: liveBody },
+    env,
+  );
+  const mismatch = await postEgressBeat(env, id, "EG_old", "EG_old");
+  assert.equal(mismatch.status, 200, await mismatch.clone().text());
+  assert.equal((await json<{ ignored?: boolean }>(mismatch)).ignored, true);
+  const missing = await postEgressBeat(env, id, "EG_abc", "");
+  assert.equal((await json<{ ignored?: boolean }>(missing)).ignored, true);
+  listedParticipants = [{ identity: "host" }];
+  listedEgress = {
+    items: [
+      {
+        egressId: started.egressId,
+        roomName: id,
+        status: "EGRESS_ACTIVE",
+        streamResults: [{ url: redactStreamKey(YT), status: "ACTIVE", started_at: "1700000000000000000" }],
+      },
+    ],
+  };
+  const stub = env.STUDIO.get(env.STUDIO.idFromName(id));
+  await stub.fetch(new Request(`https://studio/${id}?action=watch`, { method: "POST", body: "{}" }));
+  const restarted = await json<PublicStudio>(
+    await app.request(`https://casthop.test/api/studios/${id}`, { headers: liveHeaders(cookie) }, env),
+  );
+  assert.ok(restarted.egressId);
+  assert.notEqual(restarted.egressId, started.egressId);
+  listedParticipants = [{ identity: "host" }, { identity: "EG_new" }];
+  listedEgress = {
+    items: [
+      {
+        egressId: restarted.egressId,
+        roomName: id,
+        status: "EGRESS_ACTIVE",
+        streamResults: [{ url: redactStreamKey(YT), status: "ACTIVE", started_at: "1700000000000000000" }],
+      },
+    ],
+  };
+  const stale = await postEgressBeat(env, id, "EG_abc", started.egressId ?? "");
+  assert.equal((await json<{ ignored?: boolean }>(stale)).ignored, true);
+  await new Promise((r) => setTimeout(r, 15));
+  const starts = egressStarts;
+  await stub.fetch(new Request(`https://studio/${id}?action=watch`, { method: "POST", body: "{}" }));
+  const after = await json<PublicStudio>(
+    await app.request(`https://casthop.test/api/studios/${id}`, { headers: liveHeaders(cookie) }, env),
+  );
+  assert.equal(after.egressId, restarted.egressId);
+  assert.equal(egressStarts, starts);
+  const fresh = await postEgressBeat(env, id, "EG_new", restarted.egressId ?? "");
+  assert.equal((await json<{ ignored?: boolean }>(fresh)).ignored, undefined);
 });
 
 test("egress-beat rejects guest and host tokens", async () => {

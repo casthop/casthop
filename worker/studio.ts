@@ -272,7 +272,10 @@ export class StudioDurableObject {
 
     if (action === "egress-beat") {
       const latest = (await this.getState()) ?? state;
-      if (!latest.wantLive && !latest.egressId) return json({ ok: true, ignored: true });
+      const egressId = typeof body.egressId === "string" ? body.egressId : "";
+      if (!latest.wantLive || !latest.egressId || egressId !== latest.egressId) {
+        return json({ ok: true, ignored: true });
+      }
       const now = Date.now();
       latest.egressHeartbeatAt = now;
       await this.putState(latest);

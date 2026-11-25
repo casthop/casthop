@@ -442,7 +442,9 @@ app.post("/api/studios/:id/egress-beat", async (c) => {
   if (claims.room !== id || !isComposerIdentity(claims.identity)) {
     return c.json({ error: "forbidden" }, 403);
   }
-  const res = await doAction(c.env, id, "egress-beat", { identity: claims.identity });
+  const body = (await c.req.json().catch(() => ({}))) as { egressId?: unknown };
+  const egressId = typeof body.egressId === "string" ? body.egressId : "";
+  const res = await doAction(c.env, id, "egress-beat", { identity: claims.identity, egressId });
   if (res.status === 404) return c.json({ error: "Studio not found" }, 404);
   return new Response(res.body, { status: res.status, headers: res.headers });
 });

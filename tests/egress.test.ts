@@ -25,6 +25,8 @@ import {
   startEgressTimeoutMs,
   streamOutputStarted,
   studioHasPeople,
+  nextWatchMs,
+  OUTPUT_SETTLE_MS,
 } from "../worker/egress.ts";
 import type { Destination, Env, PublicStudio, StudioState } from "../worker/types.ts";
 
@@ -341,10 +343,21 @@ test("parseEgressInfo reads LiveKit Twirp payloads with string int64 nanos", () 
       egressId: "EG_lk",
       roomName: "studio",
       status: 1,
-      streamResults: [{ url: YT, status: 0, startedAt: ns }],
+      streamResults: [{ url: YT, status: 0, startedAt: String(ms * 1e6) }],
     },
   });
-  assert.equal(egressIsProducing(flowing!, { identities: ["host"], fromUpdate: false, now: ms }), true);
+  assert.equal(egressIsProducing(flowing!, { identities: ["host"], fromUpdate: false, now: ms }), false);
+  const sent = parseEgressInfo({
+    event: "egress_updated",
+    egressInfo: {
+      egressId: "EG_lk",
+      roomName: "studio",
+      status: 1,
+      streamResults: [{ url: YT, status: 0, startedAt: ns, bytes: 4096 }],
+    },
+  });
+  assert.equal(egressIsProducing(sent!, { identities: ["host"], fromUpdate: false, now: ms }), true);
+  assert.equal(egressIsProducing(flowing!, { alreadyLive: true }), true);
 
   const listed = parseEgressList({
     items: [
@@ -394,7 +407,7 @@ test("applyStreamResults sets per-destination status without exposing urls", () 
   const retry = applyStreamResults(
     dests,
     [
-      { url: YT, status: "active", error: "", startedAt: 1_700_000_000_000 },
+      { url: YT, status: "active", error: "", startedAt: 1_700_000_000_000, bytes: 4096 },
       { url: LI, status: "failed", error: `timeout ${LI}` },
     ],
     true,
@@ -430,7 +443,7 @@ test("applyStreamResults matches a short MediaMTX key redacted as {...}", () => 
   ];
   applyStreamResults(
     dests,
-    [{ url: "rtmp://127.0.0.1:1935/live/{...}", status: "active", error: "", startedAt: Date.now(), duration: 0 }],
+    [{ url: "rtmp://127.0.0.1:1935/live/{...}", status: "active", error: "", startedAt: Date.now(), bytes: 4096 }],
     true,
     Date.now(),
     true,
@@ -454,7 +467,7 @@ test("applyStreamResults marks the leftover dest live when stream URL matching f
   ];
   applyStreamResults(
     dests,
-    [{ url: "rtmp://127.0.0.1:1935/live/{redacted}", status: "active", error: "", startedAt: Date.now() }],
+    [{ url: "rtmp://127.0.0.1:1935/live/{redacted}", status: "active", error: "", startedAt: Date.now(), bytes: 4096 }],
     true,
     Date.now(),
     true,
@@ -474,9 +487,9 @@ test("applyStreamResults matches LiveKit-redacted stream URLs", () => {
   const retry = applyStreamResults(
     dests,
     [
-      { url: "rtmp://127.0.0.1:1935/live/{yo...be}", status: "active", error: "", startedAt: 1_700_000_000_000 },
+      { url: "rtmp://127.0.0.1:1935/live/{yo...be}", status: "active", error: "", startedAt: 1_700_000_000_000, bytes: 4096 },
       { url: "rtmp://127.0.0.1:1935/live/{li...in}", status: "failed", error: "broken pipe" },
-      { url: "rtmp://127.0.0.1:1935/live/{...}", status: "active", error: "", startedAt: 1_700_000_000_000 },
+      { url: "rtmp://127.0.0.1:1935/live/{...}", status: "active", error: "", startedAt: 1_700_000_000_000, bytes: 4096 },
     ],
     true,
   );
@@ -486,9 +499,9 @@ test("applyStreamResults matches LiveKit-redacted stream URLs", () => {
   assert.equal(dests[2]?.status, "live");
   assert.deepEqual(
     failedStreamUrls(dests, [
-      { url: "rtmp://127.0.0.1:1935/live/{yo...be}", status: "active", error: "", startedAt: 1_700_000_000_000 },
+      { url: "rtmp://127.0.0.1:1935/live/{yo...be}", status: "active", error: "", startedAt: 1_700_000_000_000, bytes: 4096 },
       { url: "rtmp://127.0.0.1:1935/live/{li...in}", status: "failed", error: "broken pipe" },
-      { url: "rtmp://127.0.0.1:1935/live/{...}", status: "active", error: "", startedAt: 1_700_000_000_000 },
+      { url: "rtmp://127.0.0.1:1935/live/{...}", status: "active", error: "", startedAt: 1_700_000_000_000, bytes: 4096 },
     ]),
     ["rtmp://127.0.0.1:1935/live/linkedin"],
   );
@@ -948,9 +961,9 @@ test("egress_updated with redacted stream URLs marks destinations live", async (
       roomName: id,
       status: "EGRESS_ACTIVE",
       streamResults: [
-        { url: redactStreamKey(YT), status: "ACTIVE", started_at: "1700000000000000000" },
-        { url: redactStreamKey(LI), status: "ACTIVE", started_at: "1700000000000000000" },
-        { url: redactStreamKey(X), status: "ACTIVE", started_at: "1700000000000000000" },
+        { url: redactStreamKey(YT), status: "ACTIVE", started_at: "1700000000000000000", bytes: 4096 },
+        { url: redactStreamKey(LI), status: "ACTIVE", started_at: "1700000000000000000", bytes: 4096 },
+        { url: redactStreamKey(X), status: "ACTIVE", started_at: "1700000000000000000", bytes: 4096 },
       ],
     },
   });
@@ -986,9 +999,9 @@ test("egress_updated marks a dropped RTMP destination and reattaches it", async 
       roomName: id,
       status: "EGRESS_ACTIVE",
       streamResults: [
-        { url: YT, status: "ACTIVE", started_at: "1700000000000000000" },
+        { url: YT, status: "ACTIVE", started_at: "1700000000000000000", bytes: 4096 },
         { url: LI, status: "FAILED", error: "broken pipe" },
-        { url: X, status: "ACTIVE", started_at: "1700000000000000000" },
+        { url: X, status: "ACTIVE", started_at: "1700000000000000000", bytes: 4096 },
       ],
     },
   });
@@ -1028,9 +1041,9 @@ test("a failed RTMP destination is not reattached forever", async () => {
         roomName: id,
         status: "EGRESS_ACTIVE",
         streamResults: [
-          { url: YT, status: "ACTIVE", started_at: "1700000000000000000" },
+          { url: YT, status: "ACTIVE", started_at: "1700000000000000000", bytes: 4096 },
           { url: LI, status: "FAILED", error: "broken pipe" },
-          { url: X, status: "ACTIVE", started_at: "1700000000000000000" },
+          { url: X, status: "ACTIVE", started_at: "1700000000000000000", bytes: 4096 },
         ],
       },
     });
@@ -1201,9 +1214,9 @@ test("stop during RTMP reattach UpdateStream keeps live off", async () => {
       roomName: id,
       status: "EGRESS_ACTIVE",
       streamResults: [
-        { url: YT, status: "ACTIVE", started_at: "1700000000000000000" },
+        { url: YT, status: "ACTIVE", started_at: "1700000000000000000", bytes: 4096 },
         { url: LI, status: "FAILED", error: "broken pipe" },
-        { url: X, status: "ACTIVE", started_at: "1700000000000000000" },
+        { url: X, status: "ACTIVE", started_at: "1700000000000000000", bytes: 4096 },
       ],
     },
   });
@@ -1248,7 +1261,7 @@ test("colliding redacted stream keys match by destination id", () => {
     dests,
     [
       { url: masked, status: "finished", error: "" },
-      { url: masked, status: "active", error: "", startedAt: 1_700_000_000_000 },
+      { url: masked, status: "active", error: "", startedAt: 1_700_000_000_000, bytes: 4096 },
     ],
     true,
   );
@@ -1263,7 +1276,7 @@ test("colliding redacted stream keys match by destination id", () => {
     dests,
     [
       { url: masked, status: "finished", error: "" },
-      { url: masked, status: "active", error: "", startedAt: 1_700_000_000_000 },
+      { url: masked, status: "active", error: "", startedAt: 1_700_000_000_000, bytes: 4096 },
     ],
     true,
   );
@@ -1282,13 +1295,24 @@ test("egressIsProducing needs stream output, not listed-active or a compositor i
     startedAt: Date.now(),
   };
   assert.equal(egressIsProducing(dead, { identities: ["host", "EG_abc"], fromUpdate: true }), false);
-  const flowing = {
+  const starting = {
     ...dead,
     streams: [{ url: YT, status: "active" as const, error: "", startedAt: Date.now() }],
   };
+  assert.equal(egressIsProducing(starting, { identities: ["host"], fromUpdate: false }), false);
+  assert.equal(egressIsProducing(starting, { alreadyLive: true }), true);
+  const flowing = {
+    ...dead,
+    streams: [{ url: YT, status: "active" as const, error: "", bytes: 4096 }],
+  };
   assert.equal(egressIsProducing(flowing, { identities: ["host"], fromUpdate: false }), true);
+  const now = Date.now();
   assert.equal(
-    streamOutputStarted({ url: YT, status: "active", error: "", startedAt: Date.now() }),
+    streamOutputStarted({ url: YT, status: "active", error: "", startedAt: now }, now),
+    false,
+  );
+  assert.equal(
+    streamOutputStarted({ url: YT, status: "active", error: "", startedAt: now - OUTPUT_SETTLE_MS }, now),
     true,
   );
   assert.equal(streamOutputStarted({ url: YT, status: "active", error: "", duration: 1 }), true);
@@ -1296,6 +1320,7 @@ test("egressIsProducing needs stream output, not listed-active or a compositor i
   assert.equal(streamOutputStarted({ url: YT, status: "active", error: "", duration: 0 }), false);
   assert.equal(streamOutputStarted({ url: YT, status: "active", error: "" }), false);
   assert.equal(streamOutputStarted({ url: YT, status: "failed", error: "" }), false);
+  assert.equal(egressOutputStarted(starting), false);
   assert.equal(egressOutputStarted(flowing), true);
 });
 
@@ -1431,9 +1456,13 @@ test("recovery timers overlap the start RPC with the 30s budget", () => {
   assert.equal(heartbeatLost({ egressHeartbeatAt: now - 5_000 }, now, 5_000), true);
   assert.equal(heartbeatLost({ egressHeartbeatAt: now - 4_999 }, now, 5_000), false);
   assert.equal(heartbeatLost({ egressHeartbeatAt: null }, now, 5_000), false);
+  assert.equal(heartbeatLost({ egressHeartbeatAt: now - 3_000 }, now), true);
+  assert.equal(heartbeatLost({ egressHeartbeatAt: now - 2_999 }, now), false);
+  assert.equal(nextWatchMs(false), 500);
+  assert.equal(nextWatchMs(true), 3_000);
 });
 
-test("go live stays Starting until stream started_at, then Live", async () => {
+test("go live stays Starting until stream bytes, then Live", async () => {
   listedParticipants = [{ identity: "host" }, { identity: "EG_abc" }];
   listedEgress = { items: [] };
   const env = makeEnv();
@@ -1485,6 +1514,24 @@ test("go live stays Starting until stream started_at, then Live", async () => {
   assert.equal(stillStarting.livePhase, "starting");
   assert.equal(stillStarting.destinations.find((d) => d.id === "youtube")?.status, "connecting");
 
+  const startedAtBody = JSON.stringify({
+    event: "egress_updated",
+    egressInfo: {
+      egressId: started.egressId,
+      roomName: id,
+      status: "EGRESS_ACTIVE",
+      streamResults: [{ url: redactStreamKey(YT), status: "ACTIVE", started_at: String(Date.now() * 1e6) }],
+    },
+  });
+  const startedAtRes = await app.request(
+    "https://casthop.test/api/livekit/webhook",
+    { method: "POST", headers: { Authorization: await signLivekitWebhook(env, startedAtBody) }, body: startedAtBody },
+    env,
+  );
+  const stillStartingAt = await json<PublicStudio>(startedAtRes);
+  assert.equal(stillStartingAt.livePhase, "starting");
+  assert.equal(stillStartingAt.destinations.find((d) => d.id === "youtube")?.status, "connecting");
+
   const liveBody = JSON.stringify({
     event: "egress_updated",
     egressInfo: {
@@ -1492,9 +1539,9 @@ test("go live stays Starting until stream started_at, then Live", async () => {
       roomName: id,
       status: "EGRESS_ACTIVE",
       streamResults: [
-        { url: redactStreamKey(YT), status: "ACTIVE", started_at: "1700000000000000000" },
-        { url: redactStreamKey(LI), status: "ACTIVE", started_at: "1700000000000000000" },
-        { url: redactStreamKey(X), status: "ACTIVE", started_at: "1700000000000000000" },
+        { url: redactStreamKey(YT), status: "ACTIVE", started_at: "1700000000000000000", bytes: 4096 },
+        { url: redactStreamKey(LI), status: "ACTIVE", started_at: "1700000000000000000", bytes: 4096 },
+        { url: redactStreamKey(X), status: "ACTIVE", started_at: "1700000000000000000", bytes: 4096 },
       ],
     },
   });
@@ -1528,9 +1575,9 @@ test("a missed compositor heartbeat drops Live to Reconnecting while ListEgress 
       roomName: id,
       status: "EGRESS_ACTIVE",
       streamResults: [
-        { url: redactStreamKey(YT), status: "ACTIVE", started_at: "1700000000000000000" },
-        { url: redactStreamKey(LI), status: "ACTIVE", started_at: "1700000000000000000" },
-        { url: redactStreamKey(X), status: "ACTIVE", started_at: "1700000000000000000" },
+        { url: redactStreamKey(YT), status: "ACTIVE", started_at: "1700000000000000000", bytes: 4096 },
+        { url: redactStreamKey(LI), status: "ACTIVE", started_at: "1700000000000000000", bytes: 4096 },
+        { url: redactStreamKey(X), status: "ACTIVE", started_at: "1700000000000000000", bytes: 4096 },
       ],
     },
   });
@@ -1554,7 +1601,7 @@ test("a missed compositor heartbeat drops Live to Reconnecting while ListEgress 
         egressId: started.egressId,
         roomName: id,
         status: "EGRESS_ACTIVE",
-        streamResults: [{ url: redactStreamKey(YT), status: "ACTIVE", started_at: "1700000000000000000" }],
+        streamResults: [{ url: redactStreamKey(YT), status: "ACTIVE", started_at: "1700000000000000000", bytes: 4096 }],
       },
     ],
   };
@@ -1591,9 +1638,9 @@ test("egress-beat ignores a compositor for a previous egress id", async () => {
       roomName: id,
       status: "EGRESS_ACTIVE",
       streamResults: [
-        { url: redactStreamKey(YT), status: "ACTIVE", started_at: "1700000000000000000" },
-        { url: redactStreamKey(LI), status: "ACTIVE", started_at: "1700000000000000000" },
-        { url: redactStreamKey(X), status: "ACTIVE", started_at: "1700000000000000000" },
+        { url: redactStreamKey(YT), status: "ACTIVE", started_at: "1700000000000000000", bytes: 4096 },
+        { url: redactStreamKey(LI), status: "ACTIVE", started_at: "1700000000000000000", bytes: 4096 },
+        { url: redactStreamKey(X), status: "ACTIVE", started_at: "1700000000000000000", bytes: 4096 },
       ],
     },
   });
@@ -1614,7 +1661,7 @@ test("egress-beat ignores a compositor for a previous egress id", async () => {
         egressId: started.egressId,
         roomName: id,
         status: "EGRESS_ACTIVE",
-        streamResults: [{ url: redactStreamKey(YT), status: "ACTIVE", started_at: "1700000000000000000" }],
+        streamResults: [{ url: redactStreamKey(YT), status: "ACTIVE", started_at: "1700000000000000000", bytes: 4096 }],
       },
     ],
   };
@@ -1632,7 +1679,7 @@ test("egress-beat ignores a compositor for a previous egress id", async () => {
         egressId: restarted.egressId,
         roomName: id,
         status: "EGRESS_ACTIVE",
-        streamResults: [{ url: redactStreamKey(YT), status: "ACTIVE", started_at: "1700000000000000000" }],
+        streamResults: [{ url: redactStreamKey(YT), status: "ACTIVE", started_at: "1700000000000000000", bytes: 4096 }],
       },
     ],
   };

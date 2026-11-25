@@ -3,6 +3,7 @@ import { Room, RoomEvent, Track } from "livekit-client";
 import { pickComposeBackend } from "../lib/compositor";
 import { startProgramCompose, type ProgramCompose } from "../lib/program-compose";
 import { getStudio, sendEgressBeat } from "../lib/api";
+import { HEARTBEAT_BEAT_MS } from "../../worker/egress";
 import type { LayoutMode } from "../lib/wasm";
 
 /**
@@ -107,7 +108,7 @@ export function EgressTemplate() {
       if (token && egressId) void sendEgressBeat(studioId, token, egressId).catch(() => undefined);
     };
     pullMeta();
-    const metaTimer = window.setInterval(pullMeta, 2000);
+    const metaTimer = window.setInterval(pullMeta, HEARTBEAT_BEAT_MS);
 
     return () => {
       cancelled = true;

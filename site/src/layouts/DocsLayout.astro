@@ -1,0 +1,89 @@
+---
+import Base from "./Base.astro";
+import Logo from "../components/Logo.astro";
+import ExtLink from "../components/ExtLink.astro";
+import { GITHUB } from "../lib/site";
+import { sortedDocs, groupDocs, plainText, type Doc } from "../lib/docs";
+
+interface Props { doc: Doc; headings: { depth: number; slug: string; text: string }[]; }
+const { doc, headings } = Astro.props;
+const docs = await sortedDocs();
+const groups = groupDocs(docs);
+const index = docs.map((d) => ({
+  title: d.data.title,
+  group: d.data.group,
+  url: `/docs/${d.id}`,
+  text: plainText(d.body ?? ""),
+}));
+const i = docs.findIndex((d) => d.id === doc.id);
+const prev = docs[i - 1];
+const next = docs[i + 1];
+const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
+---
+<Base title={`${doc.data.title} — Casthop docs`} description={doc.data.description} theme="light">
+  <header class="dtop">
+    <div class="dtop-in">
+      <a href="/" class="nav-logo" aria-label="Casthop home"><Logo /></a>
+      <nav class="tabs" aria-label="Sections">
+        <a href="/docs" aria-current="page">Documentation</a>
+        <ExtLink href={GITHUB}>GitHub</ExtLink>
+      </nav>
+      <button type="button" class="search-btn" id="search-open" aria-label="Search docs" aria-keyshortcuts="Control+K Meta+K">
+        <span>Search docs</span><kbd>Ctrl K</kbd>
+      </button>
+    </div>
+  </header>
+
+  <div class="dshell">
+    <aside class="dside" aria-label="Documentation">
+      <nav class="dnav">
+        {groups.map((g) => (
+          <div class="dgroup">
+            <p class="dgroup-t">{g.group}</p>
+            <ul>
+              {g.items.map((d) => (
+                <li><a href={`/docs/${d.id}`} aria-current={d.id === doc.id ? "page" : undefined}>{d.data.title}</a></li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </nav>
+    </aside>
+
+    <main id="main" class="dmain">
+      <p class="crumb">{doc.data.group}</p>
+      <article class="prose">
+        <h1>{doc.data.title}</h1>
+        <p class="dlede">{doc.data.description}</p>
+        <slot />
+      </article>
+      <nav class="pager" aria-label="Pagination">
+        {prev ? <a href={`/docs/${prev.id}`}><span class="small muted">Previous</span>{prev.data.title}</a> : <span />}
+        {next ? <a class="pager-next" href={`/docs/${next.id}`}><span class="small muted">Next</span>{next.data.title}</a> : <span />}
+      </nav>
+    </main>
+
+    <aside class="dtoc" aria-label="On this page">
+      {toc.length > 0 && (
+        <>
+          <p class="dgroup-t">On this page</p>
+          <ul>
+            {toc.map((h) => <li class={h.depth === 3 ? "sub" : ""}><a href={`#${h.slug}`}>{h.text}</a></li>)}
+          </ul>
+        </>
+      )}
+    </aside>
+  </div>
+
+  <dialog id="search" class="search" aria-label="Search docs">
+    <form method="dialog" class="search-form">
+      <input id="search-q" type="search" placeholder="Search docs" autocomplete="off" aria-label="Search docs" />
+      <ul id="search-results" role="listbox" aria-label="Results"></ul>
+      <p class="small muted search-hint">Esc to close · ↑ ↓ to move · Enter to open</p>
+    </form>
+  </dialog>
+  <script type="application/json" id="search-index" set:html={JSON.stringify(index).replace(/</g, "\\u003c")} />
+  <script>
+    import "../lib/search";
+  </script>
+</Base>

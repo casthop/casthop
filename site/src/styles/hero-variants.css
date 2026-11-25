@@ -26,7 +26,7 @@ html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
 .hv-nav-links a:not(.hv-btn) { text-decoration: none; transition: color 0.2s; }
 .hv-nav-links a:not(.hv-btn):hover { color: var(--fg); }
 .hv-logo { display: inline-flex; align-items: center; gap: 0.55rem; color: var(--fg); font-weight: 600; font-size: 1.1rem; letter-spacing: -0.02em; text-decoration: none; font-family: var(--display); }
-.hv-dot { width: 0.55rem; height: 0.55rem; border-radius: 50%; background: var(--fg); }
+/* .hv-dot mark is in fonts.css (recording-on light). */
 
 .hv-btn { display: inline-flex; align-items: center; padding: 0.7rem 1.25rem; border-radius: 999px; font-weight: 500; font-size: 0.95rem; text-decoration: none; transition: background 0.2s, border-color 0.2s; }
 .hv-btn-primary { background: var(--fg); color: #0a0b0f; font-weight: 600; }
@@ -46,10 +46,10 @@ html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
 .hv-hero-copy { position: relative; }
 .hv-eyebrow { font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; display: flex; align-items: center; gap: 0.7rem; margin-bottom: 1.75rem; }
 .hv-pip { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: #8aa4ff; }
-.hv-display { color: var(--fg); font-family: var(--display); font-weight: 600; font-size: clamp(2.5rem, 6.2vw, 4.6rem); line-height: 1.03; letter-spacing: -0.035em; max-width: 16ch; }
-.hv-display-sm { font-size: clamp(2.1rem, 4.6vw, 3.3rem); max-width: 20ch; }
+.hv-display { color: var(--fg); font-family: var(--display); font-weight: 600; font-size: clamp(2.5rem, 6.8vw, 6.5rem); line-height: 1.03; letter-spacing: -0.035em; max-width: 18ch; }
+.hv-display-sm { font-size: clamp(2.25rem, 3vw + 1rem, 4.25rem); max-width: 20ch; }
 /* Breathing room: headline → description → buttons → screenshot. */
-.hv-lede { max-width: 34rem; font-size: 1.15rem; line-height: 1.6; color: #c9ccd4; margin: 2rem 0 2.5rem; }
+.hv-lede { max-width: 36rem; font-size: clamp(1.15rem, 1.05rem + 0.35vw, 1.375rem); line-height: 1.6; color: #c9ccd4; margin: 2rem 0 2.5rem; }
 .hv-shot-wrap { position: relative; max-width: 68rem; margin: 5.5rem auto 0; padding: 0 1.5rem 4.5rem; }
 .hv-shot-stage { transform-origin: 50% 100%; }
 .hv-shot { margin: 0; border-radius: 16px; border: 1px solid #2a2d38; overflow: hidden; background: #121316; box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.9); }
@@ -87,14 +87,14 @@ html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
   100% { top: calc(100% - 2.5rem); opacity: 0; }
 }
 
-.hv-section-title { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500; color: var(--body); margin-bottom: 2rem; }
+.hv-section-title { font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500; color: var(--body); margin-bottom: 2rem; }
 .hv-feature { display: grid; grid-template-columns: 5rem 1fr; gap: 1rem; padding: 3rem 0; border-top: 1px solid var(--line); }
 .hv-feature-n { font-family: var(--mono); font-size: 0.85rem; padding-top: 0.6rem; color: #8aa4ff; }
-.hv-feature-t { font-family: var(--display); font-weight: 600; color: var(--fg); font-size: clamp(1.7rem, 3.6vw, 2.4rem); line-height: 1.12; letter-spacing: -0.03em; margin-bottom: 1rem; }
-.hv-feature-b { max-width: 38rem; margin-bottom: 1rem; line-height: 1.6; }
+.hv-feature-t { font-family: var(--display); font-weight: 600; color: var(--fg); font-size: clamp(1.85rem, 2.8vw + 0.8rem, 3.25rem); line-height: 1.12; letter-spacing: -0.03em; margin-bottom: 1rem; }
+.hv-feature-b { max-width: 40rem; margin-bottom: 1rem; line-height: 1.6; font-size: clamp(1.05rem, 0.95rem + 0.2vw, 1.2rem); }
 .hv-oss { padding: 6rem 1.5rem; border-top: 1px solid var(--line); }
 .hv-oss .hv-display { margin-bottom: 2.5rem; }
-.hv-oss-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 3rem; margin-bottom: 2.5rem; max-width: 56rem; }
+.hv-oss-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 3rem; margin-bottom: 2.5rem; max-width: 56rem; font-size: clamp(1.05rem, 0.95rem + 0.2vw, 1.2rem); }
 
 .hv-footer { border-top: 1px solid var(--line); padding: 3rem 0 2rem; position: relative; background: var(--bg); }
 .hv-footer-in { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 2rem; }
@@ -104,35 +104,121 @@ html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
 .hv-label { color: var(--fg); margin-bottom: 0.3rem; }
 .hv-footer-lic { margin-top: 2.5rem; }
 
-/* Scroll-driven motion. Default styles stay in the final layout (no-JS fallback). */
-@supports (animation-timeline: view()) {
+/* Immediate first-paint intro on hero copy. Opacity/transform only, layout reserved.
+   No wait for fonts, load, or JS. First item has no delay; stagger ≤ 60ms. */
+@media (prefers-reduced-motion: no-preference) {
+  .hv-hero-copy .hv-eyebrow,
+  .hv-hero-copy .hv-display,
+  .hv-hero-copy .hv-lede,
+  .hv-hero-copy .hv-cta {
+    animation: hv-intro 0.65s ease both;
+  }
+  .hv-hero-copy .hv-display { animation-delay: 20ms; }
+  .hv-hero-copy .hv-lede { animation-delay: 40ms; }
+  .hv-hero-copy .hv-cta { animation-delay: 60ms; }
+}
+@keyframes hv-intro {
+  from { opacity: 0; transform: translateY(0.7rem); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Shot is linked to root scroll so it starts moving as soon as the user scrolls.
+   Default (no support, no JS) stays at the final flat layout. */
+@supports (animation-timeline: scroll(root)) {
   @media (prefers-reduced-motion: no-preference) {
     .hv-shot-stage {
-      animation: hv-untilt linear both;
-      animation-timeline: view();
-      animation-range: cover 0% cover 50%;
-    }
-    .hv-reveal {
-      animation: hv-rise linear both;
-      animation-timeline: view();
-      animation-range: entry 0% entry 45%;
+      transform-origin: 50% 100%;
+      animation-name: hv-untilt;
+      animation-duration: auto;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: scroll(root);
+      animation-range: 0 50vh;
     }
   }
 }
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .hv-reveal {
+      animation-name: hv-rise;
+      animation-duration: auto;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 42%;
+    }
+    .hv-feature.hv-reveal { animation: none; }
+    .hv-feature .hv-feature-n,
+    .hv-feature .hv-feature-t,
+    .hv-feature .hv-feature-b,
+    .hv-feature .hv-link {
+      animation-name: hv-rise;
+      animation-duration: auto;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: view();
+    }
+    .hv-feature .hv-feature-n { animation-range: entry 0% entry 36%; }
+    .hv-feature .hv-feature-t { animation-range: entry 6% entry 42%; }
+    .hv-feature .hv-feature-b { animation-range: entry 12% entry 48%; }
+    .hv-feature .hv-link { animation-range: entry 18% entry 54%; }
+
+    .hv-oss.hv-reveal { animation: none; }
+    .hv-oss > * {
+      animation-name: hv-rise;
+      animation-duration: auto;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: view();
+    }
+    .hv-oss > *:nth-child(1) { animation-range: entry 0% entry 40%; }
+    .hv-oss > *:nth-child(2) { animation-range: entry 8% entry 45%; }
+    .hv-oss > *:nth-child(3) { animation-range: entry 16% entry 50%; }
+    .hv-oss > *:nth-child(4) { animation-range: entry 24% entry 55%; }
+  }
+}
 @keyframes hv-untilt {
-  from { transform: perspective(1600px) rotateX(16deg) scale(0.97); }
-  to { transform: perspective(1600px) rotateX(0deg) scale(1); }
+  from { transform: perspective(1800px) rotateX(22deg) scale(0.92); }
+  to { transform: perspective(1800px) rotateX(0deg) scale(1); }
 }
 @keyframes hv-rise {
   from { opacity: 0; transform: translateY(1.15rem); }
   to { opacity: 1; transform: none; }
 }
 
-/* IntersectionObserver path when scroll-driven animations are missing. Class is set in <head> before paint. */
+/* Fallbacks when scroll-driven animations are missing. Classes are set in <head> before paint. */
+html.js-scroll .hv-shot-stage {
+  transform: perspective(1800px) rotateX(22deg) scale(0.92);
+  transform-origin: 50% 100%;
+  will-change: transform;
+}
 html.js-io .hv-reveal { opacity: 0; transform: translateY(1.15rem); }
-html.js-io .hv-reveal.is-in { opacity: 1; transform: none; transition: opacity 0.7s ease, transform 0.7s ease; }
-html.js-io .hv-shot-stage { transform: perspective(1600px) rotateX(16deg) scale(0.97); transform-origin: 50% 100%; }
-html.js-io .hv-shot-stage.is-in { transform: perspective(1600px) rotateX(0deg) scale(1); transition: transform 0.9s ease; }
+html.js-io .hv-feature.hv-reveal,
+html.js-io .hv-oss.hv-reveal { opacity: 1; transform: none; }
+html.js-io .hv-feature .hv-feature-n,
+html.js-io .hv-feature .hv-feature-t,
+html.js-io .hv-feature .hv-feature-b,
+html.js-io .hv-feature .hv-link,
+html.js-io .hv-oss > * {
+  opacity: 0;
+  transform: translateY(1.15rem);
+}
+html.js-io .hv-reveal.is-in,
+html.js-io .hv-feature.is-in .hv-feature-n,
+html.js-io .hv-feature.is-in .hv-feature-t,
+html.js-io .hv-feature.is-in .hv-feature-b,
+html.js-io .hv-feature.is-in .hv-link,
+html.js-io .hv-oss.is-in > * {
+  opacity: 1;
+  transform: none;
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+html.js-io .hv-feature.is-in .hv-feature-t { transition-delay: 50ms; }
+html.js-io .hv-feature.is-in .hv-feature-b { transition-delay: 100ms; }
+html.js-io .hv-feature.is-in .hv-link { transition-delay: 150ms; }
+html.js-io .hv-oss.is-in > *:nth-child(2) { transition-delay: 50ms; }
+html.js-io .hv-oss.is-in > *:nth-child(3) { transition-delay: 100ms; }
+html.js-io .hv-oss.is-in > *:nth-child(4) { transition-delay: 150ms; }
 
 @media (max-width: 800px) {
   .hv-hero { padding-top: 3.25rem; }
@@ -147,5 +233,9 @@ html.js-io .hv-shot-stage.is-in { transform: perspective(1600px) rotateX(0deg) s
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .hv *, .hv *::before, .hv *::after { transition: none !important; animation: none !important; }
-  .hv-shot-stage, .hv-reveal { opacity: 1 !important; transform: none !important; }
+  .hv-shot-stage, .hv-reveal, .hv-feature .hv-feature-n, .hv-feature .hv-feature-t,
+  .hv-feature .hv-feature-b, .hv-feature .hv-link, .hv-oss > *,
+  .hv-hero-copy .hv-eyebrow, .hv-hero-copy .hv-display, .hv-hero-copy .hv-lede, .hv-hero-copy .hv-cta {
+    opacity: 1 !important; transform: none !important; animation: none !important;
+  }
 }

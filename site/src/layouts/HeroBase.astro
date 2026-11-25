@@ -19,9 +19,14 @@ const { title, description = "Open-source browser live studio. Guests join from 
     <script is:inline>
       (() => {
         const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
-        let view = false;
-        try { view = CSS.supports("animation-timeline", "view()"); } catch (e) {}
-        if (!reduce && !view) document.documentElement.classList.add("js-io");
+        if (reduce) return;
+        let view = false, scrollTl = false;
+        try {
+          view = CSS.supports("animation-timeline", "view()");
+          scrollTl = CSS.supports("animation-timeline", "scroll(root)");
+        } catch (e) {}
+        if (!scrollTl) document.documentElement.classList.add("js-scroll");
+        if (!view) document.documentElement.classList.add("js-io");
       })();
     </script>
   </head>

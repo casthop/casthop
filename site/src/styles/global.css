@@ -27,7 +27,7 @@ a { color: inherit; }
 .wrap { max-width: 70rem; margin: 0 auto; padding: 0 1.5rem; }
 
 .logo { font-family: var(--display); font-weight: 600; font-size: 1.15rem; letter-spacing: -0.02em; color: var(--fg); display: inline-flex; align-items: center; gap: 0.55rem; line-height: 1; }
-.logo-dot { width: 0.55rem; height: 0.55rem; border-radius: 50%; background: var(--fg); }
+/* .logo-dot mark is in fonts.css (recording-on light). */
 .nav-logo { text-decoration: none; }
 
 /* Buttons */
@@ -97,9 +97,9 @@ kbd { font-family: var(--mono); font-size: 0.72rem; border: 1px solid var(--line
 .dshell { max-width: 90rem; margin: 0 auto; display: grid; grid-template-columns: 16rem minmax(0, 1fr) 14rem; gap: 3rem; padding: 0 1.5rem; }
 .dside, .dtoc { position: sticky; top: 4rem; align-self: start; max-height: calc(100vh - 4rem); overflow: auto; padding: 2rem 0; }
 .dgroup { margin-bottom: 1.75rem; }
-.dgroup-t { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em; color: var(--fg); margin-bottom: 0.65rem; }
+.dgroup-t { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em; color: var(--fg); margin-bottom: 0.65rem; padding: 0 0.75rem; }
 .dside ul, .dtoc ul { list-style: none; margin: 0; padding: 0; }
-.dside a, .dtoc a { display: block; padding: 0.4rem 0.7rem; margin-left: -0.7rem; border-radius: 6px; color: var(--body); text-decoration: none; font-size: 0.92rem; }
+.dside a, .dtoc a { display: block; padding: 0.5rem 0.75rem; border-radius: 8px; color: var(--body); text-decoration: none; font-size: 0.92rem; }
 .dside a:hover, .dtoc a:hover { color: var(--fg); background: #f1f1f3; }
 .dside a[aria-current="page"] { color: var(--accent-b); font-weight: 500; background: #f3effe; }
 .dtoc li.sub a { padding-left: 1.5rem; }

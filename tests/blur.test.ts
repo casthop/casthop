@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { jsBlurComposite } from "../src/lib/js-pipeline.ts";
-import { loadBlurPref, saveBlurPref } from "../src/lib/blur-prefs.ts";
+import { copyBlurPref, loadBlurPref, saveBlurPref } from "../src/lib/blur-prefs.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const wasmPath = join(root, "src/wasm/casthop_media.wasm");
@@ -33,6 +33,14 @@ test("blur preference is off by default and stored per device", () => {
   assert.equal(loadBlurPref("cam-a"), true);
   assert.equal(loadBlurPref("cam-b"), false);
   assert.equal(loadBlurPref("cam-missing"), false);
+  assert.equal(loadBlurPref("cam-b", "cam-a"), true);
+  assert.equal(loadBlurPref("", "cam-missing"), false);
+  saveBlurPref("", true);
+  copyBlurPref("", "cam-c");
+  assert.equal(loadBlurPref("cam-c"), true);
+  saveBlurPref("cam-d", false);
+  copyBlurPref("", "cam-d");
+  assert.equal(loadBlurPref("cam-d"), false);
 });
 
 test("casthop_media.wasm stays under 500 KiB with zero imports", () => {

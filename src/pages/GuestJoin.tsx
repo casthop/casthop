@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { Aperture, Check, Mic, MicOff, Video, VideoOff } from "lucide-react";
 import { Logo } from "../components/Logo";
 import { getHealth, getStudio, mintToken } from "../lib/api";
-import { loadBlurPref, saveBlurPref } from "../lib/blur-prefs";
+import { copyBlurPref, loadBlurPref, saveBlurPref } from "../lib/blur-prefs";
 import { startCameraBlur, type CameraBlurHandle } from "../lib/camera-blur";
 import { attachWorkletMeter } from "../lib/effects";
 import { listDevices, openUserMedia, type DeviceSet } from "../lib/media";
@@ -41,7 +41,8 @@ export function GuestJoin() {
   }, [id]);
 
   useEffect(() => {
-    setBlurOn(loadBlurPref(cameraId));
+    if (cameraId) copyBlurPref("", cameraId);
+    setBlurOn(loadBlurPref(cameraId, ""));
   }, [cameraId]);
 
   useEffect(() => {
@@ -165,7 +166,9 @@ export function GuestJoin() {
                 aria-pressed={blurOn}
                 onClick={() => {
                   const next = !blurOn;
+                  const trackId = stream?.getVideoTracks()[0]?.getSettings().deviceId ?? "";
                   saveBlurPref(cameraId, next);
+                  if (trackId) saveBlurPref(trackId, next);
                   setBlurOn(next);
                 }}
               >

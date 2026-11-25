@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import {
+  ConnectionState,
   LocalParticipant,
   RemoteParticipant,
   Room,
@@ -76,6 +77,7 @@ export function Studio() {
   const hostKey = params.get("host") ?? loadSession(id)?.hostKey;
   const isHost = Boolean(hostKey);
   const publishingRef = useRef(false);
+  const studioLiveRef = useRef(true);
 
   const [studio, setStudio] = useState<PublicStudio | null>(null);
   const [room, setRoom] = useState<Room | null>(null);
@@ -155,6 +157,7 @@ export function Studio() {
   }, [id, hostKey]);
 
   useEffect(() => {
+    studioLiveRef.current = true;
     let cancelled = false;
     let current: Room | null = null;
     (async () => {
@@ -223,6 +226,7 @@ export function Studio() {
     })().catch((err) => setError(err instanceof Error ? err.message : "Could not connect"));
     return () => {
       cancelled = true;
+      studioLiveRef.current = false;
       blurHandleRef.current?.stop();
       blurHandleRef.current = null;
       originalVideoRef.current?.stop();
@@ -254,6 +258,10 @@ export function Studio() {
 
   const backstage = studio?.participants ?? [];
 
+  function studioOpen(lk: Room): boolean {
+    return studioLiveRef.current && lk.state !== ConnectionState.Disconnected;
+  }
+
   async function publishLocal(lk: Room) {
     if (publishingRef.current) return;
     if (lk.localParticipant.getTrackPublication(Track.Source.Camera)?.track) return;
@@ -261,17 +269,29 @@ export function Studio() {
     try {
       const saved = loadSession(id);
       const raw = await openUserMedia({ cameraId: saved?.cameraId, micId: saved?.micId });
+      if (!studioOpen(lk)) {
+        raw.getTracks().forEach((t) => t.stop());
+        return;
+      }
       const processed = await mediaPipeline.process(raw);
+      if (!studioOpen(lk)) {
+        processed.getTracks().forEach((t) => t.stop());
+        return;
+      }
       const video = processed.getVideoTracks()[0];
       if (video) {
         originalVideoRef.current = video;
-        const deviceId = video.getSettings().deviceId ?? saved?.cameraId ?? "";
-        const wantBlur = loadBlurPref(deviceId);
+        const settingsId = video.getSettings().deviceId ?? "";
+        const wantBlur = loadBlurPref(saved?.cameraId ?? "", settingsId);
         setBlurOn(wantBlur);
         let publishVideo = video;
         if (wantBlur) {
           try {
             const handle = await startCameraBlur(video);
+            if (!studioOpen(lk)) {
+              handle.stop();
+              return;
+            }
             blurHandleRef.current?.stop();
             blurHandleRef.current = handle;
             publishVideo = handle.track;
@@ -279,13 +299,14 @@ export function Studio() {
             console.warn("casthop blur", err);
           }
         }
+        if (!studioOpen(lk)) return;
         await lk.localParticipant.publishTrack(publishVideo, {
           source: Track.Source.Camera,
           simulcast: true,
         });
       }
       const audio = processed.getAudioTracks()[0];
-      if (audio) {
+      if (audio && studioOpen(lk)) {
         await lk.localParticipant.publishTrack(audio, { source: Track.Source.Microphone });
       }
     } finally {
@@ -308,8 +329,10 @@ export function Studio() {
   async function toggleBlur() {
     if (blurBusy) return;
     const next = !blurOn;
-    const deviceId = originalVideoRef.current?.getSettings().deviceId ?? loadSession(id)?.cameraId ?? "";
+    const savedId = loadSession(id)?.cameraId ?? "";
+    const deviceId = originalVideoRef.current?.getSettings().deviceId ?? savedId;
     saveBlurPref(deviceId, next);
+    if (savedId && savedId !== deviceId) saveBlurPref(savedId, next);
     setBlurOn(next);
     const local = room?.localParticipant.getTrackPublication(Track.Source.Camera)?.videoTrack;
     const original = originalVideoRef.current;
@@ -319,6 +342,10 @@ export function Studio() {
     try {
       if (next) {
         handle = await startCameraBlur(original);
+        if (!studioLiveRef.current) {
+          handle.stop();
+          return;
+        }
         await local.replaceTrack(handle.track, { userProvidedTrack: true });
         blurHandleRef.current?.stop();
         blurHandleRef.current = handle;

@@ -62,11 +62,13 @@ export function EgressTemplate() {
 
     room.on(RoomEvent.TrackSubscribed, (track) => attach(track));
     room.on(RoomEvent.TrackUnsubscribed, (track) => detach(track));
-    console.log("START_RECORDING");
+    const signalReady = () => console.log("START_RECORDING");
     if (url && token) {
-      void room.connect(url, token).catch((err) => {
+      void room.connect(url, token).then(signalReady).catch((err) => {
         console.error("egress template connect", err);
       });
+    } else {
+      signalReady();
     }
 
     const studioId = roomFromToken(token);

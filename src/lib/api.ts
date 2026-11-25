@@ -97,9 +97,13 @@ export function setLive(id: string, hostKey: string, live: boolean) {
   });
 }
 
-export function sendChat(id: string, body: { identity: string; name: string; text: string }) {
+export function sendChat(
+  id: string,
+  body: { text: string; identity?: string; guestSecret?: string; hostKey?: string },
+) {
   return api<PublicStudio>(`/api/studios/${id}/chat`, {
     method: "POST",
+    hostKey: body.hostKey,
     body: JSON.stringify(body),
   });
 }

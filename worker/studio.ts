@@ -2,21 +2,30 @@ import { defaultDestinations, MAX_ON_STAGE, type Env, type LayoutId, type Studio
 import {
   asIdentity,
   asName,
+  CHAT_MAX,
+  CHAT_WINDOW_MS,
+  claimIsHeld,
+  GUEST_STALE_MS,
+  HOST_IDENTITY,
   isHostIdentity,
   isLoopbackUrl,
   MAX_PARTICIPANTS,
   publicState,
   sanitizeDestinations,
+  TOKEN_MINT_MAX,
+  TOKEN_MINT_WINDOW_MS,
 } from "./security";
-import { sha256hex, updateEgressLayout } from "./livekit";
+import { guestSecretOk, sha256hex, updateEgressLayout } from "./livekit";
 
 type Incoming =
-  | { type: "chat"; text: string; name: string; identity: string }
+  | { type: "chat"; text?: string; name?: string; identity?: string; hostKey?: string; guestSecret?: string }
   | { type: "ping" };
 
 export class StudioDurableObject {
   ctx: DurableObjectState;
   env: Env;
+  private chatHits = new Map<string, { n: number; t: number }>();
+  private mintHits = { n: 0, t: 0 };
 
   constructor(ctx: DurableObjectState, env: Env) {
     this.ctx = ctx;
@@ -90,10 +99,13 @@ export class StudioDurableObject {
       const role = body.role === "host" && isHost ? "host" : "guest";
       if (!identity) return json({ error: "identity required" }, 400);
       if (isHostIdentity(identity) && !isHost) return json({ error: "host identity reserved" }, 403);
+      this.pruneGuests(state);
       const existing = state.participants.find((p) => p.identity === identity);
       if (!existing) {
-        if (state.participants.length >= MAX_PARTICIPANTS) {
-          return json({ error: "studio is full" }, 409);
+        if (role !== "host") {
+          if (!this.allowMint()) return json({ error: "too many joins" }, 429);
+          const guests = state.participants.filter((p) => p.role === "guest").length;
+          if (guests >= MAX_PARTICIPANTS) return json({ error: "studio is full" }, 409);
         }
         state.participants.push({
           identity,
@@ -107,6 +119,7 @@ export class StudioDurableObject {
           return json({ error: "cannot impersonate host" }, 403);
         }
         existing.name = name;
+        existing.joinedAt = Date.now();
       }
       await this.putState(state);
       const person = state.participants.find((p) => p.identity === identity)!;
@@ -175,8 +188,8 @@ export class StudioDurableObject {
           secrets: { destinations: state.destinations, egressId: state.egressId, recordingPath: state.recordingPath },
         });
       }
-      if (state.liveStarting) return json({ error: "already starting" }, 409);
-      state.liveStarting = true;
+      if (claimIsHeld(state.liveStartingAt)) return json({ error: "already starting" }, 409);
+      state.liveStartingAt = Date.now();
       await this.putState(state);
       return json({
         ok: true,
@@ -193,7 +206,7 @@ export class StudioDurableObject {
       }
       state.live = body.live;
       state.liveStartedAt = state.live ? Date.now() : null;
-      state.liveStarting = false;
+      state.liveStartingAt = undefined;
       if ("egressId" in body) state.egressId = body.egressId ? String(body.egressId) : null;
       if (body.recordingPath) state.recordingPath = String(body.recordingPath);
       if (!state.live) {
@@ -204,12 +217,15 @@ export class StudioDurableObject {
     }
 
     if (action === "chat") {
+      const person = await this.chatAuthor(state, body, isHost);
+      if (!person) return json({ error: "chat auth required" }, 403);
+      if (!this.allowChat(person.identity)) return json({ error: "slow down" }, 429);
       const trimmed = typeof body.text === "string" ? body.text.trim().slice(0, 400) : "";
       if (!trimmed) return json({ error: "empty" }, 400);
       state.chat.push({
         id: crypto.randomUUID(),
-        from: asIdentity(body.identity) || "anon",
-        name: asName(body.name, "Guest"),
+        from: person.identity,
+        name: person.name,
         text: trimmed,
         at: Date.now(),
         source: "studio",
@@ -237,12 +253,17 @@ export class StudioDurableObject {
     if (parsed.type === "chat") {
       const state = await this.getState();
       if (!state) return;
+      const hostKey = typeof parsed.hostKey === "string" ? parsed.hostKey : "";
+      const isHost = hostKey ? (await sha256hex(hostKey)) === state.hostKeyHash : false;
+      const person = await this.chatAuthor(state, parsed as unknown as Record<string, unknown>, isHost);
+      if (!person) return;
+      if (!this.allowChat(person.identity)) return;
       const text = typeof parsed.text === "string" ? parsed.text.trim().slice(0, 400) : "";
       if (!text) return;
       state.chat.push({
         id: crypto.randomUUID(),
-        from: asIdentity(parsed.identity) || "anon",
-        name: asName(parsed.name, "Guest"),
+        from: person.identity,
+        name: person.name,
         text,
         at: Date.now(),
         source: "studio",
@@ -258,6 +279,52 @@ export class StudioDurableObject {
     } catch {
       /* already closed */
     }
+  }
+
+  private async chatAuthor(
+    state: StudioState,
+    body: Record<string, unknown>,
+    isHost: boolean,
+  ): Promise<{ identity: string; name: string } | null> {
+    if (isHost) {
+      const host = state.participants.find((p) => p.role === "host");
+      return { identity: HOST_IDENTITY, name: host?.name || "Host" };
+    }
+    const identity = asIdentity(body.identity);
+    const secret = typeof body.guestSecret === "string" ? body.guestSecret : "";
+    if (!identity || !secret) return null;
+    if (!(await guestSecretOk(this.env, state.id, identity, secret))) return null;
+    const person = state.participants.find((p) => p.identity === identity);
+    if (!person) return null;
+    return { identity: person.identity, name: person.name };
+  }
+
+  private pruneGuests(state: StudioState): void {
+    const now = Date.now();
+    state.participants = state.participants.filter(
+      (p) => p.role === "host" || p.onStage || now - p.joinedAt < GUEST_STALE_MS,
+    );
+  }
+
+  private allowChat(key: string): boolean {
+    const now = Date.now();
+    const row = this.chatHits.get(key) ?? { n: 0, t: now };
+    if (now - row.t > CHAT_WINDOW_MS) {
+      row.n = 0;
+      row.t = now;
+    }
+    row.n += 1;
+    this.chatHits.set(key, row);
+    return row.n <= CHAT_MAX;
+  }
+
+  private allowMint(): boolean {
+    const now = Date.now();
+    if (now - this.mintHits.t > TOKEN_MINT_WINDOW_MS) {
+      this.mintHits = { n: 0, t: now };
+    }
+    this.mintHits.n += 1;
+    return this.mintHits.n <= TOKEN_MINT_MAX;
   }
 
   private async getState(): Promise<StudioState | null> {

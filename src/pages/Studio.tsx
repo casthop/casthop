@@ -73,6 +73,7 @@ export function Studio() {
   const [params] = useSearchParams();
   const hostKey = params.get("host") ?? loadSession(id)?.hostKey;
   const isHost = Boolean(hostKey);
+  const publishingRef = useRef(false);
 
   const [studio, setStudio] = useState<PublicStudio | null>(null);
   const [room, setRoom] = useState<Room | null>(null);
@@ -93,15 +94,54 @@ export function Studio() {
   }, []);
 
   useEffect(() => {
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.host}/api/studios/${id}/ws`);
-    ws.onmessage = (ev) => {
-      const msg = JSON.parse(ev.data) as { type: string; state?: PublicStudio };
-      if (msg.type === "state" && msg.state) setStudio((prev) => mergeStudio(prev, msg.state!));
+    const fromUrl = params.get("host");
+    if (!fromUrl) return;
+    const saved = loadSession(id);
+    saveSession({
+      studioId: id,
+      identity: saved?.identity ?? "",
+      name: saved?.name ?? "Host",
+      role: "host",
+      hostKey: fromUrl,
+      guestSecret: saved?.guestSecret,
+      cameraId: saved?.cameraId,
+      micId: saved?.micId,
+    });
+    history.replaceState(null, "", location.pathname);
+  }, [id, params]);
+
+  useEffect(() => {
+    let closed = false;
+    let ws: WebSocket | null = null;
+    let timer = 0;
+    let delay = 500;
+    const apply = (next: PublicStudio) => setStudio((prev) => mergeStudio(prev, next));
+    const connect = () => {
+      if (closed) return;
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      ws = new WebSocket(`${proto}://${location.host}/api/studios/${id}/ws`);
+      ws.onmessage = (ev) => {
+        const msg = JSON.parse(ev.data) as { type: string; state?: PublicStudio };
+        if (msg.type === "state" && msg.state) apply(msg.state);
+      };
+      ws.onopen = () => {
+        delay = 500;
+      };
+      ws.onclose = () => {
+        if (closed) return;
+        void getStudio(id, hostKey ?? undefined).then(apply).catch(() => undefined);
+        timer = window.setTimeout(connect, delay);
+        delay = Math.min(delay * 2, 8000);
+      };
     };
-    getStudio(id, hostKey ?? undefined).then(setStudio).catch((err) => setError(err.message));
-    return () => ws.close();
-  }, [id]);
+    connect();
+    getStudio(id, hostKey ?? undefined).then(apply).catch((err) => setError(err.message));
+    return () => {
+      closed = true;
+      window.clearTimeout(timer);
+      ws?.close();
+    };
+  }, [id, hostKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -200,20 +240,26 @@ export function Studio() {
   const backstage = studio?.participants ?? [];
 
   async function publishLocal(lk: Room) {
+    if (publishingRef.current) return;
     if (lk.localParticipant.getTrackPublication(Track.Source.Camera)?.track) return;
-    const saved = loadSession(id);
-    const raw = await openUserMedia({ cameraId: saved?.cameraId, micId: saved?.micId });
-    const processed = await mediaPipeline.process(raw);
-    const video = processed.getVideoTracks()[0];
-    if (video) {
-      await lk.localParticipant.publishTrack(video, {
-        source: Track.Source.Camera,
-        simulcast: true,
-      });
-    }
-    const audio = processed.getAudioTracks()[0];
-    if (audio) {
-      await lk.localParticipant.publishTrack(audio, { source: Track.Source.Microphone });
+    publishingRef.current = true;
+    try {
+      const saved = loadSession(id);
+      const raw = await openUserMedia({ cameraId: saved?.cameraId, micId: saved?.micId });
+      const processed = await mediaPipeline.process(raw);
+      const video = processed.getVideoTracks()[0];
+      if (video) {
+        await lk.localParticipant.publishTrack(video, {
+          source: Track.Source.Camera,
+          simulcast: true,
+        });
+      }
+      const audio = processed.getAudioTracks()[0];
+      if (audio) {
+        await lk.localParticipant.publishTrack(audio, { source: Track.Source.Microphone });
+      }
+    } finally {
+      publishingRef.current = false;
     }
   }
 
@@ -263,7 +309,13 @@ export function Studio() {
     if (!text) return;
     setChatDraft("");
     try {
-      await sendChat(id, { identity: identityRef.current, name: nameRef.current, text });
+      const saved = loadSession(id);
+      await sendChat(id, {
+        text,
+        identity: identityRef.current,
+        guestSecret: saved?.guestSecret,
+        hostKey: hostKey ?? undefined,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Chat failed");
     }

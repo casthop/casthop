@@ -4,9 +4,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import {
+  CLAIM_STALE_MS,
+  claimIsHeld,
   DEV_API_KEY,
   DEV_API_SECRET,
   devKeyGuardError,
+  isLoopbackUrl,
   maskRtmpUrl,
   parseRtmpUrl,
   publicDestinations,
@@ -73,12 +76,21 @@ test("host publicState includes destination urls", () => {
 test("parseRtmpUrl accepts rtmp/rtmps and rejects junk / private hosts", () => {
   assert.equal(parseRtmpUrl("rtmp://127.0.0.1:1935/live/youtube", { allowLoopback: true }), "rtmp://127.0.0.1:1935/live/youtube");
   assert.equal(parseRtmpUrl("rtmp://127.0.0.1:1935/live/youtube", { allowLoopback: false }), null);
+  assert.equal(parseRtmpUrl("rtmp://127.0.0.2/live/k", { allowLoopback: false }), null);
+  assert.equal(parseRtmpUrl("rtmp://0.0.0.0/live/k", { allowLoopback: false }), null);
+  assert.equal(parseRtmpUrl("rtmp://[::1]/live/k", { allowLoopback: false }), null);
+  assert.equal(parseRtmpUrl("rtmp://[::1]/live/k", { allowLoopback: true }), "rtmp://[::1]/live/k");
   assert.equal(parseRtmpUrl("rtmps://a.youtube.com/live2/abcd", { allowLoopback: false }), "rtmps://a.youtube.com/live2/abcd");
   assert.equal(parseRtmpUrl("rtmpfoo://evil", { allowLoopback: true }), null);
   assert.equal(parseRtmpUrl("https://example.com", { allowLoopback: true }), null);
   assert.equal(parseRtmpUrl("rtmp://169.254.169.254/live/k", { allowLoopback: true }), null);
   assert.equal(parseRtmpUrl("rtmp://10.0.0.1/live/k", { allowLoopback: false }), null);
+  assert.equal(parseRtmpUrl("rtmp://100.64.0.1/live/k", { allowLoopback: true }), null);
+  assert.equal(parseRtmpUrl("rtmp://[fd12::1]/live/k", { allowLoopback: true }), null);
+  assert.equal(parseRtmpUrl("rtmp://[fe80::1]/live/k", { allowLoopback: true }), null);
   assert.equal(parseRtmpUrl("x".repeat(600), { allowLoopback: true }), null);
+  assert.equal(isLoopbackUrl("http://[::1]:7880"), true);
+  assert.equal(isLoopbackUrl("ws://127.0.0.2:7880"), true);
 });
 
 test("sanitizeDestinations merges omitted urls onto existing keys", () => {
@@ -90,6 +102,20 @@ test("sanitizeDestinations merges omitted urls onto existing keys", () => {
   );
   assert.ok(next);
   assert.equal(next[0]?.url, secretUrl);
+  const cleared = sanitizeDestinations(
+    [{ id: "youtube", kind: "youtube", label: "YouTube", detail: "", url: "", enabled: true }],
+    existing,
+    { allowLoopback: false },
+  );
+  assert.ok(cleared);
+  assert.equal(cleared[0]?.url, "");
+});
+
+test("claimIsHeld expires after 30s", () => {
+  const now = 1_000_000;
+  assert.equal(claimIsHeld(now - 1000, now), true);
+  assert.equal(claimIsHeld(now - CLAIM_STALE_MS - 1, now), false);
+  assert.equal(claimIsHeld(undefined, now), false);
 });
 
 test("devKeyGuardError refuses the published keypair off loopback", () => {
@@ -117,6 +143,7 @@ test("egress template attaches unmuted audio tracks", () => {
   assert.match(src, /el\.muted = false/);
   assert.match(src, /document\.body\.appendChild\(el\)/);
   assert.match(src, /if \(track\.kind === Track\.Kind\.Audio\)/);
+  assert.match(src, /room\.connect\(url, token\)\.then\(signalReady\)/);
 });
 
 test("denoise worklet primes silence and does not splice raw input on underrun", () => {

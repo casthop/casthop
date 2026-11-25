@@ -232,7 +232,12 @@ app.post("/api/studios/:id/banner", async (c) => {
 
 app.post("/api/studios/:id/chat", async (c) => {
   const id = c.req.param("id");
-  const body = await c.req.json().catch(() => ({}));
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const hostKey = hostKeyFrom(c, body);
+  if (hostKey) body.hostKey = hostKey;
+  if (!hostKey && !(typeof body.guestSecret === "string" && typeof body.identity === "string")) {
+    return c.json({ error: "chat auth required" }, 403);
+  }
   const res = await doAction(c.env, id, "chat", body);
   return new Response(res.body, { status: res.status, headers: res.headers });
 });

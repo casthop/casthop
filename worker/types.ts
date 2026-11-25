@@ -47,7 +47,7 @@ export type StudioState = {
   layout: LayoutId;
   live: boolean;
   liveStartedAt: number | null;
-  liveStarting?: boolean;
+  liveStartingAt?: number;
   egressId: string | null;
   recordingPath: string | null;
   bannerTitle: string;
@@ -74,7 +74,7 @@ export type Env = {
   CASTHOP_ALLOW_DEV_KEYS?: string;
 };
 
-export type PublicStudio = Omit<StudioState, "hostKeyHash" | "destinations" | "recordingPath" | "egressId" | "liveStarting"> & {
+export type PublicStudio = Omit<StudioState, "hostKeyHash" | "destinations" | "recordingPath" | "egressId" | "liveStartingAt"> & {
   destinations: PublicDestination[];
   egressId?: string | null;
 };

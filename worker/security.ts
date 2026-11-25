@@ -5,15 +5,45 @@ export const DEV_API_SECRET = "casthop_dev_secret_not_for_production_use_32b";
 export const HOST_IDENTITY = "host";
 export const MAX_PARTICIPANTS = 64;
 export const HOST_KEY_HEADER = "x-casthop-host-key";
+export const CLAIM_STALE_MS = 30_000;
+export const GUEST_STALE_MS = 2 * 60 * 60 * 1000;
+export const TOKEN_MINT_WINDOW_MS = 60_000;
+export const TOKEN_MINT_MAX = 20;
+export const CHAT_WINDOW_MS = 10_000;
+export const CHAT_MAX = 8;
+
+export function normalizeHost(host: string): string {
+  return host.toLowerCase().replace(/^\[|\]$/g, "");
+}
+
+export function isLoopbackHost(host: string): boolean {
+  const h = normalizeHost(host);
+  if (h === "localhost" || h === "::1" || h === "::" || h === "0.0.0.0") return true;
+  return /^127\.\d+\.\d+\.\d+$/.test(h);
+}
+
+export function isPrivateHost(host: string): boolean {
+  const h = normalizeHost(host);
+  if (/^(10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(h)) return true;
+  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(h)) return true;
+  if (h.includes(":") && (h.startsWith("fd") || h.startsWith("fc") || h.startsWith("fe8") || h.startsWith("fe9") || h.startsWith("fea") || h.startsWith("feb"))) {
+    return true;
+  }
+  return false;
+}
 
 export function isLoopbackUrl(raw: string | undefined): boolean {
   if (!raw) return false;
   try {
-    const u = new URL(raw);
-    return u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "::1";
+    const u = new URL(raw.replace(/^ws/i, "http"));
+    return isLoopbackHost(u.hostname);
   } catch {
     return false;
   }
+}
+
+export function claimIsHeld(startedAt: number | undefined, now = Date.now()): boolean {
+  return typeof startedAt === "number" && now - startedAt < CLAIM_STALE_MS;
 }
 
 export function isDefaultDevSecret(env: Pick<Env, "LIVEKIT_API_KEY" | "LIVEKIT_API_SECRET">): boolean {
@@ -92,13 +122,9 @@ export function parseRtmpUrl(raw: unknown, opts: { allowLoopback: boolean }): st
     return null;
   }
   if (parsed.protocol !== "rtmp:" && parsed.protocol !== "rtmps:") return null;
-  const host = parsed.hostname.toLowerCase();
-  const loopback = host === "127.0.0.1" || host === "localhost" || host === "::1";
-  if (loopback && !opts.allowLoopback) return null;
-  // Never allow RFC1918 / link-local RTMP targets, even in local mode.
-  if (/^(10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(host)) {
-    return null;
-  }
+  const host = parsed.hostname;
+  if (isLoopbackHost(host) && !opts.allowLoopback) return null;
+  if (isPrivateHost(host)) return null;
   return url;
 }
 
@@ -118,9 +144,14 @@ export function sanitizeDestinations(
     const kind = typeof r.kind === "string" && KINDS.has(r.kind) ? (r.kind as Destination["kind"]) : null;
     if (!kind) return null;
     const prev = byId.get(id);
-    const parsedUrl = parseRtmpUrl(r.url, opts);
-    if (parsedUrl === null) return null;
-    const url = parsedUrl || prev?.url || "";
+    let url: string;
+    if (r.url === undefined || r.url === null) {
+      url = prev?.url || "";
+    } else {
+      const parsedUrl = parseRtmpUrl(r.url, opts);
+      if (parsedUrl === null) return null;
+      url = parsedUrl;
+    }
     out.push({
       id,
       kind,

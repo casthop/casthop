@@ -441,3 +441,87 @@ test("host destination POST without url keeps the stored stream key", async () =
   const saved = await json<PublicStudio>(res);
   assert.equal(saved.destinations.find((d) => d.id === "youtube")?.url, YT);
 });
+
+test("host can clear a destination url with an empty string", async () => {
+  const env = makeEnv();
+  const { id, hostKey } = await createStudio(env);
+  const publicGet = await json<PublicStudio>(await app.request(`https://casthop.test/api/studios/${id}`, { headers: { [HOST_KEY_HEADER]: hostKey } }, env));
+  const res = await app.request(`https://casthop.test/api/studios/${id}/destinations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      hostKey,
+      destinations: publicGet.destinations.map((d) => (d.id === "youtube" ? { ...d, url: "" } : d)),
+    }),
+  }, env);
+  assert.equal(res.status, 200, await res.clone().text());
+  const saved = await json<PublicStudio>(res);
+  assert.equal(saved.destinations.find((d) => d.id === "youtube")?.url, "");
+  assert.equal(saved.destinations.find((d) => d.id === "youtube")?.hasKey, false);
+});
+
+test("chat requires host key or guest secret and uses the participant name", async () => {
+  const env = makeEnv();
+  const { id, hostKey } = await createStudio(env);
+  const stranger = await app.request(`https://casthop.test/api/studios/${id}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Host", identity: "host", text: "pwned" }),
+  }, env);
+  assert.equal(stranger.status, 403);
+
+  await app.request(`https://casthop.test/api/studios/${id}/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Ada", role: "host", hostKey }),
+  }, env);
+  const guest = await json<{ identity: string; guestSecret: string }>(
+    await app.request(`https://casthop.test/api/studios/${id}/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Ada", role: "guest" }),
+    }, env),
+  );
+  const spoof = await app.request(`https://casthop.test/api/studios/${id}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ identity: guest.identity, guestSecret: guest.guestSecret, name: "Host", text: "hi" }),
+  }, env);
+  assert.equal(spoof.status, 200, await spoof.clone().text());
+  const body = await json<PublicStudio>(spoof);
+  const last = body.chat.at(-1);
+  assert.equal(last?.name, "Ada");
+  assert.equal(last?.from, guest.identity);
+  assert.equal(last?.text, "hi");
+
+  const asHost = await app.request(`https://casthop.test/api/studios/${id}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", [HOST_KEY_HEADER]: hostKey },
+    body: JSON.stringify({ text: "from host", name: "Nope" }),
+  }, env);
+  assert.equal(asHost.status, 200, await asHost.clone().text());
+  const hostChat = await json<PublicStudio>(asHost);
+  assert.equal(hostChat.chat.at(-1)?.from, HOST_IDENTITY);
+  assert.equal(hostChat.chat.at(-1)?.name, "Ada");
+});
+
+test("token minting is rate limited; host can still join a full studio", async () => {
+  const env = makeEnv();
+  const { id, hostKey } = await createStudio(env);
+  let lastStatus = 200;
+  for (let i = 0; i < 21; i++) {
+    const res = await app.request(`https://casthop.test/api/studios/${id}/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: `G${i}`, role: "guest" }),
+    }, env);
+    lastStatus = res.status;
+  }
+  assert.equal(lastStatus, 429);
+  const host = await app.request(`https://casthop.test/api/studios/${id}/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Host", role: "host", hostKey }),
+  }, env);
+  assert.equal(host.status, 200, await host.clone().text());
+});

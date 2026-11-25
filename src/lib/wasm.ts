@@ -218,6 +218,9 @@ export class WasmBlur {
   height = 720;
   maskW = 256;
   maskH = 144;
+  private lastBuffer: ArrayBuffer | null = null;
+  private frameView: Uint8Array | null = null;
+  private maskView: Uint8Array | null = null;
 
   constructor(api: Exports) {
     this.api = api;
@@ -231,20 +234,37 @@ export class WasmBlur {
     this.height = height;
     this.maskW = maskW;
     this.maskH = maskH;
+    this.lastBuffer = null;
+    this.frameView = null;
+    this.maskView = null;
+    return true;
+  }
+
+  private syncViews(): boolean {
+    const buf = this.api.memory.buffer;
+    if (this.lastBuffer === buf && this.frameView && this.maskView) return true;
+    const fp = this.api.casthop_blur_frame_ptr(this.handle);
+    const mp = this.api.casthop_blur_mask_ptr(this.handle);
+    if (!fp || !mp) {
+      this.frameView = null;
+      this.maskView = null;
+      return false;
+    }
+    this.lastBuffer = buf;
+    this.frameView = new Uint8Array(buf, fp, this.width * this.height * 4);
+    this.maskView = new Uint8Array(buf, mp, this.maskW * this.maskH);
     return true;
   }
 
   process(frame: Uint8ClampedArray | Uint8Array, mask: Uint8Array): boolean {
     if (!this.handle) return false;
-    const fp = this.api.casthop_blur_frame_ptr(this.handle);
-    const mp = this.api.casthop_blur_mask_ptr(this.handle);
-    if (!fp || !mp) return false;
-    const bytes = this.width * this.height * 4;
-    const mx = this.maskW * this.maskH;
-    new Uint8Array(this.api.memory.buffer, fp, bytes).set(frame.subarray(0, bytes));
-    new Uint8Array(this.api.memory.buffer, mp, mx).set(mask.subarray(0, mx));
+    if (!this.syncViews() || !this.frameView || !this.maskView) return false;
+    this.frameView.set(frame);
+    this.maskView.set(mask);
     if (!this.api.casthop_blur_process(this.handle)) return false;
-    frame.set(new Uint8Array(this.api.memory.buffer, fp, bytes));
+    if (this.api.memory.buffer !== this.lastBuffer && !this.syncViews()) return false;
+    if (!this.frameView) return false;
+    frame.set(this.frameView);
     return true;
   }
 
@@ -252,5 +272,8 @@ export class WasmBlur {
     if (!this.handle) return;
     this.api.casthop_blur_free(this.handle);
     this.handle = 0;
+    this.lastBuffer = null;
+    this.frameView = null;
+    this.maskView = null;
   }
 }

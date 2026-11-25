@@ -9,5 +9,4 @@ export default defineConfig({
     shikiConfig: { theme: "github-dark-default" },
   },
   build: { format: "directory" },
-  redirects: { "/docs": "/docs/getting-started" },
 });

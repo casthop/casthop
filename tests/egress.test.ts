@@ -275,6 +275,40 @@ test("egressTimeMs keeps milliseconds and converts nanos, including numeric stri
   assert.equal(egressTimeMs(0), null);
 });
 
+test("parseEgressInfo reads LiveKit Twirp payloads with string int64 nanos", () => {
+  const ms = 1_700_000_000_000;
+  const ns = "1700000000000000000";
+  const webhook = parseEgressInfo({
+    event: "egress_updated",
+    egressInfo: {
+      egressId: "EG_lk",
+      roomName: "studio",
+      status: 1,
+      startedAt: ns,
+      updatedAt: ns,
+      streamResults: [{ url: YT, status: 0 }],
+    },
+  });
+  assert.ok(webhook);
+  assert.equal(webhook.updatedAt, ms);
+  assert.equal(webhook.startedAt, ms);
+  assert.equal(egressIsProducing(webhook, { identities: ["host"], fromUpdate: false, now: ms }), true);
+
+  const listed = parseEgressList({
+    items: [
+      {
+        egress_id: "EG_lk",
+        room_name: "studio",
+        status: "EGRESS_ACTIVE",
+        updated_at: ns,
+        started_at: ns,
+      },
+    ],
+  });
+  assert.equal(listed[0]?.updatedAt, ms);
+  assert.equal(listed[0]?.startedAt, ms);
+});
+
 test("isForeignEgress ignores leftover compositor events after stop", () => {
   assert.equal(isForeignEgress("EG_live", "EG_live", "failed"), false);
   assert.equal(isForeignEgress("EG_live", "EG_old", "failed"), true);

@@ -12,7 +12,21 @@ type GPUShaderStage = { FRAGMENT: number };
 type GPUTextureUsage = { TEXTURE_BINDING: number; COPY_DST: number; RENDER_ATTACHMENT: number };
 type GPUBufferUsage = { VERTEX: number; COPY_DST: number };
 
+interface GPUSupportedLimits {
+  maxTextureDimension2D: number;
+  maxBufferSize: number;
+  maxBindGroups: number;
+  maxBindingsPerBindGroup: number;
+  maxSampledTexturesPerShaderStage: number;
+  maxSamplersPerShaderStage: number;
+  maxVertexBuffers: number;
+  maxVertexAttributes: number;
+  maxVertexBufferArrayStride: number;
+  maxColorAttachments: number;
+}
+
 interface GPUDevice {
+  limits: GPUSupportedLimits;
   createShaderModule(desc: { code: string }): GPUShaderModule;
   createBindGroupLayout(desc: unknown): GPUBindGroupLayout;
   createPipelineLayout(desc: unknown): GPUPipelineLayout;

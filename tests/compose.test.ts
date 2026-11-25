@@ -90,6 +90,17 @@ test("rust webgpu path destroys the previous tile texture on resize", () => {
   assert.match(src, /old\.texture\.destroy\(\)/);
 });
 
+test("gpu compose checks texture and buffer device limits", () => {
+  const rust = readFileSync(join(root, "crates/casthop-media/src/gpu_web.rs"), "utf8");
+  const ts = readFileSync(join(root, "src/lib/webgpu-ts.ts"), "utf8");
+  assert.match(rust, /max_texture_dimension_2d/);
+  assert.match(rust, /max_buffer_size/);
+  assert.match(rust, /w > inner\.max_tex \|\| h > inner\.max_tex/);
+  assert.match(ts, /maxTextureDimension2D/);
+  assert.match(ts, /maxBufferSize/);
+  assert.match(ts, /w > gpu\.maxTex \|\| h > gpu\.maxTex/);
+});
+
 test("wasm build requires wasm-bindgen 0.2.100 before cargo", () => {
   const src = readFileSync(join(root, "scripts/build-wasm.sh"), "utf8");
   const checkAt = src.indexOf('wasm-bindgen --version | grep -q "0.2.100"');

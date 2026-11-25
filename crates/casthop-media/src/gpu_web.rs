@@ -55,6 +55,7 @@ struct GpuInner {
     submit: js_sys::Array,
     last_n: u32,
     last_mode: u32,
+    max_tex: u32,
 }
 
 impl Drop for GpuInner {
@@ -122,6 +123,24 @@ fn create_inner(
     canvas.set_width(width);
     canvas.set_height(height);
     let format = parse_format(format)?;
+    let limits = device.limits();
+    let max_tex = limits.max_texture_dimension_2d();
+    if width > max_tex || height > max_tex {
+        return Err(js_err("canvas exceeds maxTextureDimension2D"));
+    }
+    let instance_bytes = f64::from(u32::try_from(INSTANCE_BYTES).unwrap_or(0));
+    if limits.max_buffer_size() < instance_bytes
+        || limits.max_bind_groups() < 1
+        || limits.max_bindings_per_bind_group() < 2
+        || limits.max_sampled_textures_per_shader_stage() < 1
+        || limits.max_samplers_per_shader_stage() < 1
+        || limits.max_vertex_buffers() < 1
+        || limits.max_vertex_attributes() < 1
+        || limits.max_vertex_buffer_array_stride() < u32::try_from(INSTANCE_STRIDE).unwrap_or(16)
+        || limits.max_color_attachments() < 1
+    {
+        return Err(js_err("device limits too small for compositor"));
+    }
     let ctx = canvas
         .get_context("webgpu")?
         .ok_or_else(|| js_err("no webgpu canvas context"))?
@@ -132,7 +151,7 @@ fn create_inner(
 
     let (pipeline, sampler, bgl) = make_pipeline(&device, format)?;
     let instance_buf = device.create_buffer(&GpuBufferDescriptor::new(
-        f64::from(u32::try_from(INSTANCE_BYTES).unwrap_or(0)),
+        instance_bytes,
         VERTEX | BUF_COPY_DST,
     ))?;
     Ok(GpuInner {
@@ -147,6 +166,7 @@ fn create_inner(
         submit: js_sys::Array::new(),
         last_n: u32::MAX,
         last_mode: u32::MAX,
+        max_tex,
     })
 }
 
@@ -208,6 +228,9 @@ fn draw_frame(inner: &mut GpuInner, sources: &js_sys::Array, mode: u32) -> bool 
         let Some((w, h)) = source_size(&val) else {
             continue;
         };
+        if w > inner.max_tex || h > inner.max_tex {
+            return false;
+        }
         if !ensure_tile(inner, i, w, h) {
             continue;
         }
@@ -263,7 +286,7 @@ fn copy_tile(inner: &GpuInner, i: usize, source: &JsValue) -> bool {
 }
 
 fn ensure_tile(inner: &mut GpuInner, i: usize, w: u32, h: u32) -> bool {
-    if w == 0 || h == 0 || i >= MAX_TILES {
+    if w == 0 || h == 0 || i >= MAX_TILES || w > inner.max_tex || h > inner.max_tex {
         return false;
     }
     if let Some(slot) = &inner.tiles[i] {

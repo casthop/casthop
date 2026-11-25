@@ -32,6 +32,7 @@ type TsGpu = {
   layoutN: number;
   layoutMode: LayoutMode | "";
   layout: Rect[];
+  maxTex: number;
 };
 
 let cached: TsGpu | null = null;
@@ -104,6 +105,24 @@ async function openTsGpu(width: number, height: number): Promise<TsGpu | null> {
     }
     const device = await adapter.requestDevice();
     try {
+      const limits = device.limits;
+      if (
+        width > limits.maxTextureDimension2D ||
+        height > limits.maxTextureDimension2D ||
+        limits.maxBufferSize < 16 ||
+        limits.maxBindGroups < 1 ||
+        limits.maxBindingsPerBindGroup < 2 ||
+        limits.maxSampledTexturesPerShaderStage < 1 ||
+        limits.maxSamplersPerShaderStage < 1 ||
+        limits.maxVertexBuffers < 1 ||
+        limits.maxVertexAttributes < 1 ||
+        limits.maxVertexBufferArrayStride < 16 ||
+        limits.maxColorAttachments < 1
+      ) {
+        device.destroy();
+        tsFail = true;
+        return null;
+      }
       const canvas = document.createElement("canvas");
       canvas.width = width;
       canvas.height = height;
@@ -157,6 +176,7 @@ async function openTsGpu(width: number, height: number): Promise<TsGpu | null> {
         layoutN: -1,
         layoutMode: "",
         layout: [],
+        maxTex: limits.maxTextureDimension2D,
       };
       void device.lost.then(() => {
         if (cached?.device === device) cached = null;
@@ -197,6 +217,7 @@ export async function drawWebGpuTs(
       const w = tile instanceof HTMLVideoElement ? tile.videoWidth : tile.width;
       const h = tile instanceof HTMLVideoElement ? tile.videoHeight : tile.height;
       if (!r || !w) continue;
+      if (w > gpu.maxTex || h > gpu.maxTex) return false;
       let slot = gpu.tiles[i];
       if (slot && (slot.width !== w || slot.height !== h)) {
         dropTile(slot);

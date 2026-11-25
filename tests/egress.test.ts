@@ -32,6 +32,7 @@ let listEgressHold: Promise<void> | null = null;
 let listEgressStarted: (() => void) | null = null;
 let holdNextListEgress = false;
 let listEgressFail = false;
+let startRoomCompositeFail = false;
 let updateStreamHold: Promise<void> | null = null;
 let updateStreamStarted: (() => void) | null = null;
 let holdNextUpdateStream = false;
@@ -139,6 +140,7 @@ before(() => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (url.includes("StartRoomCompositeEgress")) {
       egressStarts += 1;
+      if (startRoomCompositeFail) return new Response("secret-stream-key in body", { status: 500 });
       const body = JSON.parse(String(init?.body ?? "{}")) as { stream_outputs?: { urls?: string[] }[] };
       assert.ok((body.stream_outputs?.[0]?.urls?.length ?? 0) >= 1, "fan-out must send RTMP urls");
       return new Response(JSON.stringify({ egress_id: `eg_${egressStarts}` }), { status: 200 });
@@ -201,6 +203,8 @@ test("nextBackoffMs doubles then caps at 30s", () => {
 
 test("publicError strips RTMP URLs", () => {
   assert.equal(publicError(`failed ${YT}`), "failed rtmp://…");
+  assert.equal(publicError("failed 127.0.0.1:1935/live/super-secret-youtube-key"), "failed rtmp://…");
+  assert.equal(publicError("failed ingest.example.com/live/super-secret-youtube-key"), "failed rtmp://…");
   assert.equal(publicError(""), null);
 });
 
@@ -439,6 +443,30 @@ test("list egress failure does not start a second compositor", async () => {
     assert.equal(egressStarts, starts + 1);
   } finally {
     listEgressFail = false;
+  }
+});
+
+test("go-live start failure does not put the LiveKit body in liveError", async () => {
+  listedParticipants = [{ identity: "host" }];
+  listedEgress = { items: [] };
+  const env = makeEnv();
+  const { id, hostKey } = await createStudio(env);
+  startRoomCompositeFail = true;
+  try {
+    const go = await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      env,
+    );
+    assert.equal(go.status, 200, await go.clone().text());
+    const waiting = await json<PublicStudio>(go);
+    assert.equal(waiting.live, false);
+    assert.equal(waiting.livePhase, "retrying");
+    assert.equal(waiting.liveError, "Could not go live");
+    assert.equal(JSON.stringify(waiting).includes("secret-stream-key"), false);
+    assert.equal(JSON.stringify(waiting).includes("twirp"), false);
+  } finally {
+    startRoomCompositeFail = false;
   }
 });
 

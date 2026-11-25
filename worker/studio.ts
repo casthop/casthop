@@ -483,7 +483,7 @@ export class StudioDurableObject {
       console.warn("egress start failed", err);
       const latest = (await this.getState()) ?? state;
       if (!latest.wantLive) return json(publicState(latest, { includeUrls: true }));
-      return this.markRetry(latest, publicError(err instanceof Error ? err.message : "Could not go live") ?? "Could not go live");
+      return this.markRetry(latest, "Could not go live");
     }
   }
 

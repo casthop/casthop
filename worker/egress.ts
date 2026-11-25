@@ -91,7 +91,7 @@ export function livePhaseOf(state: StudioState, now = Date.now()): LivePhase {
 /** Strip ingest URLs so guests never see a stream key in an error string. */
 export function publicError(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  const cleaned = raw.replace(/rtmps?:\/\/\S+/gi, "rtmp://…").replace(/\s+/g, " ").trim();
+  const cleaned = raw.replace(/(?:rtmps?:\/\/)?[\w.-]+(?::\d+)?\/\S+/gi, "rtmp://…").replace(/\s+/g, " ").trim();
   if (!cleaned) return null;
   return cleaned.slice(0, 140);
 }

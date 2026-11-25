@@ -315,7 +315,17 @@ test("parseEgressInfo reads LiveKit Twirp payloads with string int64 nanos", () 
   assert.ok(webhook);
   assert.equal(webhook.updatedAt, ms);
   assert.equal(webhook.startedAt, ms);
-  assert.equal(egressIsProducing(webhook, { identities: ["host"], fromUpdate: false, now: ms }), true);
+  assert.equal(egressIsProducing(webhook, { identities: ["host"], fromUpdate: false, now: ms }), false);
+  const flowing = parseEgressInfo({
+    event: "egress_updated",
+    egressInfo: {
+      egressId: "EG_lk",
+      roomName: "studio",
+      status: 1,
+      streamResults: [{ url: YT, status: 0, startedAt: ns }],
+    },
+  });
+  assert.equal(egressIsProducing(flowing!, { identities: ["host"], fromUpdate: false, now: ms }), true);
 
   const listed = parseEgressList({
     items: [
@@ -365,7 +375,7 @@ test("applyStreamResults sets per-destination status without exposing urls", () 
   const retry = applyStreamResults(
     dests,
     [
-      { url: YT, status: "active", error: "" },
+      { url: YT, status: "active", error: "", startedAt: 1_700_000_000_000 },
       { url: LI, status: "failed", error: `timeout ${LI}` },
     ],
     true,
@@ -445,9 +455,9 @@ test("applyStreamResults matches LiveKit-redacted stream URLs", () => {
   const retry = applyStreamResults(
     dests,
     [
-      { url: "rtmp://127.0.0.1:1935/live/{yo...be}", status: "active", error: "" },
+      { url: "rtmp://127.0.0.1:1935/live/{yo...be}", status: "active", error: "", startedAt: 1_700_000_000_000 },
       { url: "rtmp://127.0.0.1:1935/live/{li...in}", status: "failed", error: "broken pipe" },
-      { url: "rtmp://127.0.0.1:1935/live/{...}", status: "active", error: "" },
+      { url: "rtmp://127.0.0.1:1935/live/{...}", status: "active", error: "", startedAt: 1_700_000_000_000 },
     ],
     true,
   );
@@ -457,9 +467,9 @@ test("applyStreamResults matches LiveKit-redacted stream URLs", () => {
   assert.equal(dests[2]?.status, "live");
   assert.deepEqual(
     failedStreamUrls(dests, [
-      { url: "rtmp://127.0.0.1:1935/live/{yo...be}", status: "active", error: "" },
+      { url: "rtmp://127.0.0.1:1935/live/{yo...be}", status: "active", error: "", startedAt: 1_700_000_000_000 },
       { url: "rtmp://127.0.0.1:1935/live/{li...in}", status: "failed", error: "broken pipe" },
-      { url: "rtmp://127.0.0.1:1935/live/{...}", status: "active", error: "" },
+      { url: "rtmp://127.0.0.1:1935/live/{...}", status: "active", error: "", startedAt: 1_700_000_000_000 },
     ]),
     ["rtmp://127.0.0.1:1935/live/linkedin"],
   );
@@ -919,9 +929,9 @@ test("egress_updated with redacted stream URLs marks destinations live", async (
       roomName: id,
       status: "EGRESS_ACTIVE",
       streamResults: [
-        { url: redactStreamKey(YT), status: "ACTIVE" },
-        { url: redactStreamKey(LI), status: "ACTIVE" },
-        { url: redactStreamKey(X), status: "ACTIVE" },
+        { url: redactStreamKey(YT), status: "ACTIVE", started_at: "1700000000000000000" },
+        { url: redactStreamKey(LI), status: "ACTIVE", started_at: "1700000000000000000" },
+        { url: redactStreamKey(X), status: "ACTIVE", started_at: "1700000000000000000" },
       ],
     },
   });
@@ -957,9 +967,9 @@ test("egress_updated marks a dropped RTMP destination and reattaches it", async 
       roomName: id,
       status: "EGRESS_ACTIVE",
       streamResults: [
-        { url: YT, status: "ACTIVE" },
+        { url: YT, status: "ACTIVE", started_at: "1700000000000000000" },
         { url: LI, status: "FAILED", error: "broken pipe" },
-        { url: X, status: "ACTIVE" },
+        { url: X, status: "ACTIVE", started_at: "1700000000000000000" },
       ],
     },
   });
@@ -999,9 +1009,9 @@ test("a failed RTMP destination is not reattached forever", async () => {
         roomName: id,
         status: "EGRESS_ACTIVE",
         streamResults: [
-          { url: YT, status: "ACTIVE" },
+          { url: YT, status: "ACTIVE", started_at: "1700000000000000000" },
           { url: LI, status: "FAILED", error: "broken pipe" },
-          { url: X, status: "ACTIVE" },
+          { url: X, status: "ACTIVE", started_at: "1700000000000000000" },
         ],
       },
     });
@@ -1172,9 +1182,9 @@ test("stop during RTMP reattach UpdateStream keeps live off", async () => {
       roomName: id,
       status: "EGRESS_ACTIVE",
       streamResults: [
-        { url: YT, status: "ACTIVE" },
+        { url: YT, status: "ACTIVE", started_at: "1700000000000000000" },
         { url: LI, status: "FAILED", error: "broken pipe" },
-        { url: X, status: "ACTIVE" },
+        { url: X, status: "ACTIVE", started_at: "1700000000000000000" },
       ],
     },
   });
@@ -1219,7 +1229,7 @@ test("colliding redacted stream keys match by destination id", () => {
     dests,
     [
       { url: masked, status: "finished", error: "" },
-      { url: masked, status: "active", error: "" },
+      { url: masked, status: "active", error: "", startedAt: 1_700_000_000_000 },
     ],
     true,
   );
@@ -1234,7 +1244,7 @@ test("colliding redacted stream keys match by destination id", () => {
     dests,
     [
       { url: masked, status: "finished", error: "" },
-      { url: masked, status: "active", error: "" },
+      { url: masked, status: "active", error: "", startedAt: 1_700_000_000_000 },
     ],
     true,
   );
@@ -1265,6 +1275,7 @@ test("egressIsProducing needs stream output, not listed-active or a compositor i
   assert.equal(streamOutputStarted({ url: YT, status: "active", error: "", duration: 1 }), true);
   assert.equal(streamOutputStarted({ url: YT, status: "active", error: "", bytes: 12 }), true);
   assert.equal(streamOutputStarted({ url: YT, status: "active", error: "", duration: 0 }), false);
+  assert.equal(streamOutputStarted({ url: YT, status: "active", error: "" }), false);
   assert.equal(streamOutputStarted({ url: YT, status: "failed", error: "" }), false);
   assert.equal(egressOutputStarted(flowing), true);
 });
@@ -1418,6 +1429,24 @@ test("go live stays Starting until stream started_at, then Live", async () => {
   assert.equal(started.livePhase, "starting");
   assert.equal(started.live, false);
   assert.equal(started.destinations.find((d) => d.id === "youtube")?.status, "connecting");
+
+  const omittedBody = JSON.stringify({
+    event: "egress_updated",
+    egressInfo: {
+      egressId: started.egressId,
+      roomName: id,
+      status: "EGRESS_ACTIVE",
+      streamResults: [{ url: redactStreamKey(YT), status: "ACTIVE" }],
+    },
+  });
+  const omittedRes = await app.request(
+    "https://casthop.test/api/livekit/webhook",
+    { method: "POST", headers: { Authorization: await signLivekitWebhook(env, omittedBody) }, body: omittedBody },
+    env,
+  );
+  const omitted = await json<PublicStudio>(omittedRes);
+  assert.equal(omitted.livePhase, "starting");
+  assert.equal(omitted.destinations.find((d) => d.id === "youtube")?.status, "connecting");
 
   const startingBody = JSON.stringify({
     event: "egress_updated",

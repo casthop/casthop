@@ -115,6 +115,7 @@ test("egress template still falls back through pickComposeBackend", () => {
   const src = readFileSync(join(root, "src/pages/EgressTemplate.tsx"), "utf8");
   assert.match(src, /pickComposeBackend/);
   assert.match(src, /startProgramCompose/);
+  assert.match(src, /sendEgressBeat/);
 });
 
 test("gpu compositor accepts OffscreenCanvas and VideoFrame", () => {

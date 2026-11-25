@@ -563,11 +563,10 @@ export function pickActiveEgress(
 
 /** True when this stream has actually started sending. */
 export function streamOutputStarted(stream: StreamResult): boolean {
-  if ((stream.startedAt ?? 0) > 0 || (stream.duration ?? 0) > 0 || (stream.bytes ?? 0) > 0) return true;
-  return stream.status === "active" && stream.startedAt == null && stream.duration == null && stream.bytes == null;
+  return (stream.startedAt ?? 0) > 0 || (stream.duration ?? 0) > 0 || (stream.bytes ?? 0) > 0;
 }
 
-/** LiveKit stream started_at / duration / bytes, or ACTIVE when those fields are absent. */
+/** LiveKit stream started_at / duration / bytes. Omitted zeros (protojson) are not started. */
 export function egressOutputStarted(info: ParsedEgress): boolean {
   return info.streams.some(streamOutputStarted);
 }

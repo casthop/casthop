@@ -10,6 +10,9 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import WsWebSocket from "ws";
+
+const Socket = globalThis.WebSocket ?? WsWebSocket;
 
 const required = process.env.CI === "true" || process.env.E2E === "1";
 const app = process.env.APP_URL || "http://127.0.0.1:5173";
@@ -92,6 +95,7 @@ if (tone.code !== 0) {
 }
 
 const studioUrl = `${app}/studio/${studio.id}?host=${encodeURIComponent(studio.hostKey)}&fx=off`;
+const chromeErr = [];
 const chrome = spawn(
   chromePath,
   [
@@ -111,8 +115,12 @@ const chrome = spawn(
     "--window-size=1440,900",
     studioUrl,
   ],
-  { stdio: "ignore" },
+  { stdio: ["ignore", "ignore", "pipe"] },
 );
+chrome.stderr.on("data", (chunk) => {
+  chromeErr.push(String(chunk));
+  if (chromeErr.join("").length > 8000) chromeErr.shift();
+});
 
 async function waitCdp() {
   for (let i = 0; i < 50; i++) {
@@ -126,13 +134,13 @@ async function waitCdp() {
     }
     await sleep(200);
   }
-  throw new Error("no CDP page");
+  throw new Error(`no CDP page\n${chromeErr.join("")}`);
 }
 
 let failed = 0;
 try {
   const wsUrl = await waitCdp();
-  const ws = new WebSocket(wsUrl);
+  const ws = new Socket(wsUrl);
   await new Promise((resolve, reject) => {
     ws.addEventListener("open", resolve);
     ws.addEventListener("error", reject);
@@ -175,7 +183,7 @@ try {
   log("clicked Go Live");
 
   let rtmpUp = false;
-  for (let i = 0; i < 45; i++) {
+  for (let i = 0; i < 90; i++) {
     const probe = await run("ffprobe", [
       "-v",
       "error",
@@ -191,7 +199,13 @@ try {
     }
     await sleep(1000);
   }
-  if (!rtmpUp) throw new Error(`RTMP not playing at ${rtmp}`);
+  if (!rtmpUp) {
+    const pill = await send("Runtime.evaluate", {
+      expression: `document.querySelector(".live-pill")?.innerText ?? document.body.innerText.slice(0, 600)`,
+      returnByValue: true,
+    }).catch(() => ({ result: { value: "" } }));
+    throw new Error(`RTMP not playing at ${rtmp}\n${pill.result?.value ?? ""}`);
+  }
   log("rtmp playing");
 
   const vol = await run("ffmpeg", [

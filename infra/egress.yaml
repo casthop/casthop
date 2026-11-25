@@ -8,6 +8,10 @@ insecure: true
 health_port: 9090
 template_port: 7980
 enable_chrome_sandbox: false
+# GHA runners are 2 vCPU; the default room-composite cost is 3.0 and would refuse Go Live.
+cpu_cost:
+  max_cpu_utilization: 0.95
+  room_composite_cpu_cost: 0.8
 redis:
   address: 127.0.0.1:6379
 logging:

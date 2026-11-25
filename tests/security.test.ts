@@ -14,6 +14,7 @@ import {
   isLoopbackUrl,
   originAllowed,
   publicOrigin,
+  hostKeyFor,
   maskRtmpUrl,
   parseRtmpUrl,
   publicDestinations,
@@ -137,6 +138,19 @@ test("publicOrigin uses PUBLIC_ORIGIN and only falls back on loopback", () => {
   assert.equal(publicOrigin({ PUBLIC_ORIGIN: "https://casthop.example/app" }, "http://127.0.0.1/"), "https://casthop.example");
   assert.equal(publicOrigin({}, "https://127.0.0.1/api/auth/magic-link"), "https://127.0.0.1");
   assert.equal(publicOrigin({ PUBLIC_ORIGIN: "" }, "https://casthop.test/api/auth/magic-link"), null);
+});
+
+test("hostKeyFor uses HOST_KEY_SECRET so rotating LiveKit keys does not change it", async () => {
+  const studio = "studio1";
+  const withHost = { HOST_KEY_SECRET: "host-secret-host-secret-host-secret", LIVEKIT_API_SECRET: DEV_API_SECRET };
+  const rotatedLivekit = { HOST_KEY_SECRET: "host-secret-host-secret-host-secret", LIVEKIT_API_SECRET: "rotated-livekit-secret-rotated" };
+  const fallback = { LIVEKIT_API_SECRET: DEV_API_SECRET };
+  const a = await hostKeyFor(withHost, studio);
+  const b = await hostKeyFor(rotatedLivekit, studio);
+  const c = await hostKeyFor(fallback, studio);
+  assert.equal(a, b);
+  assert.notEqual(a, c);
+  assert.equal(await hostKeyFor(fallback, studio), await hostKeyFor({ LIVEKIT_API_SECRET: DEV_API_SECRET }, studio));
 });
 
 test("originAllowed rejects a cross-site Origin", () => {

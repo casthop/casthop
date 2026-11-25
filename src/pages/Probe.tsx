@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { LocalVideoTrack, Room, RoomEvent, Track, VideoPresets } from "livekit-client";
-import { mintToken } from "../lib/api";
+import { getMe, mintToken } from "../lib/api";
 
 export function Probe() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -11,14 +11,18 @@ export function Probe() {
     let cancelled = false;
     const rooms: Room[] = [];
     (async () => {
-      const magic = (await fetch("/api/auth/magic-link", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ email: "probe@example.com" }),
-      }).then((r) => r.json())) as { devLogin?: string };
-      if (magic.devLogin) {
-        await fetch(magic.devLogin, { method: "POST", credentials: "same-origin" });
+      const signedIn = await getMe().catch(() => null);
+      if (!signedIn) {
+        if (!import.meta.env.DEV) throw new Error("sign in required for probe");
+        const magic = (await fetch("/api/auth/magic-link", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ email: "probe@example.com" }),
+        }).then((r) => r.json())) as { devLogin?: string };
+        if (magic.devLogin) {
+          await fetch(magic.devLogin, { method: "POST", credentials: "same-origin" });
+        }
       }
       const created = (await fetch("/api/studios", {
         method: "POST",

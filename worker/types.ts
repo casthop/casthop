@@ -67,6 +67,7 @@ export type Env = {
   ASSETS: Fetcher;
   LIVEKIT_API_KEY: string;
   LIVEKIT_API_SECRET: string;
+  HOST_KEY_SECRET?: string;
   LIVEKIT_HTTP_URL: string;
   PUBLIC_LIVEKIT_URL: string;
   RTMP_YOUTUBE: string;

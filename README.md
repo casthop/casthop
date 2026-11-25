@@ -96,7 +96,7 @@ The app falls back to a generated canvas+silent-audio track so a VM without `/de
 ## Self-host
 
 1. LiveKit + Egress + Redis + an RTMP edge (MediaMTX, nginx-rtmp, or a real destination).
-2. Worker + D1 + Durable Objects (`wrangler deploy`). Put `LIVEKIT_API_SECRET` in Worker secrets, never in git.
+2. Worker + D1 + Durable Objects (`wrangler deploy`). Put `LIVEKIT_API_SECRET` and a dedicated `HOST_KEY_SECRET` in Worker secrets, never in git. Host keys fall back to the LiveKit secret if unset; set `HOST_KEY_SECRET` so rotating LiveKit keys does not lock existing studios.
 3. Generate real API keys (`lk generate-keys`) and replace the local defaults in `infra/livekit.yaml` and `infra/egress.yaml`.
 4. Point destination URLs at real YouTube / LinkedIn / X ingest. Stream keys stay in Durable Object storage (not the repo, and not the guest/public API). `GET /api/studios/:id` and the WebSocket `state` frame return only a masked suffix (`rtmp://…/xxxx`) plus `hasKey`. Owners and co-hosts receive full URLs on a signed-in GET (session cookie). Generate real API keys (`lk generate-keys`); the Worker returns 503 if the published `devkey` is used with a non-loopback LiveKit URL. Sign-in is email magic link (console logger by default, or `MAIL_WEBHOOK_URL`) and optional GitHub OAuth. Set `PUBLIC_ORIGIN` to the public site URL (magic-link mail, co-host invites, GitHub callback). Behind a reverse proxy set `CASTHOP_TRUST_FORWARDED=1` so per-IP sign-in limits use the real client address; without it, every client shares the `local` bucket.
 5. Optional: `casthop-post normalize` then copy finished MP4s to R2 for replay.

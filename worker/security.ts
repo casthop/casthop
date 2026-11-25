@@ -265,8 +265,12 @@ export function timingSafeEqual(a: string, b: string): boolean {
 }
 
 /** Reconstructable host secret so the Worker can talk to the DO after checking the account. Never sent to the browser. */
-export async function hostKeyFor(env: Pick<Env, "LIVEKIT_API_SECRET">, studioId: string): Promise<string> {
-  return hmacSha256B64Url(env.LIVEKIT_API_SECRET, `hostkey:${studioId}`);
+export async function hostKeyFor(
+  env: Pick<Env, "HOST_KEY_SECRET" | "LIVEKIT_API_SECRET">,
+  studioId: string,
+): Promise<string> {
+  const secret = env.HOST_KEY_SECRET?.trim() || env.LIVEKIT_API_SECRET;
+  return hmacSha256B64Url(secret, `hostkey:${studioId}`);
 }
 
 export function asEmail(value: unknown): string | null {

@@ -1,5 +1,8 @@
 LIVEKIT_API_KEY=devkey
 LIVEKIT_API_SECRET=casthop_dev_secret_not_for_production_use_32b
+# Separate HMAC for Worker→DO host keys. Falls back to LIVEKIT_API_SECRET if unset.
+# Set this in production so rotating LiveKit keys does not lock existing studios.
+# HOST_KEY_SECRET=
 # CASTHOP_ALLOW_DEV_KEYS=1
 LIVEKIT_HTTP_URL=http://127.0.0.1:7880
 PUBLIC_LIVEKIT_URL=ws://127.0.0.1:7880

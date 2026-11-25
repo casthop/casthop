@@ -96,17 +96,18 @@ export async function guestSecretOk(env: Env, studioId: string, identity: string
   return diff === 0;
 }
 
-export async function mintApiToken(env: Env): Promise<string> {
+export async function mintApiToken(env: Env, room?: string): Promise<string> {
   return signJwt(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, "casthop-api", "casthop", {
     roomCreate: true,
     roomList: true,
     roomAdmin: true,
     roomRecord: true,
+    ...(room ? { room } : {}),
   });
 }
 
-async function twirp<T>(env: Env, path: string, body: unknown): Promise<T> {
-  const token = await mintApiToken(env);
+async function twirp<T>(env: Env, path: string, body: unknown, room?: string): Promise<T> {
+  const token = await mintApiToken(env, room);
   const res = await fetch(`${env.LIVEKIT_HTTP_URL}${path}`, {
     method: "POST",
     headers: {
@@ -132,16 +133,21 @@ export async function livekitHealth(env: Env): Promise<{ ok: boolean; detail: st
 }
 
 export async function updateParticipantPublish(env: Env, room: string, identity: string, canPublish: boolean): Promise<void> {
-  await twirp(env, "/twirp/livekit.RoomService/UpdateParticipant", {
-    room,
-    identity,
-    permission: {
-      can_subscribe: true,
-      can_publish: canPublish,
-      can_publish_data: false,
-      can_update_metadata: false,
+  await twirp(
+    env,
+    "/twirp/livekit.RoomService/UpdateParticipant",
+    {
+      room,
+      identity,
+      permission: {
+        can_subscribe: true,
+        can_publish: canPublish,
+        can_publish_data: false,
+        can_update_metadata: false,
+      },
     },
-  });
+    room,
+  );
 }
 
 export async function startRoomComposite(opts: {
@@ -177,6 +183,7 @@ export async function startRoomComposite(opts: {
     opts.env,
     "/twirp/livekit.Egress/StartRoomCompositeEgress",
     body,
+    opts.room,
   );
   const egressId = started.egress_id || started.egressId;
   if (!egressId) throw new Error("Egress started but no egress_id in response");
@@ -195,11 +202,11 @@ export async function updateEgressLayout(env: Env, egressId: string, layout: Lay
 }
 
 export async function listEgressRaw(env: Env, room: string): Promise<unknown> {
-  return twirp(env, "/twirp/livekit.Egress/ListEgress", { room_name: room });
+  return twirp(env, "/twirp/livekit.Egress/ListEgress", { room_name: room }, room);
 }
 
 export async function listRoomParticipantsRaw(env: Env, room: string): Promise<unknown> {
-  return twirp(env, "/twirp/livekit.RoomService/ListParticipants", { room });
+  return twirp(env, "/twirp/livekit.RoomService/ListParticipants", { room }, room);
 }
 
 export async function updateStream(env: Env, egressId: string, add: string[], remove: string[]): Promise<void> {

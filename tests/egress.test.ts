@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { app, StudioDurableObject } from "../worker/index.ts";
 import { DEV_API_KEY, DEV_API_SECRET, HOST_KEY_HEADER } from "../worker/security.ts";
-import { signLivekitWebhook } from "../worker/livekit.ts";
+import { mintApiToken, signLivekitWebhook } from "../worker/livekit.ts";
 import {
   applyStreamResults,
   livePhaseOf,
@@ -157,6 +157,16 @@ before(() => {
 
 after(() => {
   globalThis.fetch = realFetch;
+});
+
+test("LiveKit API token for a room is roomAdmin on that room", async () => {
+  const token = await mintApiToken(makeEnv(), "studio-room");
+  const payload = JSON.parse(Buffer.from(token.split(".")[1]!, "base64url").toString()) as {
+    video: { roomAdmin?: boolean; room?: string; roomRecord?: boolean };
+  };
+  assert.equal(payload.video.roomAdmin, true);
+  assert.equal(payload.video.roomRecord, true);
+  assert.equal(payload.video.room, "studio-room");
 });
 
 test("nextBackoffMs doubles then caps at 30s", () => {

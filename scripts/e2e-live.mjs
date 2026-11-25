@@ -110,6 +110,7 @@ const chrome = spawn(
     "--no-default-browser-check",
     "--use-fake-ui-for-media-stream",
     "--use-fake-device-for-media-stream",
+    "--disable-features=WebRtcHideLocalIpsWithMdns",
     `--use-file-for-fake-audio-capture=${wav}`,
     "--autoplay-policy=no-user-gesture-required",
     "--window-size=1440,900",
@@ -204,7 +205,12 @@ try {
       expression: `document.querySelector(".live-pill")?.innerText ?? document.body.innerText.slice(0, 600)`,
       returnByValue: true,
     }).catch(() => ({ result: { value: "" } }));
-    throw new Error(`RTMP not playing at ${rtmp}\n${pill.result?.value ?? ""}`);
+    const live = await fetch(`${app}/api/studios/${studio.id}`, {
+      headers: { "x-casthop-host-key": studio.hostKey },
+    })
+      .then((r) => r.text())
+      .catch((e) => String(e));
+    throw new Error(`RTMP not playing at ${rtmp}\n${pill.result?.value ?? ""}\n${live.slice(0, 800)}`);
   }
   log("rtmp playing");
 

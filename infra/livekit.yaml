@@ -10,6 +10,9 @@ rtc:
   stun_servers: []
   # Browsers on this machine connect to localhost-mapped ports.
   node_ip: 127.0.0.1
+  enable_loopback_candidate: true
+  # Egress Chrome may still emit .local host candidates; accept them on loopback.
+  use_mdns: true
 
 redis:
   address: 127.0.0.1:6379

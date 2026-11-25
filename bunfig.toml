@@ -1,0 +1,6 @@
+[run]
+# Miniflare/workerd need real Node. bun run still launches scripts; Vite/Wrangler keep their node shebang.
+bun = false
+
+[test]
+root = "./tests"

@@ -1,5 +1,8 @@
 LIVEKIT_API_KEY=devkey
 LIVEKIT_API_SECRET=casthop_dev_secret_not_for_production_use_32b
+# Separate HMAC for Worker→DO host keys. Falls back to LIVEKIT_API_SECRET if unset.
+# Set this in production so rotating LiveKit keys does not lock existing studios.
+# HOST_KEY_SECRET=
 # CASTHOP_ALLOW_DEV_KEYS=1
 LIVEKIT_HTTP_URL=http://127.0.0.1:7880
 PUBLIC_LIVEKIT_URL=ws://127.0.0.1:7880
@@ -7,3 +10,21 @@ RTMP_YOUTUBE=rtmp://127.0.0.1:1935/live/youtube
 RTMP_LINKEDIN=rtmp://127.0.0.1:1935/live/linkedin
 RTMP_X=rtmp://127.0.0.1:1935/live/x
 EGRESS_TEMPLATE_URL=http://127.0.0.1:5173/egress-template
+
+# Optional GitHub OAuth. Leave unset to hide the GitHub button.
+# GITHUB_CLIENT_ID=
+# GITHUB_CLIENT_SECRET=
+
+# Optional mail webhook. Unset = log the magic link to the Worker console.
+# POST JSON { to, subject, text }. No paid provider required.
+# MAIL_WEBHOOK_URL=
+# MAIL_WEBHOOK_TOKEN=
+
+# Public site URL for magic-link mail, co-host invites, and GitHub OAuth.
+# Unset locally (loopback Host is used). Set this in production so a spoofed Host cannot mint links to an attacker.
+# PUBLIC_ORIGIN=https://casthop.example
+
+# Trust CF-Connecting-IP / X-Forwarded-For only when a reverse proxy sets them.
+# Cloudflare sets request.cf, so this is not needed there. Do not enable for wrangler dev.
+# Behind a proxy, set this so per-IP sign-in limits apply to real clients; otherwise they share the local bucket.
+# CASTHOP_TRUST_FORWARDED=1

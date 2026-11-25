@@ -35,12 +35,15 @@ export function GuestJoin() {
 
   useEffect(() => {
     getStudio(id)
-      .then((s) => setTitle(s.title))
+      .then((s) => {
+        setTitle(s.title);
+        if (s.viewerRole === "owner" || s.viewerRole === "cohost") navigate(`/studio/${id}`);
+      })
       .catch(() => undefined);
     getHealth()
       .then((h) => setNet(h.livekit.ok ? "Good" : "LiveKit down"))
       .catch(() => setNet("Unreachable"));
-  }, [id]);
+  }, [id, navigate]);
 
   useEffect(() => {
     if (cameraId) copyBlurPref("", cameraId);

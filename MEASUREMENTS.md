@@ -84,7 +84,7 @@ What next (called out by the product-owner Rust/WASM direction, not done in v0):
 - Audio **VAD-driven** UI (worklet already posts VAD; studio chrome doesn’t show it yet).
 - **workers-rs** for hot Worker endpoints (`/api/token`, live start) instead of Hono/TS.
 - Dedicated Rust **RTMP fan-out** if we leave Cloudflare Stream unused in production (`casthop-post` is inspect/remux only).
-- Destination chat ingest, R2 replay viewer, TURN, email auth.
+- Destination chat ingest, R2 replay viewer, TURN.
 
 Camera background blur ships: WASM mix + lazy MediaPipe selfie segmenter (toggle in the studio; `?fx=js` for the JS mix).
 

@@ -6,10 +6,15 @@ import { test } from "node:test";
 import {
   CLAIM_STALE_MS,
   claimIsHeld,
+  clientIp,
+  cookieValue,
   DEV_API_KEY,
   DEV_API_SECRET,
   devKeyGuardError,
   isLoopbackUrl,
+  originAllowed,
+  publicOrigin,
+  hostKeyFor,
   maskRtmpUrl,
   parseRtmpUrl,
   publicDestinations,
@@ -43,6 +48,23 @@ function state(url: string): StudioState {
     createdAt: 1,
   };
 }
+
+test("clientIp ignores forwarded headers unless Cloudflare or CASTHOP_TRUST_FORWARDED", () => {
+  const forwarded = new Headers({ "x-forwarded-for": "203.0.113.9, 10.0.0.1", "cf-connecting-ip": "198.51.100.1" });
+  assert.equal(clientIp(forwarded), "local");
+  assert.equal(clientIp(forwarded, { cf: {} }), "198.51.100.1");
+  assert.equal(clientIp(new Headers({ "x-forwarded-for": "203.0.113.9" }), { cf: {} }), "local");
+  assert.equal(clientIp(new Headers({ "x-forwarded-for": "203.0.113.9" }), { trustForwarded: true }), "203.0.113.9");
+  assert.equal(
+    clientIp(new Headers({ "x-forwarded-for": "203.0.113.9, 10.0.0.1" }), { trustForwarded: true }),
+    "10.0.0.1",
+  );
+});
+
+test("cookieValue ignores malformed percent-encoding", () => {
+  assert.equal(cookieValue("casthop_session=%E0%A4%A", "casthop_session"), "");
+  assert.equal(cookieValue("casthop_session=ok%20token", "casthop_session"), "ok token");
+});
 
 test("maskRtmpUrl keeps only the last four characters of the key", () => {
   assert.equal(maskRtmpUrl(secretUrl), "rtmp://…/-key");
@@ -109,6 +131,33 @@ test("sanitizeDestinations merges omitted urls onto existing keys", () => {
   );
   assert.ok(cleared);
   assert.equal(cleared[0]?.url, "");
+});
+
+test("publicOrigin uses PUBLIC_ORIGIN and only falls back on loopback", () => {
+  assert.equal(publicOrigin({ PUBLIC_ORIGIN: "https://casthop.example" }, "https://evil.example/"), "https://casthop.example");
+  assert.equal(publicOrigin({ PUBLIC_ORIGIN: "https://casthop.example/app" }, "http://127.0.0.1/"), "https://casthop.example");
+  assert.equal(publicOrigin({}, "https://127.0.0.1/api/auth/magic-link"), "https://127.0.0.1");
+  assert.equal(publicOrigin({ PUBLIC_ORIGIN: "" }, "https://casthop.test/api/auth/magic-link"), null);
+});
+
+test("hostKeyFor uses HOST_KEY_SECRET so rotating LiveKit keys does not change it", async () => {
+  const studio = "studio1";
+  const withHost = { HOST_KEY_SECRET: "host-secret-host-secret-host-secret", LIVEKIT_API_SECRET: DEV_API_SECRET };
+  const rotatedLivekit = { HOST_KEY_SECRET: "host-secret-host-secret-host-secret", LIVEKIT_API_SECRET: "rotated-livekit-secret-rotated" };
+  const fallback = { LIVEKIT_API_SECRET: DEV_API_SECRET };
+  const a = await hostKeyFor(withHost, studio);
+  const b = await hostKeyFor(rotatedLivekit, studio);
+  const c = await hostKeyFor(fallback, studio);
+  assert.equal(a, b);
+  assert.notEqual(a, c);
+  assert.equal(await hostKeyFor(fallback, studio), await hostKeyFor({ LIVEKIT_API_SECRET: DEV_API_SECRET }, studio));
+});
+
+test("originAllowed rejects a cross-site Origin", () => {
+  const url = "https://casthop.test/api/auth/callback";
+  assert.equal(originAllowed(new Request(url, { method: "POST" })), true);
+  assert.equal(originAllowed(new Request(url, { method: "POST", headers: { Origin: "https://casthop.test" } })), true);
+  assert.equal(originAllowed(new Request(url, { method: "POST", headers: { Origin: "https://evil.example" } })), false);
 });
 
 test("claimIsHeld expires after 30s", () => {

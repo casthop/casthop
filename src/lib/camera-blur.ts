@@ -15,7 +15,7 @@ export type CameraBlurHandle = {
 
 type Composite = {
   setup: (w: number, h: number, mw: number, mh: number) => boolean;
-  process: (frame: Uint8ClampedArray, mask: Uint8Array, mw: number, mh: number) => void;
+  process: (frame: Uint8ClampedArray, mask: Uint8Array, mw: number, mh: number) => boolean;
   free: () => void;
 };
 
@@ -25,9 +25,7 @@ async function makeComposite(backend: BlurBackend): Promise<Composite> {
     const blur = new WasmBlur(api);
     return {
       setup: (w, h, mw, mh) => blur.setup(w, h, mw, mh),
-      process: (frame, mask) => {
-        blur.process(frame, mask);
-      },
+      process: (frame, mask) => blur.process(frame, mask),
       free: () => blur.free(),
     };
   }
@@ -43,6 +41,7 @@ async function makeComposite(backend: BlurBackend): Promise<Composite> {
     },
     process: (frame, mask, mw, mh) => {
       jsBlurComposite(frame, width, height, mask, mw, mh, 24, 180, state);
+      return true;
     },
     free: () => {
       state.smooth = null;
@@ -76,8 +75,12 @@ export async function startCameraBlur(
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) {
+  const work = document.createElement("canvas");
+  work.width = width;
+  work.height = height;
+  const ctx = canvas.getContext("2d");
+  const workCtx = work.getContext("2d", { willReadFrequently: true });
+  if (!ctx || !workCtx) {
     video.pause();
     video.srcObject = null;
     throw new Error("no 2d canvas");
@@ -96,7 +99,9 @@ export async function startCameraBlur(
     const { createSegmenter } = await import("./segmenter");
     segmenter = await createSegmenter();
     composite = await makeComposite(backend);
-    composite.setup(width, height, segmenter.maskWidth, segmenter.maskHeight);
+    if (!composite.setup(width, height, segmenter.maskWidth, segmenter.maskHeight)) {
+      throw new Error("blur setup failed");
+    }
 
     out = canvas.captureStream(30);
     const outTrack = out.getVideoTracks()[0];
@@ -121,16 +126,20 @@ export async function startCameraBlur(
       }
       lastTs = ts;
       try {
-        ctx.drawImage(video, 0, 0, width, height);
+        workCtx.drawImage(video, 0, 0, width, height);
         if (liveSegmenter.segment(video, ts)) {
           if (liveSegmenter.maskWidth !== maskW || liveSegmenter.maskHeight !== maskH) {
+            if (!liveComposite.setup(width, height, liveSegmenter.maskWidth, liveSegmenter.maskHeight)) {
+              throw new Error("blur setup failed");
+            }
             maskW = liveSegmenter.maskWidth;
             maskH = liveSegmenter.maskHeight;
-            liveComposite.setup(width, height, maskW, maskH);
           }
-          const frame = ctx.getImageData(0, 0, width, height);
-          liveComposite.process(frame.data, liveSegmenter.mask, maskW, maskH);
-          ctx.putImageData(frame, 0, 0);
+          const frame = workCtx.getImageData(0, 0, width, height);
+          if (liveComposite.process(frame.data, liveSegmenter.mask, maskW, maskH)) {
+            workCtx.putImageData(frame, 0, 0);
+            ctx.drawImage(work, 0, 0);
+          }
         }
       } catch (err) {
         console.warn("casthop blur", err);

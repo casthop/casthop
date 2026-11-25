@@ -82,6 +82,10 @@ async function startWorker(opts: {
     writable = gen.writable;
     transfer.push(writable);
   }
+  if (!outputTrack) {
+    worker.terminate();
+    throw new Error("compose worker has no output track");
+  }
   post(
     worker,
     {

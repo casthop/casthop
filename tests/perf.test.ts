@@ -118,11 +118,15 @@ test("offthread compose uses OffscreenCanvas and VideoFrame transfer", () => {
   assert.match(worker, /VideoFrame/);
   assert.match(worker, /readable\.getReader/);
   assert.match(worker, /!order.includes\(id\)/);
+  assert.match(worker, /signal\.addEventListener\("abort"/);
   assert.match(worker, /reader\.cancel/);
   assert.match(worker, /OUTPUT_INTERVAL_MS/);
   assert.match(worker, /setTimeout\(tick/);
   assert.doesNotMatch(worker, /requestAnimationFrame/);
-  assert.match(program, /captureStream\(30\)/);
+  const capAt = program.indexOf("captureStream(30)");
+  const xferAt = program.indexOf("transferControlToOffscreen");
+  assert.ok(capAt >= 0 && xferAt > capAt, "captureStream must run before transferControlToOffscreen");
+  assert.match(program, /compose worker has no output track/);
   assert.match(program, /worker\.terminate\(\)/);
   assert.match(program, /outputTrack\?\.stop\(\)/);
   assert.match(egress, /startProgramCompose/);

@@ -103,16 +103,17 @@ function tick(): void {
 
 async function pump(id: string, readable: ReadableStream<VideoFrame>, signal: AbortSignal): Promise<void> {
   const reader = readable.getReader();
+  signal.addEventListener("abort", () => void reader.cancel().catch(() => undefined), { once: true });
   try {
     while (running && !signal.aborted) {
       const { value, done } = await reader.read();
       if (done) break;
-      const prev = tiles.get(id);
-      if (prev) prev.close();
       if (!order.includes(id) || signal.aborted) {
         value.close();
         break;
       }
+      const prev = tiles.get(id);
+      if (prev) prev.close();
       tiles.set(id, value);
     }
   } catch {

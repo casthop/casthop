@@ -20,7 +20,8 @@ use web_sys::{
     GpuRenderPassDescriptor, GpuRenderPipeline, GpuRenderPipelineDescriptor, GpuSampler,
     GpuSamplerDescriptor, GpuShaderModuleDescriptor, GpuStoreOp, GpuTexture, GpuTextureDescriptor,
     GpuTextureFormat, GpuVertexAttribute, GpuVertexBufferLayout, GpuVertexFormat, GpuVertexState,
-    GpuVertexStepMode, HtmlCanvasElement, HtmlVideoElement,
+    GpuVertexStepMode, HtmlCanvasElement, HtmlVideoElement, ImageBitmap, OffscreenCanvas,
+    VideoFrame,
 };
 
 use crate::gpu::{pack_instances, INSTANCE_BYTES, INSTANCE_STRIDE, SHADER};
@@ -69,10 +70,11 @@ thread_local! {
 }
 
 /// Build pipelines on a JS-created `GPUDevice`.
+/// `canvas` is an `HTMLCanvasElement` or `OffscreenCanvas`.
 #[wasm_bindgen]
 pub fn gpu_compositor_create(
     device: GpuDevice,
-    canvas: &HtmlCanvasElement,
+    canvas: &JsValue,
     width: u32,
     height: u32,
     format: &str,
@@ -84,7 +86,7 @@ pub fn gpu_compositor_create(
     Ok(())
 }
 
-/// Draw `sources` (HTMLVideoElement or HTMLCanvasElement) using layout `mode`.
+/// Draw `sources` (video, canvas, `OffscreenCanvas`, `VideoFrame`, or `ImageBitmap`).
 /// Returns 1 on success, 0 if the frame could not be submitted.
 #[wasm_bindgen]
 pub fn gpu_compositor_draw(sources: &js_sys::Array, mode: u32) -> u32 {
@@ -110,9 +112,45 @@ fn parse_format(format: &str) -> Result<GpuTextureFormat, JsValue> {
     }
 }
 
+fn set_canvas_size(canvas: &JsValue, width: u32, height: u32) -> Result<(), JsValue> {
+    if let Ok(el) = canvas.clone().dyn_into::<HtmlCanvasElement>() {
+        el.set_width(width);
+        el.set_height(height);
+        return Ok(());
+    }
+    if let Ok(el) = canvas.clone().dyn_into::<OffscreenCanvas>() {
+        el.set_width(width);
+        el.set_height(height);
+        return Ok(());
+    }
+    Err(js_err(
+        "canvas must be HTMLCanvasElement or OffscreenCanvas",
+    ))
+}
+
+fn webgpu_context(canvas: &JsValue) -> Result<GpuCanvasContext, JsValue> {
+    if let Ok(el) = canvas.clone().dyn_into::<HtmlCanvasElement>() {
+        return el
+            .get_context("webgpu")?
+            .ok_or_else(|| js_err("no webgpu canvas context"))?
+            .dyn_into::<GpuCanvasContext>()
+            .map_err(JsValue::from);
+    }
+    if let Ok(el) = canvas.clone().dyn_into::<OffscreenCanvas>() {
+        return el
+            .get_context("webgpu")?
+            .ok_or_else(|| js_err("no webgpu canvas context"))?
+            .dyn_into::<GpuCanvasContext>()
+            .map_err(JsValue::from);
+    }
+    Err(js_err(
+        "canvas must be HTMLCanvasElement or OffscreenCanvas",
+    ))
+}
+
 fn create_inner(
     device: GpuDevice,
-    canvas: &HtmlCanvasElement,
+    canvas: &JsValue,
     width: u32,
     height: u32,
     format: &str,
@@ -120,8 +158,7 @@ fn create_inner(
     if width < 16 || height < 16 {
         return Err(js_err("canvas too small"));
     }
-    canvas.set_width(width);
-    canvas.set_height(height);
+    set_canvas_size(canvas, width, height)?;
     let format = parse_format(format)?;
     let limits = device.limits();
     let max_tex = limits.max_texture_dimension_2d();
@@ -141,10 +178,7 @@ fn create_inner(
     {
         return Err(js_err("device limits too small for compositor"));
     }
-    let ctx = canvas
-        .get_context("webgpu")?
-        .ok_or_else(|| js_err("no webgpu canvas context"))?
-        .dyn_into::<GpuCanvasContext>()?;
+    let ctx = webgpu_context(canvas)?;
     let config = GpuCanvasConfiguration::new(&device, format);
     config.set_alpha_mode(GpuCanvasAlphaMode::Opaque);
     ctx.configure(&config)?;
@@ -332,22 +366,29 @@ fn ensure_tile(inner: &mut GpuInner, i: usize, w: u32, h: u32) -> bool {
     true
 }
 
+fn sized(w: u32, h: u32) -> Option<(u32, u32)> {
+    if w == 0 || h == 0 {
+        None
+    } else {
+        Some((w, h))
+    }
+}
+
 fn source_size(val: &JsValue) -> Option<(u32, u32)> {
     if let Some(video) = val.dyn_ref::<HtmlVideoElement>() {
-        let w = video.video_width();
-        let h = video.video_height();
-        if w == 0 || h == 0 {
-            return None;
-        }
-        return Some((w, h));
+        return sized(video.video_width(), video.video_height());
     }
     if let Ok(canvas) = val.clone().dyn_into::<HtmlCanvasElement>() {
-        let w = canvas.width();
-        let h = canvas.height();
-        if w == 0 || h == 0 {
-            return None;
-        }
-        return Some((w, h));
+        return sized(canvas.width(), canvas.height());
+    }
+    if let Ok(canvas) = val.clone().dyn_into::<OffscreenCanvas>() {
+        return sized(canvas.width(), canvas.height());
+    }
+    if let Some(frame) = val.dyn_ref::<VideoFrame>() {
+        return sized(frame.display_width(), frame.display_height());
+    }
+    if let Ok(bitmap) = val.clone().dyn_into::<ImageBitmap>() {
+        return sized(bitmap.width(), bitmap.height());
     }
     None
 }

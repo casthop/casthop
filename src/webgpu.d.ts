@@ -56,7 +56,7 @@ interface GPUBuffer {
 }
 interface GPUBindGroup {}
 interface GPUQueue {
-  copyExternalImageToTexture(src: { source: CanvasImageSource }, dst: { texture: GPUTexture }, size: { width: number; height: number }): void;
+  copyExternalImageToTexture(src: { source: CanvasImageSource | VideoFrame }, dst: { texture: GPUTexture }, size: { width: number; height: number }): void;
   writeBuffer(buffer: GPUBuffer, offset: number, data: ArrayBufferView): void;
   submit(cmds: GPUCommandBuffer[]): void;
 }
@@ -82,6 +82,10 @@ interface Navigator {
 }
 
 interface HTMLCanvasElement {
+  getContext(contextId: "webgpu"): GPUCanvasContext | null;
+}
+
+interface OffscreenCanvas {
   getContext(contextId: "webgpu"): GPUCanvasContext | null;
 }
 

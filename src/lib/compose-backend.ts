@@ -13,3 +13,17 @@ export function pickComposeBackendFrom(search: string): ComposeBackend {
 export function pickComposeBackend(): ComposeBackend {
   return pickComposeBackendFrom(typeof location === "undefined" ? "" : location.search);
 }
+
+export type ComposeThread = "auto" | "main" | "worker";
+
+export function pickComposeThreadFrom(search: string): ComposeThread {
+  const raw = search.startsWith("?") ? search.slice(1) : search;
+  const q = new URLSearchParams(raw).get("thread");
+  if (q === "main") return "main";
+  if (q === "worker") return "worker";
+  return "auto";
+}
+
+export function pickComposeThread(): ComposeThread {
+  return pickComposeThreadFrom(typeof location === "undefined" ? "" : location.search);
+}

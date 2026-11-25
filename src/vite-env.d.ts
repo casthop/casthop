@@ -2,6 +2,8 @@
 
 interface Window {
   __BENCH__?: unknown;
+  __PERF__?: unknown;
+  __PERF_RUNNING__?: unknown;
 }
 
 declare module "*.wasm?url" {
@@ -18,12 +20,12 @@ declare module "*casthop_gpu.js" {
   export default function init(opts?: { module_or_path?: unknown }): Promise<unknown>;
   export function gpu_compositor_create(
     device: GPUDevice,
-    canvas: HTMLCanvasElement,
+    canvas: HTMLCanvasElement | OffscreenCanvas,
     width: number,
     height: number,
     format: string,
   ): void;
-  export function gpu_compositor_draw(sources: ArrayLike<CanvasImageSource>, mode: number): number;
+  export function gpu_compositor_draw(sources: ArrayLike<CanvasImageSource | VideoFrame>, mode: number): number;
 }
 
 declare module "*.tflite?url" {

@@ -4,6 +4,13 @@ export const WATCH_MS = 3_000;
 export const EMPTY_GRACE_MS = 45_000;
 /** Chrome can take a few seconds to join after StartRoomComposite returns. */
 export const COMPOSITOR_GRACE_MS = 15_000;
+/** Give up restarting a dead compositor after this window; host can Retry. */
+export const RECOVERY_BUDGET_MS = 30_000;
+/** Don't block recovery on a hung StopEgress. */
+export const STOP_ABANDON_MS = 2_500;
+/** ListEgress "active" with no recent update is a dead worker. */
+export const EGRESS_STALE_MS = 12_000;
+export const MAX_ABANDONED_EGRESS = 16;
 export const MAX_BACKOFF_MS = 30_000;
 export const BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 16_000, MAX_BACKOFF_MS] as const;
 export const MAX_STREAM_RETRIES = BACKOFF_MS.length;
@@ -16,6 +23,7 @@ export type StreamResult = {
   url: string;
   status: StreamHealth;
   error: string;
+  destId?: string;
 };
 
 export type ParsedEgress = {
@@ -24,6 +32,8 @@ export type ParsedEgress = {
   status: EgressHealth;
   error: string;
   streams: StreamResult[];
+  updatedAt: number | null;
+  startedAt: number | null;
 };
 
 export function emptyGraceMs(raw: string | undefined): number {
@@ -36,6 +46,23 @@ export function compositorGraceMs(raw: string | undefined): number {
   if (raw == null || raw === "") return COMPOSITOR_GRACE_MS;
   const n = Number(raw);
   return Number.isFinite(n) && n >= 0 ? n : COMPOSITOR_GRACE_MS;
+}
+
+export function recoveryBudgetMs(raw: string | undefined): number {
+  if (raw == null || raw === "") return RECOVERY_BUDGET_MS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : RECOVERY_BUDGET_MS;
+}
+
+export function recoveryTimedOut(state: Pick<StudioState, "egressRecoveringSince">, now = Date.now(), budgetMs = RECOVERY_BUDGET_MS): boolean {
+  const since = state.egressRecoveringSince;
+  if (!since) return false;
+  return now - since >= budgetMs;
+}
+
+export function rememberAbandoned(ids: string[] | undefined, egressId: string): string[] {
+  const next = [egressId, ...(ids ?? []).filter((id) => id !== egressId)];
+  return next.slice(0, MAX_ABANDONED_EGRESS);
 }
 
 export function nextBackoffMs(retryCount: number, overrideMs?: string): number {
@@ -66,7 +93,9 @@ export function isForeignEgress(
   infoId: string,
   status: EgressHealth,
   wantLive = true,
+  abandoned: readonly string[] = [],
 ): boolean {
+  if (abandoned.includes(infoId)) return true;
   if (!wantLive) return isActiveHealth(status) || infoId !== ownedId;
   if (infoId === ownedId) return false;
   if (ownedId) return true;
@@ -82,6 +111,7 @@ export function livePhaseOf(state: StudioState, now = Date.now()): LivePhase {
   const want = state.wantLive ?? state.live;
   if (!want && (state.live || state.egressId)) return "stopping";
   if (!want) return "idle";
+  if (state.liveFailed) return "failed";
   if (state.live && state.egressId) return "live";
   const starting = typeof state.liveStartingAt === "number" && now - state.liveStartingAt < 30_000;
   if (starting && !state.egressId) return "starting";
@@ -144,15 +174,85 @@ export function streamUrlMatches(reported: string, destUrl: string): boolean {
   return reported === destUrl || reported === redactStreamKey(destUrl);
 }
 
-function matchStreamForDest(destUrl: string, streams: StreamResult[], used: Set<number>): StreamResult | undefined {
-  const exact = streams.findIndex((s, i) => !used.has(i) && s.url === destUrl);
+/** Stamp LiveKit stream rows with destination ids so colliding redacted keys do not steal a row. */
+export function assignStreamDestIds(streams: StreamResult[], destinations: Destination[]): StreamResult[] {
+  const out = streams.map((s) => ({ ...s, destId: s.destId }));
+  const dests = destinations.filter((d) => d.enabled && d.url);
+  const claimed = new Set<string>();
+
+  const take = (stream: StreamResult, dest: Destination): void => {
+    stream.destId = dest.id;
+    claimed.add(dest.id);
+  };
+
+  for (const stream of out) {
+    if (stream.destId && dests.some((d) => d.id === stream.destId)) {
+      claimed.add(stream.destId);
+      continue;
+    }
+    stream.destId = undefined;
+    const exact = dests.filter((d) => !claimed.has(d.id) && d.url === stream.url);
+    if (exact.length === 1) take(stream, exact[0]!);
+  }
+
+  for (const stream of out) {
+    if (stream.destId) continue;
+    const hits = dests.filter((d) => !claimed.has(d.id) && streamUrlMatches(stream.url, d.url));
+    if (hits.length !== 1) continue;
+    const dest = hits[0]!;
+    const rivals = out.filter((s) => s !== stream && !s.destId && streamUrlMatches(s.url, dest.url));
+    if (rivals.length) continue;
+    take(stream, dest);
+  }
+
+  const leftoverDests = dests.filter((d) => !claimed.has(d.id));
+  const leftoverStreams = out.filter((s) => !s.destId);
+  const groups = new Map<string, { dests: Destination[]; streams: StreamResult[] }>();
+  for (const dest of leftoverDests) {
+    const key = redactStreamKey(dest.url);
+    const row = groups.get(key) ?? { dests: [], streams: [] };
+    row.dests.push(dest);
+    groups.set(key, row);
+  }
+  for (const stream of leftoverStreams) {
+    for (const row of groups.values()) {
+      if (row.dests.some((d) => streamUrlMatches(stream.url, d.url))) {
+        row.streams.push(stream);
+        break;
+      }
+    }
+  }
+  for (const row of groups.values()) {
+    if (!row.dests.length || !row.streams.length) continue;
+    const ordered = [
+      ...row.streams.filter((s) => s.status === "active"),
+      ...row.streams.filter((s) => s.status !== "active"),
+    ];
+    const destsSorted = [...row.dests].sort((a, b) => a.id.localeCompare(b.id));
+    for (let i = 0; i < destsSorted.length; i++) {
+      const stream = ordered[i];
+      if (stream) take(stream, destsSorted[i]!);
+    }
+  }
+  return out;
+}
+
+function matchStreamForDest(dest: Destination, streams: StreamResult[], used: Set<number>): StreamResult | undefined {
+  const byId = streams.findIndex((s, i) => !used.has(i) && s.destId === dest.id);
+  if (byId >= 0) {
+    used.add(byId);
+    return streams[byId];
+  }
+  const exact = streams.findIndex((s, i) => !used.has(i) && !s.destId && s.url === dest.url);
   if (exact >= 0) {
     used.add(exact);
     return streams[exact];
   }
-  const hits = streams.map((_, i) => i).filter((i) => !used.has(i) && streamUrlMatches(streams[i]!.url, destUrl));
-  const first = hits[0];
-  if (first == null) return undefined;
+  const hits = streams
+    .map((_, i) => i)
+    .filter((i) => !used.has(i) && !streams[i]!.destId && streamUrlMatches(streams[i]!.url, dest.url));
+  if (hits.length !== 1) return undefined;
+  const first = hits[0]!;
   used.add(first);
   return streams[first];
 }
@@ -178,7 +278,9 @@ export function applyStreamResults(
   streams: StreamResult[],
   live: boolean,
   now = Date.now(),
+  producing = live,
 ): boolean {
+  const bound = assignStreamDestIds(streams, destinations);
   const used = new Set<number>();
   let needsRetry = false;
   for (const d of destinations) {
@@ -193,7 +295,11 @@ export function applyStreamResults(
       d.status = d.status === "idle" ? "idle" : "stopped";
       continue;
     }
-    const stream = matchStreamForDest(d.url, streams, used);
+    if (!producing) {
+      d.status = d.status === "failed" || d.status === "retrying" ? d.status : "connecting";
+      continue;
+    }
+    const stream = matchStreamForDest(d, bound, used);
     if (!stream) {
       d.status = d.status === "failed" || d.status === "retrying" ? d.status : "connecting";
       continue;
@@ -222,11 +328,12 @@ export function applyStreamResults(
 }
 
 export function failedStreamUrls(destinations: Destination[], streams: StreamResult[], now = Date.now()): string[] {
+  const bound = assignStreamDestIds(streams, destinations);
   const used = new Set<number>();
   const urls: string[] = [];
   for (const d of destinations) {
     if (!d.enabled || !d.url) continue;
-    const stream = matchStreamForDest(d.url, streams, used);
+    const stream = matchStreamForDest(d, bound, used);
     if (stream?.status === "failed" && streamRetryDue(d, now)) urls.push(d.url);
   }
   return urls;
@@ -276,11 +383,21 @@ export function parseStreamResult(raw: unknown): StreamResult | null {
   if (!obj) return null;
   const url = str(obj, "url", "Url");
   if (!url) return null;
+  const destId = str(obj, "destId", "dest_id");
   return {
     url,
     status: parseStreamHealth(obj.status),
     error: str(obj, "error", "Error"),
+    ...(destId ? { destId } : {}),
   };
+}
+
+/** LiveKit timestamps are unix nanos (often JSON strings); older payloads may be ms. */
+export function egressTimeMs(raw: unknown): number | null {
+  const n = typeof raw === "string" ? Number(raw) : raw;
+  if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) return null;
+  if (n > 1e17) return Math.floor(n / 1e6);
+  return Math.floor(n);
 }
 
 export function parseEgressInfo(raw: unknown): ParsedEgress | null {
@@ -301,6 +418,8 @@ export function parseEgressInfo(raw: unknown): ParsedEgress | null {
     status: parseEgressHealth(nested.status),
     error: str(nested, "error", "details"),
     streams,
+    updatedAt: egressTimeMs(nested.updatedAt ?? nested.updated_at),
+    startedAt: egressTimeMs(nested.startedAt ?? nested.started_at),
   };
 }
 
@@ -351,12 +470,37 @@ export function studioHasCompositor(identities: string[]): boolean {
   return identities.some(isComposerIdentity);
 }
 
-export function pickActiveEgress(items: ParsedEgress[], knownId: string | null): ParsedEgress | null {
-  if (knownId) {
+export function pickActiveEgress(
+  items: ParsedEgress[],
+  knownId: string | null,
+  abandoned: readonly string[] = [],
+): ParsedEgress | null {
+  const skip = new Set(abandoned);
+  if (knownId && !skip.has(knownId)) {
     const known = items.find((e) => e.egressId === knownId);
     if (known && isRunningHealth(known.status)) return known;
   }
-  return items.find((e) => isRunningHealth(e.status)) ?? null;
+  return items.find((e) => isRunningHealth(e.status) && !skip.has(e.egressId)) ?? null;
+}
+
+/** ListEgress "active" is not enough; the worker must still be producing. */
+export function egressIsProducing(
+  info: ParsedEgress,
+  opts: {
+    identities: string[] | null;
+    now?: number;
+    staleMs?: number;
+    fromUpdate?: boolean;
+  },
+): boolean {
+  if (!isRunningHealth(info.status)) return false;
+  if (opts.fromUpdate) return true;
+  if (opts.identities && studioHasCompositor(opts.identities)) return true;
+  const now = opts.now ?? Date.now();
+  const staleMs = opts.staleMs ?? EGRESS_STALE_MS;
+  if (info.updatedAt && now - info.updatedAt <= staleMs) return true;
+  if (info.status === "starting") return true;
+  return false;
 }
 
 export function recordingPathFor(studioId: string, at = new Date()): string {
@@ -370,8 +514,11 @@ export function normalizeStudio(state: StudioState): StudioState {
     ...state,
     wantLive,
     liveError: state.liveError ?? null,
+    liveFailed: state.liveFailed ?? false,
     egressRetryCount: state.egressRetryCount ?? 0,
     egressRetryAt: state.egressRetryAt ?? null,
+    egressRecoveringSince: state.egressRecoveringSince ?? null,
+    abandonedEgressIds: state.abandonedEgressIds ?? [],
     emptySince: state.emptySince ?? null,
     destinations: state.destinations.map((d) => ({
       ...d,

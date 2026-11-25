@@ -3,7 +3,7 @@ export type LayoutId = "solo" | "side" | "screen";
 export type DestinationKind = "youtube" | "linkedin" | "x" | "custom";
 
 /** Host intent vs compositor health, shown in the studio pill. */
-export type LivePhase = "idle" | "starting" | "live" | "retrying" | "stopping";
+export type LivePhase = "idle" | "starting" | "live" | "retrying" | "stopping" | "failed";
 
 /** Per-RTMP URL. Guests see this; they never see the URL itself. */
 export type DestStatus = "idle" | "connecting" | "live" | "retrying" | "failed" | "stopped";
@@ -63,8 +63,14 @@ export type StudioState = {
   /** Host clicked Go Live; watchdog retries until this is false. */
   wantLive: boolean;
   liveError: string | null;
+  /** Watchdog stopped retrying; host can Retry. */
+  liveFailed?: boolean;
   egressRetryCount: number;
   egressRetryAt: number | null;
+  /** First compositor death / start failure in this recovery window. */
+  egressRecoveringSince?: number | null;
+  /** Dead egress ids we already gave up on; do not re-adopt from ListEgress. */
+  abandonedEgressIds?: string[];
   emptySince: number | null;
   egressId: string | null;
   recordingPath: string | null;
@@ -96,6 +102,7 @@ export type Env = {
   CASTHOP_EMPTY_GRACE_MS?: string;
   CASTHOP_COMPOSITOR_GRACE_MS?: string;
   CASTHOP_BACKOFF_MS?: string;
+  CASTHOP_RECOVERY_MS?: string;
   CASTHOP_TRUST_FORWARDED?: string;
   PUBLIC_ORIGIN?: string;
   GITHUB_CLIENT_ID?: string;

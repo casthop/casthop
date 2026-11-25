@@ -17,6 +17,7 @@ import {
   sendChat,
   setDestinations,
   setLayout,
+  setBanner,
   setLive,
   setStage,
   type PublicStudio,
@@ -24,7 +25,8 @@ import {
 import { mediaPipeline } from "../lib/effects";
 import { hueFor, openUserMedia } from "../lib/media";
 import { loadSession, saveSession } from "../lib/session";
-import type { LayoutId, ParticipantInfo } from "../../worker/types";
+import { HOST_IDENTITY } from "../../worker/security";
+import type { LayoutId, ParticipantInfo, PublicDestination } from "../../worker/types";
 
 function formatLive(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -95,9 +97,9 @@ export function Studio() {
     const ws = new WebSocket(`${proto}://${location.host}/api/studios/${id}/ws`);
     ws.onmessage = (ev) => {
       const msg = JSON.parse(ev.data) as { type: string; state?: PublicStudio };
-      if (msg.type === "state" && msg.state) setStudio(msg.state);
+      if (msg.type === "state" && msg.state) setStudio((prev) => mergeStudio(prev, msg.state!));
     };
-    getStudio(id).then(setStudio).catch((err) => setError(err.message));
+    getStudio(id, hostKey ?? undefined).then(setStudio).catch((err) => setError(err.message));
     return () => ws.close();
   }, [id]);
 
@@ -112,7 +114,8 @@ export function Studio() {
         name,
         role: isHost ? "host" : "guest",
         hostKey: hostKey ?? undefined,
-        identity: saved?.identity,
+        identity: saved?.guestSecret ? saved.identity : undefined,
+        guestSecret: saved?.guestSecret,
       });
       if (cancelled) return;
       identityRef.current = minted.identity;
@@ -122,6 +125,9 @@ export function Studio() {
         name: minted.name,
         role: minted.role,
         hostKey: hostKey ?? undefined,
+        guestSecret: minted.guestSecret ?? saved?.guestSecret,
+        cameraId: saved?.cameraId,
+        micId: saved?.micId,
       });
       const lk = new Room({
         adaptiveStream: true,
@@ -145,8 +151,9 @@ export function Studio() {
       lk.on(RoomEvent.LocalTrackUnpublished, bump);
       lk.on(RoomEvent.TrackMuted, bump);
       lk.on(RoomEvent.TrackUnmuted, bump);
-      lk.on(RoomEvent.DataReceived, (payload) => {
+      lk.on(RoomEvent.DataReceived, (payload, participant) => {
         try {
+          if (participant?.identity !== HOST_IDENTITY) return;
           const msg = JSON.parse(new TextDecoder().decode(payload)) as { type?: string; on?: boolean };
           if (msg.type === "publish" && msg.on) void publishLocal(lk);
         } catch {
@@ -193,12 +200,17 @@ export function Studio() {
   const backstage = studio?.participants ?? [];
 
   async function publishLocal(lk: Room) {
-    const raw = await openUserMedia({});
+    if (lk.localParticipant.getTrackPublication(Track.Source.Camera)?.track) return;
+    const saved = loadSession(id);
+    const raw = await openUserMedia({ cameraId: saved?.cameraId, micId: saved?.micId });
     const processed = await mediaPipeline.process(raw);
-    await lk.localParticipant.publishTrack(processed.getVideoTracks()[0]!, {
-      source: Track.Source.Camera,
-      simulcast: true,
-    });
+    const video = processed.getVideoTracks()[0];
+    if (video) {
+      await lk.localParticipant.publishTrack(video, {
+        source: Track.Source.Camera,
+        simulcast: true,
+      });
+    }
     const audio = processed.getAudioTracks()[0];
     if (audio) {
       await lk.localParticipant.publishTrack(audio, { source: Track.Source.Microphone });
@@ -218,13 +230,21 @@ export function Studio() {
   }
 
   async function shareScreen() {
-    await room?.localParticipant.setScreenShareEnabled(true);
-    if (hostKey) await setLayout(id, hostKey, "screen");
+    try {
+      await room?.localParticipant.setScreenShareEnabled(true);
+      if (hostKey) await setLayout(id, hostKey, "screen");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Screen share failed");
+    }
   }
 
   async function onLayout(layout: LayoutId) {
     if (!hostKey) return;
-    await setLayout(id, hostKey, layout);
+    try {
+      await setLayout(id, hostKey, layout);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Layout failed");
+    }
   }
 
   async function onGoLive() {
@@ -242,7 +262,11 @@ export function Studio() {
     const text = chatDraft.trim();
     if (!text) return;
     setChatDraft("");
-    await sendChat(id, { identity: identityRef.current, name: nameRef.current, text });
+    try {
+      await sendChat(id, { identity: identityRef.current, name: nameRef.current, text });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Chat failed");
+    }
   }
 
   async function copyInvite() {
@@ -253,9 +277,13 @@ export function Studio() {
 
   async function promote(identity: string, on: boolean) {
     if (!hostKey) return;
-    await setStage(id, hostKey, identity, on);
-    const payload = new TextEncoder().encode(JSON.stringify({ type: "publish", on }));
-    await room?.localParticipant.publishData(payload, { destinationIdentities: [identity] });
+    try {
+      await setStage(id, hostKey, identity, on);
+      const payload = new TextEncoder().encode(JSON.stringify({ type: "publish", on }));
+      await room?.localParticipant.publishData(payload, { destinationIdentities: [identity] });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Stage update failed");
+    }
   }
 
   if (!studio) {
@@ -429,7 +457,7 @@ export function Studio() {
                   onClick={() => {
                     if (!hostKey) return;
                     const next = studio.destinations.map((x) => (x.id === d.id ? { ...x, enabled: !x.enabled } : x));
-                    void setDestinations(id, hostKey, next);
+                    void setDestinations(id, hostKey, next).then(setStudio).catch((err) => setError(err.message));
                   }}
                 >
                   <i />
@@ -473,18 +501,18 @@ export function Studio() {
           studio={studio}
           onClose={() => setSettingsOpen(false)}
           onSave={async (next) => {
-            await setDestinations(id, hostKey, next.destinations);
-            await fetch(`/api/studios/${id}/banner`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                hostKey,
+            try {
+              const saved = await setDestinations(id, hostKey, next.destinations);
+              await setBanner(id, hostKey, {
                 title: next.title,
                 bannerTitle: next.bannerTitle,
                 bannerSubtitle: next.bannerSubtitle,
-              }),
-            });
-            setSettingsOpen(false);
+              });
+              setStudio(saved);
+              setSettingsOpen(false);
+            } catch (err) {
+              setError(err instanceof Error ? err.message : "Save failed");
+            }
           }}
         />
       ) : null}
@@ -512,7 +540,7 @@ function SettingsPanel({
 }: {
   studio: PublicStudio;
   onClose: () => void;
-  onSave: (next: { title: string; bannerTitle: string; bannerSubtitle: string; destinations: PublicStudio["destinations"] }) => void;
+  onSave: (next: { title: string; bannerTitle: string; bannerSubtitle: string; destinations: PublicDestination[] }) => void;
 }) {
   const [title, setTitle] = useState(studio.title);
   const [bannerTitle, setBannerTitle] = useState(studio.bannerTitle);
@@ -539,7 +567,7 @@ function SettingsPanel({
           <label key={d.id}>
             {d.label} RTMP URL
             <input
-              value={d.url}
+              value={d.url ?? ""}
               onChange={(e) => {
                 const next = destinations.slice();
                 next[i] = { ...d, url: e.target.value };
@@ -571,4 +599,15 @@ function programClass(layout: LayoutId, n: number): string {
 function visibleStage<T>(layout: LayoutId, people: T[]): T[] {
   if (layout === "solo") return people.slice(0, 1);
   return people.slice(0, 6);
+}
+
+function mergeStudio(prev: PublicStudio | null, next: PublicStudio): PublicStudio {
+  if (!prev) return next;
+  return {
+    ...next,
+    destinations: next.destinations.map((d) => {
+      const old = prev.destinations.find((x) => x.id === d.id);
+      return { ...d, url: d.url || old?.url };
+    }),
+  };
 }

@@ -69,6 +69,7 @@ export async function mintParticipantToken(opts: {
   name: string;
   room: string;
   canPublish: boolean;
+  canPublishData?: boolean;
   roomAdmin?: boolean;
 }): Promise<string> {
   return signJwt(opts.env.LIVEKIT_API_KEY, opts.env.LIVEKIT_API_SECRET, opts.identity, opts.name, {
@@ -76,10 +77,23 @@ export async function mintParticipantToken(opts: {
     roomJoin: true,
     canPublish: opts.canPublish,
     canSubscribe: true,
-    canPublishData: true,
-    canUpdateOwnMetadata: true,
+    canPublishData: opts.canPublishData ?? opts.canPublish,
+    canUpdateOwnMetadata: false,
     roomAdmin: !!opts.roomAdmin,
   });
+}
+
+export async function guestSecretFor(env: Env, studioId: string, identity: string): Promise<string> {
+  return hmacSha256B64Url(env.LIVEKIT_API_SECRET, `guest:${studioId}:${identity}`);
+}
+
+export async function guestSecretOk(env: Env, studioId: string, identity: string, secret: string): Promise<boolean> {
+  if (!secret || !identity) return false;
+  const expected = await guestSecretFor(env, studioId, identity);
+  if (expected.length !== secret.length) return false;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ secret.charCodeAt(i);
+  return diff === 0;
 }
 
 export async function mintApiToken(env: Env): Promise<string> {
@@ -124,8 +138,8 @@ export async function updateParticipantPublish(env: Env, room: string, identity:
     permission: {
       can_subscribe: true,
       can_publish: canPublish,
-      can_publish_data: true,
-      can_update_metadata: true,
+      can_publish_data: false,
+      can_update_metadata: false,
     },
   });
 }
@@ -137,22 +151,25 @@ export async function startRoomComposite(opts: {
   urls: string[];
   filepath: string;
 }): Promise<{ egressId: string }> {
+  const layout = opts.env.EGRESS_TEMPLATE_URL ? opts.layout : layoutToEgress(opts.layout);
   const body: Record<string, unknown> = {
     room_name: opts.room,
-    layout: layoutToEgress(opts.layout),
+    layout,
     preset: 0,
     file_outputs: [
       {
         filepath: opts.filepath,
       },
     ],
-    stream_outputs: [
+  };
+  if (opts.urls.length) {
+    body.stream_outputs = [
       {
         protocol: 1,
         urls: opts.urls,
       },
-    ],
-  };
+    ];
+  }
   if (opts.env.EGRESS_TEMPLATE_URL) {
     body.custom_base_url = opts.env.EGRESS_TEMPLATE_URL;
   }
@@ -173,7 +190,7 @@ export async function stopEgress(env: Env, egressId: string): Promise<void> {
 export async function updateEgressLayout(env: Env, egressId: string, layout: LayoutId): Promise<void> {
   await twirp(env, "/twirp/livekit.Egress/UpdateLayout", {
     egress_id: egressId,
-    layout: layoutToEgress(layout),
+    layout: env.EGRESS_TEMPLATE_URL ? layout : layoutToEgress(layout),
   });
 }
 

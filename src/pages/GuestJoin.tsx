@@ -92,7 +92,15 @@ export function GuestJoin() {
     setError("");
     try {
       const token = await mintToken(id, { name: name.trim() || "Guest", role: "guest" });
-      saveSession({ studioId: id, identity: token.identity, name: token.name, role: "guest" });
+      saveSession({
+        studioId: id,
+        identity: token.identity,
+        name: token.name,
+        role: "guest",
+        guestSecret: token.guestSecret,
+        cameraId,
+        micId,
+      });
       stream?.getTracks().forEach((t) => t.stop());
       navigate(`/studio/${id}`);
     } catch (err) {

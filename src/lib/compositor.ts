@@ -8,6 +8,15 @@ export type TileSource = CanvasImageSource & { width?: number; height?: number }
 const OUT_W = 1280;
 const OUT_H = 720;
 
+let cachedWasm: { key: string; comp: WasmCompositor } | null = null;
+
+function wasmCompositorFor(api: Awaited<ReturnType<typeof loadWasm>>, width: number, height: number): WasmCompositor {
+  const key = `${width}x${height}`;
+  if (cachedWasm && cachedWasm.key === key) return cachedWasm.comp;
+  cachedWasm = { key, comp: new WasmCompositor(api, width, height) };
+  return cachedWasm.comp;
+}
+
 export async function composeFrame(opts: {
   backend: ComposeBackend;
   videos: HTMLVideoElement[];
@@ -67,7 +76,7 @@ export async function composeFrame(opts: {
   }
 
   const api = await loadWasm();
-  const comp = new WasmCompositor(api, OUT_W, OUT_H);
+  const comp = wasmCompositorFor(api, OUT_W, OUT_H);
   comp.clear();
   const rects = layoutRects(api, n, mode, OUT_W, OUT_H);
   const scratch = document.createElement("canvas");

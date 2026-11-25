@@ -1,12 +1,12 @@
 # Local RTMP destinations so Go Live can fan out without YouTube/LinkedIn/X accounts.
 logLevel: info
 rtmp: yes
-rtmpAddress: :1935
+rtmpAddress: 127.0.0.1:1935
 hls: yes
-hlsAddress: :8888
+hlsAddress: 127.0.0.1:8888
 webrtc: no
 playback: yes
-playbackAddress: :9996
+playbackAddress: 127.0.0.1:9996
 rtsp: no
 srt: no
 

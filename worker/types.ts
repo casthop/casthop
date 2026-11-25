@@ -11,6 +11,18 @@ export type Destination = {
   enabled: boolean;
 };
 
+/** Wire format. `url` is present only for an authenticated host. */
+export type PublicDestination = {
+  id: string;
+  kind: DestinationKind;
+  label: string;
+  detail: string;
+  enabled: boolean;
+  hasKey: boolean;
+  urlMasked: string;
+  url?: string;
+};
+
 export type ParticipantInfo = {
   identity: string;
   name: string;
@@ -35,6 +47,7 @@ export type StudioState = {
   layout: LayoutId;
   live: boolean;
   liveStartedAt: number | null;
+  liveStarting?: boolean;
   egressId: string | null;
   recordingPath: string | null;
   bannerTitle: string;
@@ -58,6 +71,12 @@ export type Env = {
   RTMP_LINKEDIN: string;
   RTMP_X: string;
   EGRESS_TEMPLATE_URL: string;
+  CASTHOP_ALLOW_DEV_KEYS?: string;
+};
+
+export type PublicStudio = Omit<StudioState, "hostKeyHash" | "destinations" | "recordingPath" | "egressId" | "liveStarting"> & {
+  destinations: PublicDestination[];
+  egressId?: string | null;
 };
 
 export const MAX_ON_STAGE = 6;

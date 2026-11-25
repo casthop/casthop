@@ -4,6 +4,9 @@ export type Session = {
   name: string;
   role: "host" | "guest";
   hostKey?: string;
+  guestSecret?: string;
+  cameraId?: string;
+  micId?: string;
 };
 
 const key = (studioId: string) => `casthop.session.${studioId}`;

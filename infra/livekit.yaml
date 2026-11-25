@@ -1,7 +1,7 @@
 # Local LiveKit SFU. Keys match .env.example — replace before any networked deploy.
 port: 7880
 bind_addresses:
-  - 0.0.0.0
+  - 127.0.0.1
 
 rtc:
   tcp_port: 7881

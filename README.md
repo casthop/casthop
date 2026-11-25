@@ -38,7 +38,7 @@ LiveKit Egress (custom /egress-template)             Durable Object
 
 ## Local run
 
-Linux (this is the path we measured). Docker uses host networking so the browser, LiveKit ICE, Egress, and RTMP all see `127.0.0.1`.
+Linux (this is the path we measured). Docker uses host networking so the browser, LiveKit ICE, Egress, and RTMP all see `127.0.0.1`. LiveKit, Redis, and MediaMTX bind that loopback address so the committed `devkey` is not reachable on the LAN. The Worker refuses to start with that default keypair unless LiveKit is loopback (or `CASTHOP_ALLOW_DEV_KEYS=1` for tests).
 
 ```bash
 cp .env.example .env
@@ -87,7 +87,7 @@ npm run measure
 
 ### Docker Desktop (macOS / Windows)
 
-Host networking is Linux-only. On Docker Desktop, drop `network_mode: host`, publish `7880-7882`, `1935`, `8888`, `6379`, `9090`, set LiveKit `rtc.node_ip` to `host.docker.internal`, and point Egress `ws_url` / Redis at that host. ICE from a browser on the same machine is fiddly; Linux is the supported v0 path.
+Host networking is Linux-only. On Docker Desktop, drop `network_mode: host`, publish `127.0.0.1:7880-7882`, `127.0.0.1:1935`, `127.0.0.1:8888`, `127.0.0.1:6379`, `127.0.0.1:9090`, set LiveKit `rtc.node_ip` to `host.docker.internal`, and point Egress `ws_url` / Redis at that host. ICE from a browser on the same machine is fiddly; Linux is the supported v0 path.
 
 ### Without cameras
 
@@ -98,7 +98,7 @@ The app falls back to a generated canvas+silent-audio track so a VM without `/de
 1. LiveKit + Egress + Redis + an RTMP edge (MediaMTX, nginx-rtmp, or a real destination).
 2. Worker + D1 + Durable Objects (`wrangler deploy`). Put `LIVEKIT_API_SECRET` in Worker secrets, never in git.
 3. Generate real API keys (`lk generate-keys`) and replace the local defaults in `infra/livekit.yaml` and `infra/egress.yaml`.
-4. Point destination URLs at real YouTube / LinkedIn / X ingest (stream keys stay in the Durable Object, not the repo).
+4. Point destination URLs at real YouTube / LinkedIn / X ingest. Stream keys stay in Durable Object storage (not the repo, and not the guest/public API). `GET /api/studios/:id` and the WebSocket `state` frame return only a masked suffix (`rtmp://…/xxxx`) plus `hasKey`. The host receives full URLs on authenticated GET (`x-casthop-host-key`). Generate real API keys (`lk generate-keys`); the Worker returns 503 if the published `devkey` is used with a non-loopback LiveKit URL.
 5. Optional: `casthop-post normalize` then copy finished MP4s to R2 for replay.
 
 The local compose file is the media plane. The Worker is the control plane. They talk over the LiveKit Twirp API.

@@ -37,6 +37,7 @@
   ],
   "vars": {
     "LIVEKIT_API_KEY": "devkey",
+    // LIVEKIT_API_SECRET lives in .dev.vars / Worker secrets. Default pair is refused unless LiveKit is loopback.
     "LIVEKIT_HTTP_URL": "http://127.0.0.1:7880",
     "PUBLIC_LIVEKIT_URL": "ws://127.0.0.1:7880",
     "RTMP_YOUTUBE": "rtmp://127.0.0.1:1935/live/youtube",

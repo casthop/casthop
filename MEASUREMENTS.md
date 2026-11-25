@@ -86,4 +86,16 @@ What next (called out by the product-owner Rust/WASM direction, not done in v0):
 - Background blur / WebGPU camera effects.
 - Destination chat ingest, R2 replay viewer, TURN, email auth.
 
+## 6. Silent-audio check (H3)
+
+Egress captures the compositor tab. Audio tracks must be attached unmuted on `/egress-template` or the AAC stream is digital silence. `ffprobe` showing an AAC track is not enough.
+
+```bash
+bash scripts/check-silent-audio.sh data/recordings/<file>.mp4
+```
+
+That runs `ffmpeg -af volumedetect` and fails if `mean_volume` is at or below −90 dB (typical of a silent AAC track). The 2026-11-25 recordings were captured before the template attached audio; re-run after this fix and store the volumedetect lines under `data/measure/silent-audio.txt`.
+
+CI asserts the template source attaches audio (`el.muted = false` on `Track.Kind.Audio`) so a regression cannot drop the attach path without failing `npm test`.
+
 Raw command output from `npm run measure` / `npm run bench:wasm` is stored under `data/measure/` (gitignored).

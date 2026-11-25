@@ -96,6 +96,9 @@ kill "$host_pid" 2>/dev/null || true
 # recordings
 ls -lah data/recordings >"$OUT/recordings.txt" 2>/dev/null || true
 ls -lah data/rtmp >"$OUT/rtmp-recordings.txt" 2>/dev/null || true
+if command -v ffmpeg >/dev/null; then
+  bash "$ROOT/scripts/check-silent-audio.sh" >"$OUT/silent-audio.txt" 2>&1 || true
+fi
 
 log "wrote $OUT"
 find "$OUT" -type f | sort

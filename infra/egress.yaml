@@ -1,5 +1,6 @@
 # LiveKit Egress — room composite to RTMP + file.
 # insecure: true is required for local ws:// (not for production wss).
+# Keys match the loopback-only LiveKit config. Replace before any networked deploy.
 api_key: devkey
 api_secret: casthop_dev_secret_not_for_production_use_32b
 ws_url: ws://127.0.0.1:7880
@@ -10,4 +11,4 @@ enable_chrome_sandbox: false
 redis:
   address: 127.0.0.1:6379
 logging:
-  level: debug
+  level: info

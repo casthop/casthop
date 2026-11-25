@@ -18,7 +18,7 @@ class CasthopDenoiseProcessor extends AudioWorkletProcessor {
     this.filled = 0;
     this.outBuf = new Float32Array(FRAME * 3);
     this.outRead = 0;
-    this.outWrite = 0;
+    this.outWrite = FRAME;
     this.meterAt = 0;
     this.port.onmessage = (ev) => this.onMessage(ev.data);
   }
@@ -69,7 +69,7 @@ class CasthopDenoiseProcessor extends AudioWorkletProcessor {
 
     const queued = (this.outWrite - this.outRead + this.outBuf.length) % this.outBuf.length;
     if (queued < output.length) {
-      output.set(input.length === output.length ? input : input.subarray(0, output.length));
+      output.fill(0);
       return true;
     }
     for (let i = 0; i < output.length; i++) {

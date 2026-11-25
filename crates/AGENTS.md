@@ -4,12 +4,12 @@ Rust/WASM rules. Root `AGENTS.md` still applies.
 
 ## casthop-media
 
-Builds to `src/wasm/casthop_media.wasm`: C ABI, no wasm-bindgen, no JS imports (AudioWorklet-safe). After crate changes, `npm run build:wasm` and commit the `.wasm`.
+Default build is `src/wasm/casthop_media.wasm`: C ABI, no wasm-bindgen, no JS imports (AudioWorklet-safe). `--features gpu` builds a second artifact, `src/wasm/casthop_gpu_bg.wasm` + `casthop_gpu.js` (WebGPU compositor, wasm-bindgen). After crate changes, `npm run build:wasm` and commit both.
 
 - Preallocate. No `Vec` / `String` / `Box` in `process`, `blit`, or per-sample paths.
 - No `unwrap`, `expect`, or `panic!` outside `#[cfg(test)]`. Bad handles return 0 / no-op.
 - `clippy::pedantic` is on. If a lint is wrong here, `#[expect(...)]` with one line of why. Do not `#[allow]` unused code — delete it.
-- Keep the JS fallback (`src/lib/effects.ts`, `?fx=js`, `?compose=wasm` / `?compose=webgpu`).
+- Keep the JS fallback (`src/lib/effects.ts`, `?fx=js`, `?compose=wasm` / `?compose=webgpu` / `?compose=webgpu-ts`). Canvas2D stays the live default until wgpu wins on `/internal/bench`.
 - Vendored `nnnoiseless` stays on the rustc 1.83 pin unless you bump the toolchain.
 - `simd128` is already on for wasm32 (`.cargo/config.toml`).
 

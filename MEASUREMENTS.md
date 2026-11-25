@@ -54,14 +54,24 @@ Workers / D1 / DO stay inside the $5 account floor at this volume **(estimate, m
 
 ## 4. Rust / WASM vs JS
 
-Bundle: `src/wasm/casthop_media.wasm` is **374.1 KiB** (383,070 bytes), zero imports, loads in AudioWorklets and Workers. Chrome `/internal/bench` and Node `npm run bench:wasm` agree.
+Bundle: `src/wasm/casthop_media.wasm` is **373.8 KiB** (382,735 bytes), zero imports, loads in AudioWorklets and Workers. The WebGPU compositor is a second module, `casthop_gpu_bg.wasm` **29.5 KiB** (30,161 bytes) plus `casthop_gpu.js` **24.6 KiB**, loaded only when `?compose=webgpu`. Chrome `/internal/bench` and Node `npm run bench:wasm` agree.
 
 | Path | WASM | JS | JS/WASM | What this actually compares |
 |---|---|---|---|---|
 | Denoise, 10 ms / 480 samples @ 48 kHz | **0.084–0.088 ms/frame** (Node CPU 742 ms / 8000 frames) | **0.003 ms/frame** (cheap gate) | **0.03×** | RNNoise GRU vs a few arithmetic ops. WASM is slower and **under budget** (10 ms). The gain is quality, not cycles. |
 | Denoise CPU % of one core @ realtime | **~0.9%** | **~0.03%** | — | Both fine on the publish path. |
 | Compose 1280×720, 4 tiles, nearest blit | **5.39–5.45 ms/frame** | **4.11–4.73 ms/frame** | **0.76–0.87×** | Same algorithm. V8 wins slightly; both are ~30–45 fps CPU. Production egress uses **Canvas2D + WASM layout** (GPU `drawImage`). |
-| WebGPU | `navigator.gpu` **present** in this Chrome | — | — | Default live path is Canvas2D; `?compose=webgpu` or `?compose=wasm` to force. wgpu-in-Rust is a next step (see §5). |
+| WebGPU | `navigator.gpu` **present** in this Chrome | — | — | Default live path is **Canvas2D**. Rust WebGPU is `?compose=webgpu`; TS WebGPU is `?compose=webgpu-ts`. See the compose table below. |
+
+Compose 1280×720, Chrome 157 headless + SwiftShader, `/internal/bench`, 30 frames after one warmup, reused GPU device. Canvas2D times are JS `drawImage` submit, not GPU-synced.
+
+| Tiles | Canvas2D | TS WebGPU | Rust WebGPU |
+|---|---|---|---|
+| 2 | **0.027 ms/frame** | 0.44 ms/frame | 0.26 ms/frame |
+| 4 | **0.020 ms/frame** | failed (`copyExternalImageToTexture` on this SwiftShader) | 2.30 ms/frame |
+| 6 | **0.023 ms/frame** | failed (same) | 3.05 ms/frame |
+
+Rust WebGPU is **not** the live default. It does not beat Canvas2D on this bench. Use `?compose=webgpu` to force it. Device creation stays in JS: the `wgpu` crate’s `Adapter::request_device` fails on this Chrome (`A valid external Instance reference no longer exists`). Draw/layout run in Rust against the WebGPU API.
 
 Takeaway: ship RNNoise in WASM because a JS gate is not the same filter. Do **not** put the CPU compositor on the live tab-capture path; keep it for overlays / Worker / measurement. Layout math from Rust is shared by Canvas2D and WebGPU.
 
@@ -79,7 +89,6 @@ What broke / was hard:
 
 What next (called out by the product-owner Rust/WASM direction, not done in v0):
 
-- **wgpu** compositor inside the crate (today WebGPU is TypeScript + WASM layout rects).
 - Audio **VAD-driven** UI (worklet already posts VAD; studio chrome doesn’t show it yet).
 - **workers-rs** for hot Worker endpoints (`/api/token`, live start) instead of Hono/TS.
 - Dedicated Rust **RTMP fan-out** if we leave Cloudflare Stream unused in production (`casthop-post` is inspect/remux only).

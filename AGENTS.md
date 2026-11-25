@@ -69,7 +69,7 @@ Budgets from `MEASUREMENTS.md`. Beat them, or record why not:
 | Durable Object write | < 50 ms | stage / live / destinations |
 | Glass-to-glass (loopback) | p50 < 80 ms | 45 ms |
 
-Hot-path change: measure before and after (`npm run bench:wasm`, `/internal/bench`, `/internal/probe`, or `npm run measure`). Put both numbers in `MEASUREMENTS.md` in the same PR. No allocations in audio/video loops. Use Rust/WASM or GPU only when it measurably wins; keep the JS fallback (`?fx=js`, `?compose=wasm` / `?compose=webgpu`).
+Hot-path change: measure before and after (`npm run bench:wasm`, `/internal/bench`, `/internal/probe`, or `npm run measure`). Put both numbers in `MEASUREMENTS.md` in the same PR. No allocations in audio/video loops. Use Rust/WASM or GPU only when it measurably wins; keep the JS fallback (`?fx=js`, `?compose=wasm` / `?compose=webgpu` / `?compose=webgpu-ts`).
 
 ## Security
 

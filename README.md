@@ -10,7 +10,7 @@ This repository is the first working prototype: prove the core, measure it, then
 Browser (host + guests)  TypeScript UI
     │  WebRTC simulcast
     │  Rust/WASM in AudioWorklet: RNNoise + VAD/meters
-    │  Rust/WASM layout; Canvas2D (default) / WebGPU / WASM-CPU compositor
+    │  Rust/WASM layout; Canvas2D (default) / Rust WebGPU / TS WebGPU / WASM-CPU compositor
     ▼
 LiveKit SFU (Go)  ─────────────────────────────────────────┐
     │                                                      │
@@ -34,7 +34,7 @@ LiveKit Egress (custom /egress-template)             Durable Object
 
 **LiveKit stays the SFU** (Go). It is already the fast path. The LiveKit Rust SDK is unused in v0.
 
-**Browser media** lives in `crates/casthop-media`, compiled to `src/wasm/casthop_media.wasm` (no JS imports; AudioWorklet-safe). `src/lib/effects.ts` runs RNNoise on the mic before LiveKit publish (`?fx=js` or `?fx=off` to compare). The egress page uses WASM layout + Canvas2D blit by default (`?compose=wasm` for the CPU compositor, `?compose=webgpu` for the GPU path).
+**Browser media** lives in `crates/casthop-media`, compiled to `src/wasm/casthop_media.wasm` (no JS imports; AudioWorklet-safe). `src/lib/effects.ts` runs RNNoise on the mic before LiveKit publish (`?fx=js` or `?fx=off` to compare). The egress page uses WASM layout + Canvas2D blit by default (`?compose=wasm` for the CPU compositor, `?compose=webgpu` for the Rust WebGPU path, `?compose=webgpu-ts` for the TypeScript WebGPU path). Canvas2D stays default; the GPU path did not win on the bench.
 
 ## Local run
 
@@ -57,7 +57,7 @@ Rebuild the WASM module (needs rustc 1.83+ and the `wasm32-unknown-unknown` targ
 npm run build:wasm
 ```
 
-A prebuilt `src/wasm/casthop_media.wasm` is committed so `npm run dev` works without a Rust toolchain.
+Prebuilt `src/wasm/casthop_media.wasm` and `src/wasm/casthop_gpu_bg.wasm` are committed so `npm run dev` works without a Rust toolchain.
 
 Default destinations are local MediaMTX stand-ins for YouTube, LinkedIn, and X:
 
@@ -113,7 +113,7 @@ The local compose file is the media plane. The Worker is the control plane. They
 
 Done in this prototype: custom compositor page with WASM layout, RNNoise in an AudioWorklet, `casthop-post` for recordings, measurements vs JS.
 
-1. wgpu inside `casthop-media` (today WebGPU is TS + WASM rects) and camera background blur.
+1. Camera background blur. WebGPU compositor is in `casthop-media` behind `?compose=webgpu`; Canvas2D stays the live default (see MEASUREMENTS.md).
 2. workers-rs for hot `/api` endpoints.
 3. Destination chat ingest (YouTube liveChat, LinkedIn, X).
 4. R2 replay viewer; HLS from R2 instead of Stream for public VODs.

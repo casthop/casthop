@@ -1,12 +1,66 @@
 import { useEffect, useState } from "react";
 import { jsComposeNearest, jsDenoiseFrame, JS_FRAME } from "../lib/js-pipeline";
+import { composeFrame, type ComposeBackend } from "../lib/compositor";
 import { loadWasm, wasmAssetUrl, WasmCompositor, WasmDenoiser } from "../lib/wasm";
+import { gpuWasmAssetUrl } from "../lib/gpu-compositor";
 
 type Row = { name: string; wasmMs: number; jsMs: number; ratio: number; unit: string };
+type GpuRow = { tiles: number; canvas2dMs: number; webgpuTsMs: number | null; wgpuMs: number | null };
+
+function makeTiles(n: number): HTMLCanvasElement[] {
+  const colors = ["#6d64f7", "#f59e0b", "#22c55e", "#38bdf8", "#f43f5e", "#a3e635"];
+  return Array.from({ length: n }, (_, i) => {
+    const c = document.createElement("canvas");
+    c.width = 640;
+    c.height = 360;
+    const ctx = c.getContext("2d")!;
+    ctx.fillStyle = colors[i % colors.length]!;
+    ctx.fillRect(0, 0, 640, 360);
+    ctx.fillStyle = "#0b0b0d";
+    ctx.font = "48px sans-serif";
+    ctx.fillText(String(i + 1), 40, 80);
+    return c;
+  });
+}
+
+async function benchBackend(backend: ComposeBackend, tiles: HTMLCanvasElement[], frames: number): Promise<number | null> {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1280;
+  canvas.height = 720;
+  document.body.appendChild(canvas);
+  try {
+    const first = await composeFrame({
+      backend,
+      videos: tiles,
+      mode: "grid",
+      title: "Casthop",
+      subtitle: "bench",
+      canvas,
+    });
+    if (first.backend !== backend) return null;
+    const t0 = performance.now();
+    for (let i = 0; i < frames; i++) {
+      await composeFrame({
+        backend,
+        videos: tiles,
+        mode: "grid",
+        title: "Casthop",
+        subtitle: "bench",
+        canvas,
+      });
+    }
+    return (performance.now() - t0) / frames;
+  } catch {
+    return null;
+  } finally {
+    canvas.remove();
+  }
+}
 
 export function Bench() {
   const [log, setLog] = useState("running…");
   const [rows, setRows] = useState<Row[]>([]);
+  const [gpuRows, setGpuRows] = useState<GpuRow[]>([]);
   const [extra, setExtra] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -14,6 +68,12 @@ export function Bench() {
     (async () => {
       const api = await loadWasm();
       const wasmBytes = await fetch(wasmAssetUrl()).then((r) => r.arrayBuffer());
+      let gpuBytes = 0;
+      try {
+        gpuBytes = (await fetch(gpuWasmAssetUrl()).then((r) => r.arrayBuffer())).byteLength;
+      } catch {
+        gpuBytes = 0;
+      }
       const denoise = new WasmDenoiser(api);
       const frames = 4_000;
       const sine = new Float32Array(JS_FRAME);
@@ -59,7 +119,22 @@ export function Bench() {
       }
       const jsCompose = performance.now() - t3;
 
-      const gpu = "gpu" in navigator ? "navigator.gpu present" : "no WebGPU";
+      const gpuPresent = "gpu" in navigator ? "navigator.gpu present" : "no WebGPU";
+      const gpuComposeFrames = 30;
+      const gpuOut: GpuRow[] = [];
+      for (const n of [2, 4, 6]) {
+        const tiles = makeTiles(n);
+        const canvas2dMs = await benchBackend("canvas2d", tiles, gpuComposeFrames);
+        const webgpuTsMs = await benchBackend("webgpu-ts", tiles, gpuComposeFrames);
+        const wgpuMs = await benchBackend("webgpu", tiles, gpuComposeFrames);
+        gpuOut.push({
+          tiles: n,
+          canvas2dMs: canvas2dMs ?? Number.NaN,
+          webgpuTsMs,
+          wgpuMs,
+        });
+      }
+
       const rowsOut: Row[] = [
         {
           name: "RNNoise denoise (10 ms frame)",
@@ -78,15 +153,27 @@ export function Bench() {
       ];
       if (cancelled) return;
       setRows(rowsOut);
+      setGpuRows(gpuOut);
       setExtra({
         wasmBytes: String(wasmBytes.byteLength),
         wasmKiB: (wasmBytes.byteLength / 1024).toFixed(1),
-        webgpu: gpu,
+        gpuWasmBytes: String(gpuBytes),
+        gpuWasmKiB: (gpuBytes / 1024).toFixed(1),
+        webgpu: gpuPresent,
         frames: String(frames),
         composeFrames: String(composeFrames),
+        gpuComposeFrames: String(gpuComposeFrames),
       });
       setLog("ok");
-      (window as unknown as { __BENCH__: unknown }).__BENCH__ = { rows: rowsOut, extra: { wasmBytes: wasmBytes.byteLength, webgpu: gpu } };
+      (window as unknown as { __BENCH__: unknown }).__BENCH__ = {
+        rows: rowsOut,
+        gpu: gpuOut,
+        extra: {
+          wasmBytes: wasmBytes.byteLength,
+          gpuWasmBytes: gpuBytes,
+          webgpu: gpuPresent,
+        },
+      };
     })().catch((err) => setLog(String(err)));
     return () => {
       cancelled = true;
@@ -118,6 +205,29 @@ export function Bench() {
                 {r.jsMs.toFixed(3)} {r.unit}
               </td>
               <td style={{ padding: "8px 12px" }}>{r.ratio.toFixed(2)}×</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <h2 style={{ fontWeight: 650, marginTop: 32 }}>Compose 1280×720</h2>
+      <p style={{ color: "#9aa0ab" }}>Canvas2D vs TypeScript WebGPU vs wgpu. Same tiles, reused GPU device.</p>
+      <table style={{ borderCollapse: "collapse", minWidth: 640 }}>
+        <thead>
+          <tr>
+            {["Tiles", "Canvas2D", "TS WebGPU", "wgpu"].map((h) => (
+              <th key={h} style={{ textAlign: "left", padding: "8px 12px", borderBottom: "1px solid #2a2b32" }}>
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {gpuRows.map((r) => (
+            <tr key={r.tiles}>
+              <td style={{ padding: "8px 12px" }}>{r.tiles}</td>
+              <td style={{ padding: "8px 12px" }}>{Number.isFinite(r.canvas2dMs) ? `${r.canvas2dMs.toFixed(3)} ms/frame` : "—"}</td>
+              <td style={{ padding: "8px 12px" }}>{r.webgpuTsMs == null ? "—" : `${r.webgpuTsMs.toFixed(3)} ms/frame`}</td>
+              <td style={{ padding: "8px 12px" }}>{r.wgpuMs == null ? "—" : `${r.wgpuMs.toFixed(3)} ms/frame`}</td>
             </tr>
           ))}
         </tbody>

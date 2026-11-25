@@ -3,10 +3,71 @@ name = "casthop-media"
 version = "0.1.0"
 edition = "2021"
 license = "AGPL-3.0-only"
-description = "WASM media pipeline: RNNoise denoise, VAD/meters, layout compositor."
+description = "WASM media pipeline: RNNoise denoise, VAD/meters, layout compositor, optional WebGPU compose."
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = ["media"]
+# C ABI module: AudioWorklet-safe, zero JS imports.
+media = ["dep:nnnoiseless"]
+# Browser WebGPU compositor. Built as a second wasm with wasm-bindgen.
+gpu = ["dep:wasm-bindgen", "dep:js-sys", "dep:web-sys"]
+
 [dependencies]
-nnnoiseless = { path = "../vendor/nnnoiseless", default-features = false }
+nnnoiseless = { path = "../vendor/nnnoiseless", default-features = false, optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { version = "=0.2.100", optional = true }
+js-sys = { version = "=0.3.77", optional = true }
+web-sys = { version = "=0.3.77", optional = true, features = [
+  "GpuAutoLayoutMode",
+  "GpuBindGroup",
+  "GpuBindGroupDescriptor",
+  "GpuBindGroupEntry",
+  "GpuBindGroupLayout",
+  "GpuBuffer",
+  "GpuBufferDescriptor",
+  "GpuCanvasAlphaMode",
+  "GpuCanvasConfiguration",
+  "GpuCanvasContext",
+  "GpuColorDict",
+  "GpuColorTargetState",
+  "GpuCommandBuffer",
+  "GpuCommandEncoder",
+  "GpuCopyExternalImageDestInfo",
+  "GpuCopyExternalImageSourceInfo",
+  "GpuDevice",
+  "GpuExtent3dDict",
+  "GpuFilterMode",
+  "GpuFragmentState",
+  "GpuLoadOp",
+  "GpuPrimitiveState",
+  "GpuPrimitiveTopology",
+  "GpuQueue",
+  "GpuRenderPassColorAttachment",
+  "GpuRenderPassDescriptor",
+  "GpuRenderPassEncoder",
+  "GpuRenderPipeline",
+  "GpuRenderPipelineDescriptor",
+  "GpuSampler",
+  "GpuSamplerDescriptor",
+  "GpuShaderModule",
+  "GpuShaderModuleDescriptor",
+  "GpuStoreOp",
+  "GpuTexture",
+  "GpuTextureDescriptor",
+  "GpuTextureFormat",
+  "GpuTextureView",
+  "GpuVertexAttribute",
+  "GpuVertexBufferLayout",
+  "GpuVertexFormat",
+  "GpuVertexState",
+  "GpuVertexStepMode",
+  "HtmlCanvasElement",
+  "HtmlVideoElement",
+  "gpu_buffer_usage",
+  "gpu_shader_stage",
+  "gpu_texture_usage",
+] }

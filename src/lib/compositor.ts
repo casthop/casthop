@@ -1,9 +1,11 @@
 import { layoutRects, loadWasm, type LayoutMode, type Rect, WasmCompositor } from "./wasm";
 import { jsComposeNearest, jsLayout } from "./js-pipeline";
+import { type ComposeBackend } from "./compose-backend";
 
-export type ComposeBackend = "wasm-cpu" | "js-cpu" | "canvas2d" | "webgpu";
+export type { ComposeBackend } from "./compose-backend";
+export { pickComposeBackend, pickComposeBackendFrom } from "./compose-backend";
 
-export type TileSource = CanvasImageSource & { width?: number; height?: number };
+export type ComposeSource = HTMLVideoElement | HTMLCanvasElement;
 
 const OUT_W = 1280;
 const OUT_H = 720;
@@ -17,9 +19,14 @@ function wasmCompositorFor(api: Awaited<ReturnType<typeof loadWasm>>, width: num
   return cachedWasm.comp;
 }
 
+function sourceSize(src: ComposeSource): { w: number; h: number } {
+  if (src instanceof HTMLVideoElement) return { w: src.videoWidth, h: src.videoHeight };
+  return { w: src.width, h: src.height };
+}
+
 export async function composeFrame(opts: {
   backend: ComposeBackend;
-  videos: HTMLVideoElement[];
+  videos: ComposeSource[];
   mode: LayoutMode;
   title: string;
   subtitle: string;
@@ -29,11 +36,19 @@ export async function composeFrame(opts: {
   const { videos, mode, title, subtitle, canvas } = opts;
   canvas.width = OUT_W;
   canvas.height = OUT_H;
-  const n = Math.max(1, videos.length);
+  const banner = (ctx: CanvasRenderingContext2D) => drawBanner2d(ctx, title, subtitle);
 
   if (opts.backend === "webgpu") {
-    const ok = await drawWebGpu(canvas, videos, mode, title, subtitle);
+    const { drawWgpu } = await import("./gpu-compositor");
+    const ok = await drawWgpu(canvas, videos, mode, banner);
     if (ok) return { backend: "webgpu", ms: performance.now() - t0 };
+    return composeFrame({ ...opts, backend: "canvas2d" });
+  }
+
+  if (opts.backend === "webgpu-ts") {
+    const { drawWebGpuTs } = await import("./webgpu-ts");
+    const ok = await drawWebGpuTs(canvas, videos, mode, banner);
+    if (ok) return { backend: "webgpu-ts", ms: performance.now() - t0 };
     return composeFrame({ ...opts, backend: "canvas2d" });
   }
 
@@ -47,12 +62,13 @@ export async function composeFrame(opts: {
     const dst = ctx.createImageData(OUT_W, OUT_H);
     dst.data.fill(0);
     fillBg(dst.data, OUT_W, OUT_H, 11, 11, 13);
-    const rects = jsLayout(n, mode === "solo" ? 0 : mode === "side" ? 1 : mode === "screen" ? 3 : 2);
+    const rects = jsLayout(videos.length || 1, mode === "solo" ? 0 : mode === "side" ? 1 : mode === "screen" ? 3 : 2);
     const scratch = document.createElement("canvas");
     const sctx = scratch.getContext("2d", { willReadFrequently: true })!;
     videos.forEach((video, i) => {
       const r = rects[i];
-      if (!r || !video.videoWidth) return;
+      const { w } = sourceSize(video);
+      if (!r || !w) return;
       scratch.width = 640;
       scratch.height = 360;
       sctx.drawImage(video, 0, 0, 640, 360);
@@ -78,12 +94,13 @@ export async function composeFrame(opts: {
   const api = await loadWasm();
   const comp = wasmCompositorFor(api, OUT_W, OUT_H);
   comp.clear();
-  const rects = layoutRects(api, n, mode, OUT_W, OUT_H);
+  const rects = layoutRects(api, Math.max(1, videos.length), mode, OUT_W, OUT_H);
   const scratch = document.createElement("canvas");
   const sctx = scratch.getContext("2d", { willReadFrequently: true })!;
   videos.forEach((video, i) => {
     const r = rects[i];
-    if (!r || !video.videoWidth) return;
+    const { w } = sourceSize(video);
+    if (!r || !w) return;
     scratch.width = 640;
     scratch.height = 360;
     sctx.drawImage(video, 0, 0, 640, 360);
@@ -98,7 +115,7 @@ export async function composeFrame(opts: {
 
 async function drawCanvas2d(
   canvas: HTMLCanvasElement,
-  videos: HTMLVideoElement[],
+  videos: ComposeSource[],
   mode: LayoutMode,
   title: string,
   subtitle: string,
@@ -124,7 +141,8 @@ async function drawCanvas2d(
     ctx.beginPath();
     ctx.roundRect(r.x, r.y, r.w, r.h, 8);
     ctx.clip();
-    if (video.videoWidth) ctx.drawImage(video, r.x, r.y, r.w, r.h);
+    const { w } = sourceSize(video);
+    if (w) ctx.drawImage(video, r.x, r.y, r.w, r.h);
     else {
       ctx.fillStyle = "#22232b";
       ctx.fillRect(r.x, r.y, r.w, r.h);
@@ -162,151 +180,6 @@ function fillBg(data: Uint8ClampedArray, w: number, h: number, r: number, g: num
     data[o + 2] = b;
     data[o + 3] = 255;
   }
-}
-
-let gpuFail = false;
-
-async function drawWebGpu(
-  canvas: HTMLCanvasElement,
-  videos: HTMLVideoElement[],
-  mode: LayoutMode,
-  title: string,
-  subtitle: string,
-): Promise<boolean> {
-  if (gpuFail || !("gpu" in navigator)) return false;
-  try {
-    const gpu = (navigator as Navigator & { gpu?: GPU }).gpu;
-    if (!gpu) {
-      gpuFail = true;
-      return false;
-    }
-    const adapter = await gpu.requestAdapter();
-    if (!adapter) {
-      gpuFail = true;
-      return false;
-    }
-    const device = await adapter.requestDevice();
-    const gpuCanvas = document.createElement("canvas");
-    gpuCanvas.width = OUT_W;
-    gpuCanvas.height = OUT_H;
-    const ctx = gpuCanvas.getContext("webgpu");
-    if (!ctx) {
-      gpuFail = true;
-      return false;
-    }
-    const format = gpu.getPreferredCanvasFormat();
-    ctx.configure({ device, format, alphaMode: "opaque" });
-    const api = await loadWasm();
-    const rects = layoutRects(api, Math.max(1, videos.length), mode, 1, 1);
-
-    const shader = device.createShaderModule({
-      code: `
-struct VsOut {
-  @builtin(position) pos: vec4f,
-  @location(0) uv: vec2f,
-};
-@group(0) @binding(0) var samp: sampler;
-@group(0) @binding(1) var tex: texture_2d<f32>;
-@vertex fn vs(@builtin(vertex_index) i: u32, @location(0) rect: vec4f) -> VsOut {
-  var corners = array<vec2f, 6>(
-    vec2f(0.0, 0.0), vec2f(1.0, 0.0), vec2f(0.0, 1.0),
-    vec2f(0.0, 1.0), vec2f(1.0, 0.0), vec2f(1.0, 1.0)
-  );
-  let c = corners[i];
-  let x = rect.x + c.x * rect.z;
-  let y = rect.y + c.y * rect.w;
-  var out: VsOut;
-  out.pos = vec4f(x * 2.0 - 1.0, (1.0 - y) * 2.0 - 1.0, 0.0, 1.0);
-  out.uv = c;
-  return out;
-}
-@fragment fn fs(v: VsOut) -> @location(0) vec4f {
-  return textureSample(tex, samp, v.uv);
-}
-`,
-    });
-    const bgl = device.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-      ],
-    });
-    const pipeline = device.createRenderPipeline({
-      layout: device.createPipelineLayout({ bindGroupLayouts: [bgl] }),
-      vertex: {
-        module: shader,
-        entryPoint: "vs",
-        buffers: [
-          {
-            arrayStride: 16,
-            stepMode: "instance",
-            attributes: [{ shaderLocation: 0, offset: 0, format: "float32x4" }],
-          },
-        ],
-      },
-      fragment: { module: shader, entryPoint: "fs", targets: [{ format }] },
-      primitive: { topology: "triangle-list" },
-    });
-    const sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
-    const encoder = device.createCommandEncoder();
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [
-        {
-          view: ctx.getCurrentTexture().createView(),
-          loadOp: "clear",
-          storeOp: "store",
-          clearValue: { r: 0.043, g: 0.043, b: 0.051, a: 1 },
-        },
-      ],
-    });
-    pass.setPipeline(pipeline);
-
-    for (let i = 0; i < videos.length; i++) {
-      const video = videos[i]!;
-      const r = rects[i];
-      if (!r || !video.videoWidth) continue;
-      const texture = device.createTexture({
-        size: { width: video.videoWidth, height: video.videoHeight },
-        format: "rgba8unorm",
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
-      });
-      device.queue.copyExternalImageToTexture({ source: video }, { texture }, { width: video.videoWidth, height: video.videoHeight });
-      const bg = device.createBindGroup({
-        layout: bgl,
-        entries: [
-          { binding: 0, resource: sampler },
-          { binding: 1, resource: texture.createView() },
-        ],
-      });
-      const buf = device.createBuffer({
-        size: 16,
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-      });
-      device.queue.writeBuffer(buf, 0, new Float32Array([r.x, r.y, r.w, r.h]));
-      pass.setBindGroup(0, bg);
-      pass.setVertexBuffer(0, buf);
-      pass.draw(6, 1, 0, 0);
-    }
-    pass.end();
-    device.queue.submit([encoder.finish()]);
-    const dst = canvas.getContext("2d");
-    if (!dst) return false;
-    dst.drawImage(gpuCanvas, 0, 0);
-    drawBanner2d(dst, title, subtitle);
-    return true;
-  } catch (err) {
-    console.warn("webgpu compositor fallback", err);
-    gpuFail = true;
-    return false;
-  }
-}
-
-export function pickComposeBackend(): ComposeBackend {
-  const q = new URLSearchParams(location.search).get("compose");
-  if (q === "wasm" || q === "cpu") return "wasm-cpu";
-  if (q === "js") return "js-cpu";
-  if (q === "webgpu") return "webgpu";
-  return "canvas2d";
 }
 
 export function spawnComposeWorker(): Worker {

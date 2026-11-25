@@ -3,6 +3,9 @@ import { layoutToEgress } from "./types";
 import { publicError, START_EGRESS_TIMEOUT_MS } from "./egress";
 import { bytesToB64Url, hmacSha256B64Url, randomId, sha256hex, timingSafeEqual } from "./security";
 
+/** JWT mint/verify only needs the LiveKit API pair. */
+export type LivekitKeys = Pick<Env, "LIVEKIT_API_KEY" | "LIVEKIT_API_SECRET">;
+
 export { randomId, sha256hex };
 
 function jsonToB64Url(obj: unknown): string {
@@ -51,7 +54,7 @@ async function signJwt(
 }
 
 export async function mintParticipantToken(opts: {
-  env: Env;
+  env: LivekitKeys;
   identity: string;
   name: string;
   room: string;
@@ -269,7 +272,7 @@ export type ParticipantTokenClaims = {
 };
 
 /** Verify a LiveKit participant JWT (egress Chrome posts this on the heartbeat). */
-export async function verifyParticipantToken(env: Env, authorization: string | undefined): Promise<ParticipantTokenClaims | null> {
+export async function verifyParticipantToken(env: LivekitKeys, authorization: string | undefined): Promise<ParticipantTokenClaims | null> {
   if (!authorization) return null;
   const token = bearerToken(authorization);
   const parts = token.split(".");
@@ -296,7 +299,7 @@ export async function verifyParticipantToken(env: Env, authorization: string | u
   return { identity: claims.sub, room };
 }
 
-export async function verifyLivekitWebhook(env: Env, authorization: string | undefined, body: string): Promise<boolean> {
+export async function verifyLivekitWebhook(env: LivekitKeys, authorization: string | undefined, body: string): Promise<boolean> {
   if (!authorization) return false;
   const token = bearerToken(authorization);
   const parts = token.split(".");
@@ -321,7 +324,7 @@ export async function verifyLivekitWebhook(env: Env, authorization: string | und
   return timingEqual(claims.sha256, digest);
 }
 
-export async function signLivekitWebhook(env: Env, body: string): Promise<string> {
+export async function signLivekitWebhook(env: LivekitKeys, body: string): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const header = { alg: "HS256", typ: "JWT" };
   const claims = {

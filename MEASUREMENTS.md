@@ -106,7 +106,6 @@ What broke / was hard:
 What next (called out by the product-owner Rust/WASM direction, not done in v0):
 
 - Audio **VAD-driven** UI (worklet already posts VAD; studio chrome doesn’t show it yet).
-- **workers-rs** for hot Worker endpoints (`/api/token`, live start) instead of Hono/TS.
 - Dedicated Rust **RTMP fan-out** if we leave Cloudflare Stream unused in production (`casthop-post` is inspect/remux only).
 - Destination chat ingest, R2 replay viewer, TURN.
 
@@ -124,4 +123,47 @@ That runs `ffmpeg -af volumedetect` and fails if `mean_volume` is at or below �
 
 CI asserts the template source attaches audio (`el.muted = false` on `Track.Kind.Audio`) so a regression cannot drop the attach path without failing `bun test`.
 
-Raw command output from `bun run measure` / `bun run bench:wasm` is stored under `data/measure/` (gitignored).
+Raw command output from `bun run measure` / `bun run bench:wasm` / `bun run bench:worker` is stored under `data/measure/` (gitignored).
+
+## 8. workers-rs vs TypeScript (hot `/api`)
+
+Roadmap item 2. wrangler 4.168 on this VM, 2026-11-25. Isolated JWT Workers (`scripts/worker-bench` vs `crates/casthop-hot`) plus the live Hono Worker (`wrangler dev --assets dist/client`). Repeat with `bun run bench:worker` (Node fetch; Bun cannot reach miniflare — oven-sh/bun#39247).
+
+Hot routes (called per guest join, compositor poll, or LiveKit event):
+
+| Route | When | Work |
+|---|---|---|
+| `POST /api/studios/:id/token` | guest join + host refresh | rate limit (D1) + session + DO join + HS256 JWT |
+| `GET /api/studios/:id` | studio chrome + compositor ~1s | session + DO snapshot |
+| `POST /api/studios/:id/egress-beat` | compositor ~1s while live | participant JWT + DO |
+| `POST /api/livekit/webhook` | LiveKit / Egress events | webhook JWT + SHA-256 + DO |
+| `POST /api/studios/:id/live` | Go Live / stop | host session + DO + Egress HTTP |
+
+CPU on those paths is WebCrypto HMAC-SHA256. The rest is D1 / Durable Object I/O.
+
+Isolated JWT CPU (n=2000 in-isolate) and Worker RTT (n=200, warm=50):
+
+| Metric | TS Worker | workers-rs | Notes |
+|---|---|---|---|
+| JWT mint | **15.5 µs/op** | 13.0 µs/op | same HS256 claims as `worker/livekit.ts` |
+| JWT verify | **11.0 µs/op** | 11.5 µs/op | TS WebCrypto slightly faster |
+| webhook verify | 14.5 µs/op | **6.5 µs/op** | still microseconds |
+| `/api/health` p50 / p95 | **1.563 / 2.304 ms** | 1.735 / 2.587 ms | loopback RTT |
+| wrangler Ready | **1049 ms** | 2027 ms | first listen |
+| bundle | **178 KiB** (`dist/casthop/index.js`, whole Hono app) | 482 KiB (wasm + shim, JWT-only) | workers-rs ~3× larger for less code |
+
+JWTs cross-verify (TS mint ↔ Rust verify and the reverse). Unsigned webhook is 401 on both.
+
+Live Hono Worker (same box, n=10 token/live because `TOKEN_MINT_MAX` is 20/studio/min; other routes n=40):
+
+| Route | p50 | p95 |
+|---|---|---|
+| `GET /api/health` | 3.487 ms | 4.357 ms |
+| `GET /api/config` | 2.713 ms | 3.618 ms |
+| `POST /api/studios/:id/token` | 6.714 ms | 9.169 ms |
+| `GET /api/studios/:id` | 5.562 ms | 6.801 ms |
+| `POST /api/studios/:id/live` (stop) | 7.290 ms | 8.759 ms |
+| `POST /api/studios/:id/egress-beat` | 3.902 ms | 5.201 ms |
+| `POST /api/livekit/webhook` | 4.378 ms | 5.276 ms |
+
+All under the **< 10 ms Worker HTTP glue** budget. JWT is tens of microseconds; the request is D1/DO. workers-rs does not win on CPU that matters, cold start, or bundle size, and a second Worker would duplicate auth. **Keep the live routes in Hono/TypeScript.** `crates/casthop-hot` is the comparison harness, not the live path.

@@ -1,0 +1,13 @@
+{
+  "name": "casthop-hot",
+  "main": "build/worker/shim.mjs",
+  "compatibility_date": "2025-10-08",
+  "build": {
+    "command": "worker-build --release"
+  },
+  "vars": {
+    // Same published local pair as .dev.vars.example. Bench-only Worker, not deployed.
+    "LIVEKIT_API_KEY": "devkey",
+    "LIVEKIT_API_SECRET": "casthop_dev_secret_not_for_production_use_32b"
+  }
+}

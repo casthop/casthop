@@ -25,3 +25,15 @@ CLI for recordings. Do not turn it into the live fan-out path without measuremen
 ```bash
 cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
 ```
+
+## casthop-hot
+
+Separate Cargo workspace (not a root member). workers-rs 0.6.7 + `worker-build` 0.1.12 on rustc 1.83; worker 0.9 wants a newer compiler. Comparison harness only — live `/api` stays on the Hono Worker. JWT claims match `worker/livekit.ts`.
+
+```bash
+cargo test --manifest-path crates/casthop-hot/Cargo.toml
+cargo fmt --manifest-path crates/casthop-hot/Cargo.toml -- --check
+cargo clippy --manifest-path crates/casthop-hot/Cargo.toml --all-targets --no-deps -- -D warnings
+cargo clippy --manifest-path crates/casthop-hot/Cargo.toml --target wasm32-unknown-unknown --no-deps -- -D warnings
+bun run bench:worker
+```

@@ -45,7 +45,7 @@ Cloudflare Stream Live needs a Cloudflare account with Stream enabled, and Strea
 
 ## Control plane
 
-The app is a Hono Worker with one Durable Object per studio (stage, layout, chat, destinations) and D1 for the studio index. R2 is bound as a seam for replays, and version 0 recordings stay on the Egress volume. Hot Worker endpoints are TypeScript for now, and a workers-rs port is a next step.
+The app is a Hono Worker with one Durable Object per studio (stage, layout, chat, destinations) and D1 for the studio index. R2 is bound as a seam for replays, and version 0 recordings stay on the Egress volume. Hot Worker endpoints stay TypeScript; a workers-rs port was measured and did not win (see `MEASUREMENTS.md`).
 
 ## casthop-post
 

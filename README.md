@@ -30,7 +30,7 @@ LiveKit Egress (custom /egress-template)             Durable Object
 
 **Why not Cloudflare Stream Live for fan-out?** Stream Live ingest and simulcast outputs need a Cloudflare account with Stream enabled. Stream storage is prepaid; running out blocks new live inputs. This prototype does not sign up for paid services. Egress already transcodes once and can emit many RTMP URLs from that encode, which is the right self-host path. Hosted Casthop can still put a single RTMP into Stream later if Stream’s delivery math wins; see `MEASUREMENTS.md`.
 
-**Cloudflare pieces in this repo:** the app is a Worker (Hono) with a Durable Object per studio and D1 for the studio index. Local `bun run dev` runs that stack through the Cloudflare Vite plugin. R2 is bound and left as the replay archive seam; v0 recordings stay on the Egress volume. Hot Worker endpoints are still TypeScript; a workers-rs port is a next step.
+**Cloudflare pieces in this repo:** the app is a Worker (Hono) with a Durable Object per studio and D1 for the studio index. Local `bun run dev` runs that stack through the Cloudflare Vite plugin. R2 is bound and left as the replay archive seam; v0 recordings stay on the Egress volume. Hot Worker endpoints stay TypeScript; a workers-rs port was measured (`bun run bench:worker`) and did not win on CPU, cold start, or bundle size (see MEASUREMENTS.md).
 
 **LiveKit stays the SFU** (Go). It is already the fast path. The LiveKit Rust SDK is unused in v0.
 
@@ -78,6 +78,8 @@ Health: [http://127.0.0.1:5173/api/health](http://127.0.0.1:5173/api/health)
 Latency probe: [http://127.0.0.1:5173/internal/probe](http://127.0.0.1:5173/internal/probe)
 
 WASM vs JS bench: [http://127.0.0.1:5173/internal/bench](http://127.0.0.1:5173/internal/bench) or `bun run bench:wasm`
+
+Worker JWT CPU (TypeScript vs workers-rs, wrangler locally): `bun run bench:worker`
 
 Load measurement (2 / 4 / 6 publishers + Go Live):
 
@@ -142,7 +144,7 @@ Background blur vendors Google’s [MediaPipe Selfie Segmenter](https://github.c
 Done in this prototype: custom compositor page with WASM layout, RNNoise in an AudioWorklet, `casthop-post` for recordings, measurements vs JS.
 
 1. Camera background blur ships. WebGPU compositor is in `casthop-media` behind `?compose=webgpu`; Canvas2D stays the live default (see MEASUREMENTS.md).
-2. workers-rs for hot `/api` endpoints.
+2. ~~workers-rs for hot `/api` endpoints~~ — measured; keep TypeScript ([MEASUREMENTS.md](MEASUREMENTS.md) §8).
 3. Destination chat ingest (YouTube liveChat, LinkedIn, X).
 4. R2 replay viewer; HLS from R2 instead of Stream for public VODs.
 5. ~~Auth (email) and studio list~~ — accounts, magic link, optional GitHub, owner/co-host sessions.

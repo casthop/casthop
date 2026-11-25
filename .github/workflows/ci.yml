@@ -20,6 +20,7 @@ jobs:
         with:
           components: rustfmt
       - run: cargo fmt -p casthop-media -p casthop-post -- --check
+      - run: cargo fmt --manifest-path crates/casthop-hot/Cargo.toml -- --check
 
   typecheck:
     runs-on: ubuntu-latest
@@ -44,8 +45,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.83.0
         with:
           components: clippy
+          targets: wasm32-unknown-unknown
       - run: cargo test -p casthop-media -p casthop-post
       - run: cargo clippy -p casthop-media -p casthop-post --all-targets --no-deps -- -D warnings
+      - run: cargo test --manifest-path crates/casthop-hot/Cargo.toml
+      - run: cargo clippy --manifest-path crates/casthop-hot/Cargo.toml --all-targets --no-deps -- -D warnings
+      - run: cargo clippy --manifest-path crates/casthop-hot/Cargo.toml --target wasm32-unknown-unknown --no-deps -- -D warnings
 
   wasm:
     runs-on: ubuntu-latest
@@ -68,6 +73,7 @@ jobs:
         with:
           tool: cargo-audit
       - run: cargo audit
+      - run: cargo audit --manifest-path crates/casthop-hot/Cargo.toml
 
   perf:
     runs-on: ubuntu-latest

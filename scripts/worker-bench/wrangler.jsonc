@@ -1,0 +1,11 @@
+{
+  "name": "casthop-ts-hot",
+  "main": "ts-hot.ts",
+  "compatibility_date": "2025-10-08",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    // Same published local pair as .dev.vars.example. Bench-only Worker, not deployed.
+    "LIVEKIT_API_KEY": "devkey",
+    "LIVEKIT_API_SECRET": "casthop_dev_secret_not_for_production_use_32b"
+  }
+}

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
+  ConnectionState,
   LocalParticipant,
   RemoteParticipant,
   Room,
@@ -8,7 +9,7 @@ import {
   Track,
   VideoPresets,
 } from "livekit-client";
-import { Mic, MicOff, MonitorUp, UserPlus, Video, VideoOff } from "lucide-react";
+import { Aperture, Mic, MicOff, MonitorUp, UserPlus, Video, VideoOff } from "lucide-react";
 import { Logo } from "../components/Logo";
 import { VideoTile } from "../components/VideoTile";
 import {
@@ -26,6 +27,8 @@ import {
   type StudioMember,
   type StudioView,
 } from "../lib/api";
+import { loadBlurPref, saveBlurPrefPair } from "../lib/blur-prefs";
+import { startCameraBlur, type CameraBlurHandle } from "../lib/camera-blur";
 import { mediaPipeline } from "../lib/effects";
 import { hueFor, openUserMedia } from "../lib/media";
 import { loadSession, saveSession } from "../lib/session";
@@ -84,6 +87,7 @@ function DestBadge({ kind }: { kind: string }) {
 export function Studio() {
   const { id = "" } = useParams();
   const publishingRef = useRef(false);
+  const studioLiveRef = useRef(true);
 
   const [studio, setStudio] = useState<StudioView | null>(null);
   const isHost = studio?.viewerRole === "owner" || studio?.viewerRole === "cohost";
@@ -91,6 +95,10 @@ export function Studio() {
   const [peers, setPeers] = useState<(RemoteParticipant | LocalParticipant)[]>([]);
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
+  const [blurOn, setBlurOn] = useState(false);
+  const [blurBusy, setBlurBusy] = useState(false);
+  const originalVideoRef = useRef<MediaStreamTrack | null>(null);
+  const blurHandleRef = useRef<CameraBlurHandle | null>(null);
   const [error, setError] = useState("");
   const [chatDraft, setChatDraft] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -104,6 +112,11 @@ export function Studio() {
     const t = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    const saved = loadSession(id);
+    setBlurOn(loadBlurPref(saved?.cameraId ?? ""));
+  }, [id]);
 
   useEffect(() => {
     let closed = false;
@@ -144,6 +157,7 @@ export function Studio() {
   }, [id]);
 
   useEffect(() => {
+    studioLiveRef.current = true;
     let cancelled = false;
     let current: Room | null = null;
     let refreshTimer = 0;
@@ -252,6 +266,11 @@ export function Studio() {
     })().catch((err) => setError(err instanceof Error ? err.message : "Could not connect"));
     return () => {
       cancelled = true;
+      studioLiveRef.current = false;
+      blurHandleRef.current?.stop();
+      blurHandleRef.current = null;
+      originalVideoRef.current?.stop();
+      originalVideoRef.current = null;
       window.clearTimeout(refreshTimer);
       current?.disconnect();
     };
@@ -280,27 +299,68 @@ export function Studio() {
 
   const backstage = studio?.participants ?? [];
 
+  function studioOpen(lk: Room): boolean {
+    return studioLiveRef.current && lk.state !== ConnectionState.Disconnected;
+  }
+
   async function publishLocal(lk: Room) {
     if (publishingRef.current) return;
     if (lk.localParticipant.getTrackPublication(Track.Source.Camera)?.track) return;
     publishingRef.current = true;
+    let raw: MediaStream | null = null;
+    let processed: MediaStream | null = null;
+    let handle: CameraBlurHandle | undefined;
+    let published = false;
     try {
       const saved = loadSession(id);
-      const raw = await openUserMedia({ cameraId: saved?.cameraId, micId: saved?.micId });
-      const processed = await mediaPipeline.process(raw);
+      raw = await openUserMedia({ cameraId: saved?.cameraId, micId: saved?.micId });
+      if (!studioOpen(lk)) return;
+      processed = await mediaPipeline.process(raw);
+      if (!studioOpen(lk)) return;
       const video = processed.getVideoTracks()[0];
       if (video) {
-        await lk.localParticipant.publishTrack(video, {
+        originalVideoRef.current = video;
+        const settingsId = video.getSettings().deviceId ?? "";
+        const wantBlur = loadBlurPref(saved?.cameraId ?? "", settingsId);
+        setBlurOn(wantBlur);
+        let publishVideo = video;
+        if (wantBlur) {
+          try {
+            handle = await startCameraBlur(video);
+            if (!studioOpen(lk)) return;
+            blurHandleRef.current?.stop();
+            blurHandleRef.current = handle;
+            publishVideo = handle.track;
+            handle = undefined;
+          } catch (err) {
+            handle?.stop();
+            handle = undefined;
+            console.warn("casthop blur", err);
+            setBlurOn(false);
+            setError(err instanceof Error ? err.message : "Blur failed");
+          }
+        }
+        if (!studioOpen(lk)) return;
+        await lk.localParticipant.publishTrack(publishVideo, {
           source: Track.Source.Camera,
           simulcast: true,
         });
       }
       const audio = processed.getAudioTracks()[0];
-      if (audio) {
+      if (audio && studioOpen(lk)) {
         await lk.localParticipant.publishTrack(audio, { source: Track.Source.Microphone });
       }
+      published = studioOpen(lk);
     } finally {
       publishingRef.current = false;
+      if (!published) {
+        handle?.stop();
+        blurHandleRef.current?.stop();
+        blurHandleRef.current = null;
+        originalVideoRef.current = null;
+        processed?.getTracks().forEach((t) => t.stop());
+        raw?.getTracks().forEach((t) => t.stop());
+      }
     }
   }
 
@@ -314,6 +374,44 @@ export function Studio() {
     const next = !camOn;
     setCamOn(next);
     await room?.localParticipant.setCameraEnabled(next);
+  }
+
+  async function toggleBlur() {
+    if (blurBusy) return;
+    const next = !blurOn;
+    const savedId = loadSession(id)?.cameraId ?? "";
+    const deviceId = originalVideoRef.current?.getSettings().deviceId ?? savedId;
+    saveBlurPrefPair(deviceId, savedId, next);
+    setBlurOn(next);
+    const local = room?.localParticipant.getTrackPublication(Track.Source.Camera)?.videoTrack;
+    const original = originalVideoRef.current;
+    if (!local || !original) return;
+    setBlurBusy(true);
+    let handle: CameraBlurHandle | undefined;
+    try {
+      if (next) {
+        handle = await startCameraBlur(original);
+        if (!studioLiveRef.current) {
+          handle.stop();
+          return;
+        }
+        await local.replaceTrack(handle.track, { userProvidedTrack: true });
+        blurHandleRef.current?.stop();
+        blurHandleRef.current = handle;
+        handle = undefined;
+      } else {
+        await local.replaceTrack(original, { userProvidedTrack: true });
+        blurHandleRef.current?.stop();
+        blurHandleRef.current = null;
+      }
+    } catch (err) {
+      handle?.stop();
+      setError(err instanceof Error ? err.message : "Blur failed");
+      setBlurOn(!next);
+      saveBlurPrefPair(deviceId, savedId, !next);
+    } finally {
+      setBlurBusy(false);
+    }
   }
 
   async function shareScreen() {
@@ -518,6 +616,15 @@ export function Studio() {
             </button>
             <button className={`ctrl ${camOn ? "" : "off"}`} type="button" onClick={toggleCam}>
               {camOn ? <Video size={16} /> : <VideoOff size={16} />} Camera
+            </button>
+            <button
+              className={`ctrl ${blurOn ? "" : "off"}`}
+              type="button"
+              onClick={() => void toggleBlur()}
+              aria-pressed={blurOn}
+              disabled={blurBusy}
+            >
+              <Aperture size={16} /> Blur
             </button>
             <button className="ctrl" type="button" onClick={shareScreen}>
               <MonitorUp size={16} /> Share screen

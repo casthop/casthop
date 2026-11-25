@@ -17,6 +17,7 @@
     reason = "glyph rows are bitmaps indexed by row and column"
 )]
 
+mod blur;
 mod compose;
 mod denoise;
 mod layout;
@@ -24,6 +25,7 @@ mod meter;
 
 use std::cell::RefCell;
 
+use blur::Pipeline;
 use compose::Compositor;
 use denoise::Denoiser;
 
@@ -32,6 +34,7 @@ const FRAME: usize = denoise::FRAME_SIZE;
 struct World {
     denoisers: Vec<Denoiser>,
     compositors: Vec<Compositor>,
+    blurs: Vec<Option<Pipeline>>,
 }
 
 impl World {
@@ -39,6 +42,7 @@ impl World {
         Self {
             denoisers: Vec::new(),
             compositors: Vec::new(),
+            blurs: Vec::new(),
         }
     }
 }
@@ -51,6 +55,20 @@ fn with_world<T>(f: impl FnOnce(&mut World) -> T) -> T {
     WORLD.with(|w| f(&mut w.borrow_mut()))
 }
 
+fn blur_mut(w: &mut World, handle: u32) -> Option<&mut Pipeline> {
+    w.blurs
+        .get_mut(handle.wrapping_sub(1) as usize)
+        .and_then(Option::as_mut)
+}
+
+fn buf_ptr(buf: &mut [u8]) -> u32 {
+    if buf.is_empty() {
+        0
+    } else {
+        buf.as_mut_ptr() as u32
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn casthop_frame_size() -> u32 {
     FRAME as u32
@@ -58,7 +76,7 @@ pub extern "C" fn casthop_frame_size() -> u32 {
 
 #[no_mangle]
 pub extern "C" fn casthop_version() -> u32 {
-    1
+    2
 }
 
 #[no_mangle]
@@ -262,6 +280,71 @@ pub extern "C" fn casthop_compose_free(handle: u32) {
     });
 }
 
+#[no_mangle]
+pub extern "C" fn casthop_blur_new() -> u32 {
+    with_world(|w| {
+        if let Some(i) = w.blurs.iter().position(Option::is_none) {
+            w.blurs[i] = Some(Pipeline::empty());
+            return (i + 1) as u32;
+        }
+        w.blurs.push(Some(Pipeline::empty()));
+        w.blurs.len() as u32
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn casthop_blur_setup(
+    handle: u32,
+    width: u32,
+    height: u32,
+    mask_w: u32,
+    mask_h: u32,
+    radius: u32,
+    temporal: u32,
+) -> u32 {
+    with_world(|w| {
+        blur_mut(w, handle).map_or(0, |b| {
+            u32::from(b.setup(width, height, mask_w, mask_h, radius, temporal))
+        })
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn casthop_blur_frame_ptr(handle: u32) -> u32 {
+    with_world(|w| blur_mut(w, handle).map_or(0, |b| buf_ptr(&mut b.frame)))
+}
+
+#[no_mangle]
+pub extern "C" fn casthop_blur_frame_len(handle: u32) -> u32 {
+    with_world(|w| blur_mut(w, handle).map_or(0, |b| b.frame.len() as u32))
+}
+
+#[no_mangle]
+pub extern "C" fn casthop_blur_mask_ptr(handle: u32) -> u32 {
+    with_world(|w| blur_mut(w, handle).map_or(0, |b| buf_ptr(&mut b.mask)))
+}
+
+#[no_mangle]
+pub extern "C" fn casthop_blur_mask_len(handle: u32) -> u32 {
+    with_world(|w| blur_mut(w, handle).map_or(0, |b| b.mask.len() as u32))
+}
+
+/// Smooth the person mask, blur the background, composite in-place on the frame buffer.
+#[no_mangle]
+pub extern "C" fn casthop_blur_process(handle: u32) -> u32 {
+    with_world(|w| blur_mut(w, handle).map_or(0, |b| u32::from(b.process())))
+}
+
+#[no_mangle]
+pub extern "C" fn casthop_blur_free(handle: u32) {
+    with_world(|w| {
+        let i = handle.wrapping_sub(1) as usize;
+        if i < w.blurs.len() {
+            w.blurs[i] = None;
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,5 +365,36 @@ mod tests {
         assert!(p != 0);
         let vad = casthop_denoise_process(h);
         assert!(vad <= 10_000);
+    }
+
+    #[test]
+    fn blur_handle_and_bad_id() {
+        let h = casthop_blur_new();
+        assert!(h >= 1);
+        assert_eq!(casthop_blur_process(0), 0);
+        assert_eq!(casthop_blur_frame_ptr(99_999), 0);
+        assert_eq!(casthop_blur_frame_ptr(h), 0);
+        assert_eq!(casthop_blur_setup(h, 64, 64, 16, 16, 24, 0), 1);
+        assert!(casthop_blur_frame_ptr(h) != 0);
+        assert!(casthop_blur_mask_ptr(h) != 0);
+        assert_eq!(casthop_blur_process(h), 1);
+        casthop_blur_free(h);
+    }
+
+    #[test]
+    fn blur_free_drops_buffers_and_new_reuses_slot() {
+        let a = casthop_blur_new();
+        let b = casthop_blur_new();
+        assert_ne!(a, b);
+        assert_eq!(casthop_blur_setup(a, 64, 64, 16, 16, 24, 0), 1);
+        assert!(casthop_blur_frame_len(a) > 0);
+        casthop_blur_free(a);
+        assert_eq!(casthop_blur_frame_len(a), 0);
+        assert_eq!(casthop_blur_process(a), 0);
+        let reused = casthop_blur_new();
+        assert_eq!(reused, a);
+        let c = casthop_blur_new();
+        assert_ne!(c, b);
+        assert_ne!(c, reused);
     }
 }

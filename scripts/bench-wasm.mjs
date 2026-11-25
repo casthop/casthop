@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { cpuUsage } from "node:process";
+import { jsBlurComposite } from "../src/lib/js-pipeline.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const wasmPath = join(root, "src/wasm/casthop_media.wasm");
@@ -117,6 +118,62 @@ for (let n = 0; n < composeFrames; n++) {
 const jsComposeMs = performance.now() - t3;
 const cpuJsCompose = cpuUsage(cpu3);
 
+const blurW = 1280;
+const blurH = 720;
+const blurFrame = new Uint8Array(blurW * blurH * 4);
+const blurMask = new Uint8Array(256 * 144);
+for (let i = 0; i < blurW * blurH; i++) {
+  const x = i % blurW;
+  const y = (i / blurW) | 0;
+  const o = i * 4;
+  const on = ((x >> 3) + (y >> 3)) & 1;
+  blurFrame[o] = on ? 240 : 20;
+  blurFrame[o + 1] = 80;
+  blurFrame[o + 2] = on ? 20 : 200;
+  blurFrame[o + 3] = 255;
+}
+for (let y = 0; y < 144; y++) {
+  for (let x = 0; x < 256; x++) {
+    const cx = x - 128;
+    const cy = y - 72;
+    blurMask[y * 256 + x] = cx * cx + cy * cy < 50 * 50 ? 255 : 0;
+  }
+}
+const blurHandle = exp.casthop_blur_new();
+exp.casthop_blur_setup(blurHandle, blurW, blurH, 256, 144, 24, 0);
+const blurFrames = 30;
+for (let n = 0; n < 2; n++) {
+  const fp = exp.casthop_blur_frame_ptr(blurHandle);
+  const mp = exp.casthop_blur_mask_ptr(blurHandle);
+  new Uint8Array(exp.memory.buffer, fp, blurFrame.length).set(blurFrame);
+  new Uint8Array(exp.memory.buffer, mp, blurMask.length).set(blurMask);
+  exp.casthop_blur_process(blurHandle);
+}
+const cpu4 = cpuUsage();
+const t4 = performance.now();
+for (let n = 0; n < blurFrames; n++) {
+  const fp = exp.casthop_blur_frame_ptr(blurHandle);
+  const mp = exp.casthop_blur_mask_ptr(blurHandle);
+  new Uint8Array(exp.memory.buffer, fp, blurFrame.length).set(blurFrame);
+  new Uint8Array(exp.memory.buffer, mp, blurMask.length).set(blurMask);
+  exp.casthop_blur_process(blurHandle);
+}
+const wasmBlurMs = performance.now() - t4;
+const cpuWasmBlur = cpuUsage(cpu4);
+
+const jsBlurScratch = blurFrame.slice();
+const jsBlurState = { smooth: null, feather: null, down: null, tmp: null };
+jsBlurScratch.set(blurFrame);
+jsBlurComposite(jsBlurScratch, blurW, blurH, blurMask, 256, 144, 24, 0, jsBlurState);
+const cpu5 = cpuUsage();
+const t5 = performance.now();
+for (let n = 0; n < blurFrames; n++) {
+  jsBlurScratch.set(blurFrame);
+  jsBlurComposite(jsBlurScratch, blurW, blurH, blurMask, 256, 144, 24, 0, jsBlurState);
+}
+const jsBlurMs = performance.now() - t5;
+const cpuJsBlur = cpuUsage(cpu5);
+
 const out = {
   wasmBytes: bytes.length,
   wasmKiB: +(bytes.length / 1024).toFixed(1),
@@ -136,6 +193,15 @@ const out = {
     speedup: jsComposeMs / wasmComposeMs,
     wasmCpuMs: (cpuWasmCompose.user + cpuWasmCompose.system) / 1000,
     jsCpuMs: (cpuJsCompose.user + cpuJsCompose.system) / 1000,
+  },
+  blur: {
+    frames: blurFrames,
+    size: "1280x720 mask 256x144",
+    wasmMsPerFrame: wasmBlurMs / blurFrames,
+    jsMsPerFrame: jsBlurMs / blurFrames,
+    speedup: jsBlurMs / wasmBlurMs,
+    wasmCpuMs: (cpuWasmBlur.user + cpuWasmBlur.system) / 1000,
+    jsCpuMs: (cpuJsBlur.user + cpuJsBlur.system) / 1000,
   },
 };
 

@@ -69,7 +69,8 @@ Budgets from `MEASUREMENTS.md`. Beat them, or record why not:
 |---|---|---|
 | Denoise | < 1 ms / 10 ms frame | WASM RNNoise 0.088 ms |
 | CPU compose blit | not on the live path if ≥ 8 ms/frame @ 1280×720 | WASM ~5.4 ms, JS ~4.1 ms; live is Canvas2D |
-| WASM binary | < 500 KiB, zero imports | ~374 KiB |
+| WASM binary | < 500 KiB, zero imports | ~385 KiB |
+| Camera blur 1280×720 | < 33 ms/frame (30 fps) | WASM 14.2 ms, JS 14.1 ms |
 | Worker HTTP glue | < 10 ms CPU | Cloudflare Worker CPU |
 | Durable Object write | < 50 ms | stage / live / destinations |
 | Glass-to-glass (loopback) | p50 < 80 ms | 45 ms |

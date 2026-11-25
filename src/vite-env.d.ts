@@ -9,3 +9,8 @@ declare module "*.js?url" {
   const src: string;
   export default src;
 }
+
+declare module "*.tflite?url" {
+  const src: string;
+  export default src;
+}

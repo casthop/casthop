@@ -1,0 +1,12 @@
+MediaPipe Selfie Segmenter (landscape, float16)
+Copyright 2023 Google LLC
+
+Licensed under the Apache License, Version 2.0.
+https://github.com/google-ai-edge/mediapipe
+
+Model:
+https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter_landscape/float16/latest/selfie_segmenter_landscape.tflite
+
+Apache-2.0 is compatible with Casthop's AGPL-3.0-only license. This model
+and `@mediapipe/tasks-vision` stay Apache-2.0. The runtime WASM is loaded
+from the npm package only when background blur is turned on.

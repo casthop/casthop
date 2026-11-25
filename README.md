@@ -110,11 +110,13 @@ The local compose file is the media plane. The Worker is the control plane. They
 
 `crates/vendor/nnnoiseless` is [BSD-3-Clause](crates/vendor/nnnoiseless/COPYING) (Xiph RNNoise via [nnnoiseless](https://github.com/jneem/nnnoiseless)).
 
+Background blur vendors Google’s [MediaPipe Selfie Segmenter](https://github.com/google-ai-edge/mediapipe) landscape float16 model ([Apache-2.0](src/vendor/mediapipe/LICENSE)). Compatible with this repo’s AGPL-3.0-only license; the model stays Apache-2.0. `@mediapipe/tasks-vision` and its WASM runtime load only when blur is on, from this origin (no CDN).
+
 ## Roadmap
 
 Done in this prototype: custom compositor page with WASM layout, RNNoise in an AudioWorklet, `casthop-post` for recordings, measurements vs JS.
 
-1. wgpu inside `casthop-media` (today WebGPU is TS + WASM rects) and camera background blur.
+1. wgpu inside `casthop-media` (today WebGPU is TS + WASM rects) and camera background blur (blur toggle ships; wgpu compositor is still next).
 2. workers-rs for hot `/api` endpoints.
 3. Destination chat ingest (YouTube liveChat, LinkedIn, X).
 4. R2 replay viewer; HLS from R2 instead of Stream for public VODs.

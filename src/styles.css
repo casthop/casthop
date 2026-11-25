@@ -824,6 +824,10 @@ a {
   place-items: center;
 }
 
+.cam-tools button.on {
+  background: var(--accent);
+}
+
 .levels {
   position: absolute;
   right: 14px;

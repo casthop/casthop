@@ -62,11 +62,12 @@ test("comparePerf fails only on gated metrics beyond 15%", () => {
   assert.equal(failFrame.ok, false);
   const failTasks = comparePerf({ ...sample, longTaskTotalMs: 400 }, baseline);
   assert.equal(failTasks.ok, false);
-  const gha = comparePerf({ ...sample, p95FrameMs: 13, longTaskTotalMs: 121 }, {
+  const gha = comparePerf({ ...sample, p95FrameMs: 24.2, longTaskTotalMs: 0 }, {
     ...baseline,
-    p50FrameMs: 9,
-    p95FrameMs: 13,
-    longTaskTotalMs: 120,
+    p50FrameMs: 16.9,
+    p95FrameMs: 24.2,
+    longTaskCount: 0,
+    longTaskTotalMs: 0,
   });
   assert.equal(gha.ok, true);
   const table = formatPerfTable(ok.rows);

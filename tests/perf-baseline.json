@@ -5,11 +5,11 @@
   "tiles": 6,
   "backend": "canvas2d",
   "thread": "worker",
-  "p50FrameMs": 9,
-  "p95FrameMs": 13,
+  "p50FrameMs": 16.9,
+  "p95FrameMs": 24.2,
   "droppedFrames": 0,
-  "longTaskCount": 1,
-  "longTaskTotalMs": 120,
-  "inputLatencyP95Ms": 45,
-  "notes": "GitHub Actions ubuntu, Chrome 158 headless --disable-gpu, 6 canvas tiles + overlay, OffscreenCanvas worker. Local VM was faster (p95 11.6 ms, 0 long tasks)."
+  "longTaskCount": 0,
+  "longTaskTotalMs": 0,
+  "inputLatencyP95Ms": 5,
+  "notes": "GitHub Actions ubuntu, Chrome 158 headless --disable-gpu, 6 canvas tiles + overlay, OffscreenCanvas worker at display-rate preview (1285 frames / 30 s ≈ 43 fps; compose is CPU-bound on the runner). Output track stays 30 fps. Long tasks counted after 3 s warmup."
 }

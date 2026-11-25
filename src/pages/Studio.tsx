@@ -315,18 +315,21 @@ export function Studio() {
     const original = originalVideoRef.current;
     if (!local || !original) return;
     setBlurBusy(true);
+    let handle: CameraBlurHandle | undefined;
     try {
       if (next) {
-        const handle = await startCameraBlur(original);
+        handle = await startCameraBlur(original);
         await local.replaceTrack(handle.track, { userProvidedTrack: true });
         blurHandleRef.current?.stop();
         blurHandleRef.current = handle;
+        handle = undefined;
       } else {
         await local.replaceTrack(original, { userProvidedTrack: true });
         blurHandleRef.current?.stop();
         blurHandleRef.current = null;
       }
     } catch (err) {
+      handle?.stop();
       setError(err instanceof Error ? err.message : "Blur failed");
       setBlurOn(!next);
       saveBlurPref(deviceId, !next);

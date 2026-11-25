@@ -120,16 +120,20 @@ export async function startCameraBlur(
         return;
       }
       lastTs = ts;
-      ctx.drawImage(video, 0, 0, width, height);
-      if (liveSegmenter.segment(video, ts)) {
-        if (liveSegmenter.maskWidth !== maskW || liveSegmenter.maskHeight !== maskH) {
-          maskW = liveSegmenter.maskWidth;
-          maskH = liveSegmenter.maskHeight;
-          liveComposite.setup(width, height, maskW, maskH);
+      try {
+        ctx.drawImage(video, 0, 0, width, height);
+        if (liveSegmenter.segment(video, ts)) {
+          if (liveSegmenter.maskWidth !== maskW || liveSegmenter.maskHeight !== maskH) {
+            maskW = liveSegmenter.maskWidth;
+            maskH = liveSegmenter.maskHeight;
+            liveComposite.setup(width, height, maskW, maskH);
+          }
+          const frame = ctx.getImageData(0, 0, width, height);
+          liveComposite.process(frame.data, liveSegmenter.mask, maskW, maskH);
+          ctx.putImageData(frame, 0, 0);
         }
-        const frame = ctx.getImageData(0, 0, width, height);
-        liveComposite.process(frame.data, liveSegmenter.mask, maskW, maskH);
-        ctx.putImageData(frame, 0, 0);
+      } catch (err) {
+        console.warn("casthop blur", err);
       }
       schedule(tick);
     };

@@ -26,6 +26,8 @@ let egressStops = 0;
 let streamUpdates = 0;
 let listedParticipants: { identity: string }[] = [{ identity: "host" }];
 let listedEgress: unknown = { items: [] };
+let listEgressHold: Promise<void> | null = null;
+let listEgressStarted: (() => void) | null = null;
 const realFetch = globalThis.fetch;
 
 function fakeCtx(): DurableObjectState {
@@ -143,6 +145,8 @@ before(() => {
       return new Response("{}", { status: 200 });
     }
     if (url.includes("ListEgress")) {
+      listEgressStarted?.();
+      if (listEgressHold) await listEgressHold;
       return new Response(JSON.stringify(listedEgress), { status: 200 });
     }
     if (url.includes("ListParticipants")) {
@@ -280,6 +284,42 @@ test("studioHasPeople ignores compositor identities", () => {
   assert.equal(studioHasPeople(["host"]), true);
   assert.equal(studioHasPeople(["EG_abc", "egress-chrome"]), false);
   assert.equal(studioHasPeople([]), false);
+});
+
+test("two overlapping go-live calls start only one compositor", async () => {
+  listedParticipants = [{ identity: "host" }];
+  listedEgress = { items: [] };
+  const env = makeEnv();
+  const { id, hostKey } = await createStudio(env);
+  const starts = egressStarts;
+  let release!: () => void;
+  listEgressHold = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const sawList = new Promise<void>((resolve) => {
+    listEgressStarted = resolve;
+  });
+  const first = app.request(
+    `https://casthop.test/api/studios/${id}/live`,
+    { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+    env,
+  );
+  try {
+    await sawList;
+    const second = await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      env,
+    );
+    assert.equal(second.status, 409, await second.clone().text());
+    release();
+    const go = await first;
+    assert.equal(go.status, 200, await go.clone().text());
+    assert.equal(egressStarts, starts + 1);
+  } finally {
+    listEgressHold = null;
+    listEgressStarted = null;
+  }
 });
 
 test("go live waits until someone is in the LiveKit room", async () => {

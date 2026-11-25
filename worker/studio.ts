@@ -54,6 +54,7 @@ type Incoming =
   | { type: "ping" };
 
 export class StudioDurableObject {
+  private launching = false;
   ctx: DurableObjectState;
   env: Env;
   private chatHits = new Map<string, { n: number; t: number }>();
@@ -363,12 +364,27 @@ export class StudioDurableObject {
       await this.scheduleWatch(Date.now() + WATCH_MS);
       return json(publicState(state, { includeUrls: true }));
     }
-    if (!fromWatch && claimIsHeld(state.liveStartingAt) && !state.wantLive) {
+    const claimed = claimIsHeld(state.liveStartingAt) && !state.egressId;
+    if (!fromWatch && (this.launching || claimed || (claimIsHeld(state.liveStartingAt) && !state.wantLive))) {
       return json({ error: "already starting" }, 409);
     }
-    if (!fromWatch && claimIsHeld(state.liveStartingAt) && !state.egressId) {
-      return json({ error: "already starting" }, 409);
+    if (fromWatch && this.launching) {
+      await this.scheduleWatch(Date.now() + WATCH_MS);
+      return json(publicState(state, { includeUrls: true }));
     }
+
+    this.launching = true;
+    try {
+      return await this.runStartLive(state);
+    } finally {
+      this.launching = false;
+    }
+  }
+
+  private async runStartLive(state: StudioState): Promise<Response> {
+    state.wantLive = true;
+    state.liveStartingAt = Date.now();
+    await this.putState(state);
 
     try {
       const listed = parseEgressList(await listEgressRaw(this.env, state.id));
@@ -391,8 +407,6 @@ export class StudioDurableObject {
       console.warn("list egress on start", err);
     }
 
-    state.wantLive = true;
-    state.liveStartingAt = Date.now();
     state.liveError = null;
     setDestStatuses(state.destinations, "connecting");
     await this.putState(state);

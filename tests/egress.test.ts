@@ -7,6 +7,7 @@ import { mintApiToken, signLivekitWebhook, startRoomComposite } from "../worker/
 import {
   applyStreamResults,
   egressIsProducing,
+  egressTimeMs,
   failedStreamUrls,
   isForeignEgress,
   livePhaseOf,
@@ -254,6 +255,24 @@ test("parseEgressInfo reads camelCase and snake_case stream results", () => {
   assert.equal(info.status, "active");
   assert.equal(info.streams[0]?.status, "failed");
   assert.equal(parseEgressList({ items: [{ egressId: "EG_2", status: 4 }] })[0]?.status, "failed");
+  const withTs = parseEgressInfo({
+    egressId: "EG_3",
+    status: "EGRESS_ACTIVE",
+    updatedAt: "1700000000000000000",
+    started_at: 1_700_000_000_000,
+  });
+  assert.equal(withTs?.updatedAt, 1_700_000_000_000);
+  assert.equal(withTs?.startedAt, 1_700_000_000_000);
+});
+
+test("egressTimeMs keeps milliseconds and converts nanos, including numeric strings", () => {
+  const ms = 1_700_000_000_000;
+  assert.equal(egressTimeMs(ms), ms);
+  assert.equal(egressTimeMs(String(ms)), ms);
+  assert.equal(egressTimeMs(1_700_000_000_000_000_000), ms);
+  assert.equal(egressTimeMs("1700000000000000000"), ms);
+  assert.equal(egressTimeMs("nope"), null);
+  assert.equal(egressTimeMs(0), null);
 });
 
 test("isForeignEgress ignores leftover compositor events after stop", () => {

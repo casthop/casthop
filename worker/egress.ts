@@ -392,12 +392,12 @@ export function parseStreamResult(raw: unknown): StreamResult | null {
   };
 }
 
-/** LiveKit timestamps are unix nanos; older payloads may be ms. */
+/** LiveKit timestamps are unix nanos (often JSON strings); older payloads may be ms. */
 export function egressTimeMs(raw: unknown): number | null {
-  if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) return null;
-  if (raw > 1e14) return Math.floor(raw / 1e6);
-  if (raw > 1e11) return Math.floor(raw / 1e3);
-  return Math.floor(raw);
+  const n = typeof raw === "string" ? Number(raw) : raw;
+  if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) return null;
+  if (n > 1e17) return Math.floor(n / 1e6);
+  return Math.floor(n);
 }
 
 export function parseEgressInfo(raw: unknown): ParsedEgress | null {

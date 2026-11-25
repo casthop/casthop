@@ -27,7 +27,7 @@
     "@mediapipe/tasks-vision": "^0.10.21",
     "hono": "^4.9.9",
     "livekit-client": "^2.15.8",
-    "lucide-react": "^0.544.0",
+    "lucide-react": "^1.77.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.9.3"

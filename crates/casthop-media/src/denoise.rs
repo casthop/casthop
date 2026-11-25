@@ -28,7 +28,9 @@ impl Denoiser {
         for i in 0..FRAME_SIZE {
             self.scratch_in[i] = self.input[i] * 32768.0;
         }
-        let vad = self.state.process_frame(&mut self.scratch_out, &self.scratch_in);
+        let vad = self
+            .state
+            .process_frame(&mut self.scratch_out, &self.scratch_in);
         for i in 0..FRAME_SIZE {
             self.output[i] = (self.scratch_out[i] / 32768.0).clamp(-1.0, 1.0);
         }

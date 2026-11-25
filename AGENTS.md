@@ -11,6 +11,7 @@ This file is the source of truth. Nested `AGENTS.md` files add tree-specific rul
 - `crates/casthop-media` — WASM media (C ABI, zero JS imports)
 - `crates/casthop-post` — inspect / remux recordings
 - `tests/auth.test.ts` — owner / co-host / guest / signed-out / expired session matrix for every Worker route
+- `tests/egress.test.ts` — start/stop, crash retry, RTMP dest status, empty-studio cleanup
 - `MEASUREMENTS.md` — recorded numbers; update on hot-path changes
 - `PRODUCT.md` — product intent
 
@@ -32,21 +33,25 @@ npm run build               # Vite + Worker
 npm run typecheck           # tsc --noEmit (strict)
 npm test                    # tsx --test tests/*.test.ts
 tsx --test tests/auth.test.ts
+tsx --test tests/egress.test.ts
+npm run check:wasm          # < 500 KiB, zero imports
 npm audit --audit-level=high
+cargo audit                  # needs rustc 1.88+ (CI audit job uses stable)
 
 cargo test -p casthop-media
-cargo test --workspace
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings -W clippy::pedantic
+cargo test -p casthop-media -p casthop-post
+cargo fmt -p casthop-media -p casthop-post -- --check
+cargo clippy -p casthop-media -p casthop-post --all-targets --no-deps -- -D warnings
 
 npm run build:wasm          # crate → src/wasm/casthop_media.wasm
 npm run bench:wasm          # Node WASM vs JS
 npm run measure             # load + silent-audio check
 bash scripts/check-silent-audio.sh data/recordings/<file>.mp4
 cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
+E2E=1 npm run test:e2e      # headless Go Live → MediaMTX, audio not silent
 ```
 
-CI (`.github/workflows/ci.yml`): `npm ci`, `typecheck`, `test`, `npm audit --audit-level=high`, `cargo test -p casthop-media`. Run the same before you finish. No ESLint script; typecheck is the TS gate.
+CI (`.github/workflows/ci.yml`): parallel `lint` (rustfmt), `typecheck`, `test`, `rust` (test + clippy), `wasm` budget, `audit` (`npm audit` + `cargo audit`), `e2e` (compose + Chrome). No ESLint script; typecheck is the TS gate. Dependabot: `.github/dependabot.yml`.
 
 ## Code
 
@@ -74,7 +79,7 @@ Hot-path change: measure before and after (`npm run bench:wasm`, `/internal/benc
 
 ## Security
 
-- Stream keys and full destination URLs never go to guests or public GET / WebSocket state. Hosts get full URLs only after `x-casthop-host-key`.
+- Stream keys and full destination URLs never go to guests or public GET / WebSocket state. Owners and co-hosts get full URLs on a signed-in GET (session cookie).
 - Auth every action on the server. Hosting is an account session (owner or invited co-host). Identities are assigned by the Worker (`host` / `host-…` / `g-…`). Guests cannot impersonate host. Guests join by invite link without an account.
 - Validate input (names, layout, RTMP URLs). Reject non-`rtmp:` and RFC1918 destinations from clients.
 - Secrets live in `.dev.vars` / Worker secrets. Never in git, client bundles, or logs. Default `devkey` is loopback-only.

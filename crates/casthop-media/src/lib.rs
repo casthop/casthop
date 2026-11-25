@@ -4,6 +4,19 @@
 //! without wasm-bindgen glue. Handles live in thread-local storage (one
 //! WASM instance per worklet/worker).
 
+#![expect(
+    clippy::missing_safety_doc,
+    reason = "C ABI exports; null pointers already return 0"
+)]
+#![expect(
+    clippy::too_many_arguments,
+    reason = "blit geometry is explicit x/y/w/h, not a struct on the hot path"
+)]
+#![expect(
+    clippy::needless_range_loop,
+    reason = "glyph rows are bitmaps indexed by row and column"
+)]
+
 mod blur;
 mod compose;
 mod denoise;
@@ -143,7 +156,7 @@ pub unsafe extern "C" fn casthop_layout(n: u32, mode: u32, out: *mut f32, cap: u
     if out.is_null() || cap < 4 {
         return 0;
     }
-    let rects = layout::layout(n.max(1).min(6), mode);
+    let rects = layout::layout(n.clamp(1, 6), mode);
     let wrote = rects.len().min((cap as usize) / 4);
     for (i, r) in rects.iter().take(wrote).enumerate() {
         *out.add(i * 4) = r.x;

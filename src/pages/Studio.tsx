@@ -35,6 +35,15 @@ import { loadSession, saveSession } from "../lib/session";
 import { isHostIdentity } from "../../worker/security";
 import type { LayoutId, ParticipantInfo, PublicDestination } from "../../worker/types";
 
+function destStatusLabel(status: PublicStudio["destinations"][number]["status"] | undefined, error: string | null | undefined): string {
+  if (status === "connecting") return " · connecting";
+  if (status === "live") return " · live";
+  if (status === "retrying") return error ? ` · retrying · ${error}` : " · retrying";
+  if (status === "failed") return error ? ` · failed · ${error}` : " · failed";
+  if (status === "stopped") return " · stopped";
+  return "";
+}
+
 function formatLive(ms: number): string {
   const s = Math.floor(ms / 1000);
   const hh = String(Math.floor(s / 3600)).padStart(2, "0");
@@ -417,10 +426,12 @@ export function Studio() {
   }
 
   async function onGoLive() {
-    if (!isHost) return;
+    if (!isHost || !studio) return;
     setError("");
+    const phaseNow = studio.livePhase ?? (studio.live ? "live" : "idle");
+    const busy = phaseNow === "live" || phaseNow === "starting" || phaseNow === "retrying" || phaseNow === "stopping";
     try {
-      await setLive(id, !studio?.live);
+      await setLive(id, !busy);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Live failed");
     }
@@ -472,6 +483,18 @@ export function Studio() {
   }
 
   const liveMs = studio.live && studio.liveStartedAt ? now - studio.liveStartedAt : 0;
+  const phase = studio.livePhase ?? (studio.live ? "live" : "idle");
+  const liveOn = phase === "live";
+  const liveBusy = phase === "live" || phase === "starting" || phase === "retrying" || phase === "stopping";
+  const liveError = studio.liveError;
+
+  function livePillText(): string {
+    if (phase === "starting") return "Starting…";
+    if (phase === "retrying") return liveError ? `Reconnecting · ${liveError}` : "Reconnecting…";
+    if (phase === "stopping") return "Stopping…";
+    if (liveOn) return `Live · ${formatLive(liveMs)}`;
+    return "Ready · not live";
+  }
 
   return (
     <div className="studio">
@@ -481,9 +504,9 @@ export function Studio() {
           Studio · {studio.title}
         </div>
         <div className="right">
-          <span className={`live-pill ${studio.live ? "on" : ""}`}>
+          <span className={`live-pill ${liveOn ? "on" : ""} ${phase === "retrying" ? "retry" : ""} ${phase === "starting" ? "wait" : ""}`}>
             <span className="dot" />
-            {studio.live ? `Live · ${formatLive(liveMs)}` : "Ready · not live"}
+            {livePillText()}
           </span>
           {isHost ? (
             <button className="settings" type="button" onClick={() => setSettingsOpen(true)}>
@@ -605,9 +628,14 @@ export function Studio() {
               </button>
             ) : null}
             {isHost ? (
-              <button className={`go-live ${studio.live ? "end" : ""}`} type="button" onClick={onGoLive}>
+              <button
+                className={`go-live ${liveBusy ? "end" : ""}`}
+                type="button"
+                onClick={onGoLive}
+                disabled={phase === "starting" || phase === "stopping" || (!liveBusy && !room)}
+              >
                 <span className="orb" />
-                {studio.live ? "End live" : "Go Live"}
+                {liveBusy ? "End live" : "Go Live"}
               </button>
             ) : null}
           </div>
@@ -629,7 +657,12 @@ export function Studio() {
                 <DestBadge kind={d.kind} />
                 <div className="meta">
                   <b>{d.label}</b>
-                  <small>{d.detail}</small>
+                  <small>
+                    {d.detail}
+                    <span className={`dest-status ${d.status ?? "idle"}`}>
+                      {destStatusLabel(d.status, d.error)}
+                    </span>
+                  </small>
                 </div>
                 <button
                   type="button"

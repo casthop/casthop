@@ -4,13 +4,7 @@
 
 #![expect(
     clippy::cast_possible_truncation,
-    clippy::cast_possible_wrap,
-    clippy::cast_precision_loss,
-    clippy::cast_sign_loss,
-    clippy::cast_lossless,
     clippy::similar_names,
-    clippy::too_many_arguments,
-    clippy::needless_range_loop,
     reason = "8-bit RGBA pixel loops: x/y names and truncating casts are the work"
 )]
 

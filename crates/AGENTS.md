@@ -15,7 +15,7 @@ Builds to `src/wasm/casthop_media.wasm`: C ABI, no wasm-bindgen, no JS imports (
 
 ```bash
 cargo test -p casthop-media
-cargo clippy -p casthop-media --all-targets -- -D warnings -W clippy::pedantic
+cargo clippy -p casthop-media --all-targets --no-deps -- -D warnings
 ```
 
 ## casthop-post

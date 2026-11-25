@@ -1,6 +1,6 @@
 //! Recording / egress post-processing helper.
 //!
-//! Inspects MP4/fMP4 files from LiveKit Egress or MediaMTX and optionally
+//! Inspects MP4/fMP4 files from room composite recordings or an RTMP edge and optionally
 //! remuxes them with ffmpeg. This is the v0 server-side Rust hot-path helper;
 //! RTMP fan-out stays on Egress until we split a dedicated ingest service.
 
@@ -82,8 +82,17 @@ fn normalize(src: Option<&str>, dst: Option<&str>) -> i32 {
     }
     let status = Command::new("ffmpeg")
         .args([
-            "-y", "-hide_banner", "-loglevel", "error", "-i", src, "-c", "copy", "-movflags",
-            "+faststart", dst,
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            src,
+            "-c",
+            "copy",
+            "-movflags",
+            "+faststart",
+            dst,
         ])
         .stdin(Stdio::null())
         .status();

@@ -74,23 +74,25 @@ export async function drawWgpu(
 ): Promise<boolean> {
   const gpuCanvas = await ensureGpu(dest.width, dest.height);
   if (!gpuCanvas) return false;
-  let ok = 0;
   try {
-    ok = gpu_compositor_draw(tiles, modeCode(mode));
+    const ok = gpu_compositor_draw(tiles, modeCode(mode));
+    if (!ok) {
+      drawFails += 1;
+      if (drawFails >= DRAW_FAIL_LIMIT) gpuFail = true;
+      return false;
+    }
+    const ctx = dest.getContext("2d");
+    if (!ctx) return false;
+    ctx.drawImage(gpuCanvas, 0, 0);
+    banner(ctx);
+    drawFails = 0;
+    return true;
   } catch (err) {
     console.warn("wgpu draw failed", err);
-  }
-  if (!ok) {
     drawFails += 1;
     if (drawFails >= DRAW_FAIL_LIMIT) gpuFail = true;
     return false;
   }
-  drawFails = 0;
-  const ctx = dest.getContext("2d");
-  if (!ctx) return false;
-  ctx.drawImage(gpuCanvas, 0, 0);
-  banner(ctx);
-  return true;
 }
 
 export function gpuWasmAssetUrl(): string {

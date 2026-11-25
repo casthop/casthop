@@ -11,6 +11,14 @@ const OUT_W = 1280;
 const OUT_H = 720;
 
 let cachedWasm: { key: string; comp: WasmCompositor } | null = null;
+let wgpuMod: typeof import("./gpu-compositor") | undefined;
+let wgpuTsMod: typeof import("./webgpu-ts") | undefined;
+let bannerTitle = "";
+let bannerSubtitle = "";
+
+function bannerFn(ctx: CanvasRenderingContext2D): void {
+  drawBanner2d(ctx, bannerTitle, bannerSubtitle);
+}
 
 function wasmCompositorFor(api: Awaited<ReturnType<typeof loadWasm>>, width: number, height: number): WasmCompositor {
   const key = `${width}x${height}`;
@@ -36,19 +44,28 @@ export async function composeFrame(opts: {
   const { videos, mode, title, subtitle, canvas } = opts;
   canvas.width = OUT_W;
   canvas.height = OUT_H;
-  const banner = (ctx: CanvasRenderingContext2D) => drawBanner2d(ctx, title, subtitle);
+  bannerTitle = title;
+  bannerSubtitle = subtitle;
 
   if (opts.backend === "webgpu") {
-    const { drawWgpu } = await import("./gpu-compositor");
-    const ok = await drawWgpu(canvas, videos, mode, banner);
-    if (ok) return { backend: "webgpu", ms: performance.now() - t0 };
+    try {
+      wgpuMod ??= await import("./gpu-compositor");
+      const ok = await wgpuMod.drawWgpu(canvas, videos, mode, bannerFn);
+      if (ok) return { backend: "webgpu", ms: performance.now() - t0 };
+    } catch (err) {
+      console.warn("wgpu compositor fallback", err);
+    }
     return composeFrame({ ...opts, backend: "canvas2d" });
   }
 
   if (opts.backend === "webgpu-ts") {
-    const { drawWebGpuTs } = await import("./webgpu-ts");
-    const ok = await drawWebGpuTs(canvas, videos, mode, banner);
-    if (ok) return { backend: "webgpu-ts", ms: performance.now() - t0 };
+    try {
+      wgpuTsMod ??= await import("./webgpu-ts");
+      const ok = await wgpuTsMod.drawWebGpuTs(canvas, videos, mode, bannerFn);
+      if (ok) return { backend: "webgpu-ts", ms: performance.now() - t0 };
+    } catch (err) {
+      console.warn("webgpu-ts compositor fallback", err);
+    }
     return composeFrame({ ...opts, backend: "canvas2d" });
   }
 

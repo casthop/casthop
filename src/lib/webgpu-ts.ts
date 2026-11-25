@@ -1,11 +1,6 @@
-import { layoutRects, loadWasm, type LayoutMode } from "./wasm";
+import { layoutRects, loadWasm, type LayoutMode, type Rect } from "./wasm";
 
 export type GpuTile = HTMLVideoElement | HTMLCanvasElement;
-
-function tileSize(tile: GpuTile): { w: number; h: number } {
-  if (tile instanceof HTMLVideoElement) return { w: tile.videoWidth, h: tile.videoHeight };
-  return { w: tile.width, h: tile.height };
-}
 
 type TsTile = {
   width: number;
@@ -13,6 +8,9 @@ type TsTile = {
   texture: GPUTexture;
   bindGroup: GPUBindGroup;
   rectBuf: GPUBuffer;
+  rect: Float32Array;
+  copyDst: { texture: GPUTexture };
+  copySize: { width: number; height: number };
 };
 
 function dropTile(slot: TsTile): void {
@@ -29,6 +27,11 @@ type TsGpu = {
   canvas: HTMLCanvasElement;
   ctx: GPUCanvasContext;
   tiles: (TsTile | null)[];
+  ready: TsTile[];
+  cmds: GPUCommandBuffer[];
+  layoutN: number;
+  layoutMode: LayoutMode | "";
+  layout: Rect[];
 };
 
 let cached: TsGpu | null = null;
@@ -36,6 +39,7 @@ let inflight: Promise<TsGpu | null> | null = null;
 let tsFail = false;
 let drawFails = 0;
 const DRAW_FAIL_LIMIT = 3;
+let copySrc: { source: CanvasImageSource } | undefined;
 
 const SHADER = `
 struct VsOut {
@@ -139,7 +143,21 @@ async function openTsGpu(width: number, height: number): Promise<TsGpu | null> {
         dropGpu(cached);
         cached = null;
       }
-      cached = { device, format, sampler, pipeline, bgl, canvas, ctx, tiles: [] };
+      cached = {
+        device,
+        format,
+        sampler,
+        pipeline,
+        bgl,
+        canvas,
+        ctx,
+        tiles: [],
+        ready: [],
+        cmds: [],
+        layoutN: -1,
+        layoutMode: "",
+        layout: [],
+      };
       void device.lost.then(() => {
         if (cached?.device === device) cached = null;
       });
@@ -166,12 +184,18 @@ export async function drawWebGpuTs(
   if (!gpu) return false;
   try {
     const api = await loadWasm();
-    const rects = layoutRects(api, Math.max(1, tiles.length), mode, 1, 1);
-    const ready: TsTile[] = [];
+    if (gpu.layoutN !== tiles.length || gpu.layoutMode !== mode) {
+      gpu.layout = layoutRects(api, Math.max(1, tiles.length), mode, 1, 1);
+      gpu.layoutN = tiles.length;
+      gpu.layoutMode = mode;
+    }
+    const rects = gpu.layout;
+    gpu.ready.length = 0;
     for (let i = 0; i < tiles.length; i++) {
       const tile = tiles[i]!;
       const r = rects[i];
-      const { w, h } = tileSize(tile);
+      const w = tile instanceof HTMLVideoElement ? tile.videoWidth : tile.width;
+      const h = tile instanceof HTMLVideoElement ? tile.videoHeight : tile.height;
       if (!r || !w) continue;
       let slot = gpu.tiles[i];
       if (slot && (slot.width !== w || slot.height !== h)) {
@@ -199,12 +223,24 @@ export async function drawWebGpuTs(
             size: 16,
             usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
           }),
+          rect: new Float32Array(4),
+          copyDst: { texture },
+          copySize: { width: w, height: h },
         };
         gpu.tiles[i] = slot;
       }
-      gpu.device.queue.copyExternalImageToTexture({ source: tile }, { texture: slot.texture }, { width: w, height: h });
-      gpu.device.queue.writeBuffer(slot.rectBuf, 0, new Float32Array([r.x, r.y, r.w, r.h]));
-      ready.push(slot);
+      if (!copySrc) copySrc = { source: tile };
+      else copySrc.source = tile;
+      gpu.device.queue.copyExternalImageToTexture(copySrc, slot.copyDst, slot.copySize);
+      const rect = slot.rect;
+      if (rect[0] !== r.x || rect[1] !== r.y || rect[2] !== r.w || rect[3] !== r.h) {
+        rect[0] = r.x;
+        rect[1] = r.y;
+        rect[2] = r.w;
+        rect[3] = r.h;
+        gpu.device.queue.writeBuffer(slot.rectBuf, 0, rect);
+      }
+      gpu.ready.push(slot);
     }
     const encoder = gpu.device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
@@ -218,13 +254,14 @@ export async function drawWebGpuTs(
       ],
     });
     pass.setPipeline(gpu.pipeline);
-    for (const slot of ready) {
+    for (const slot of gpu.ready) {
       pass.setBindGroup(0, slot.bindGroup);
       pass.setVertexBuffer(0, slot.rectBuf);
       pass.draw(6, 1, 0, 0);
     }
     pass.end();
-    gpu.device.queue.submit([encoder.finish()]);
+    gpu.cmds[0] = encoder.finish();
+    gpu.device.queue.submit(gpu.cmds);
     const dst = dest.getContext("2d");
     if (!dst) return false;
     dst.drawImage(gpu.canvas, 0, 0);

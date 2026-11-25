@@ -33,6 +33,8 @@ struct TileSlot {
     height: u32,
     texture: GpuTexture,
     bind_group: GpuBindGroup,
+    copy_dest: GpuCopyExternalImageDestInfo,
+    extent: GpuExtent3dDict,
 }
 
 impl Drop for TileSlot {
@@ -50,6 +52,9 @@ struct GpuInner {
     bgl: GpuBindGroupLayout,
     instance_buf: GpuBuffer,
     tiles: [Option<TileSlot>; MAX_TILES],
+    submit: js_sys::Array,
+    last_n: u32,
+    last_mode: u32,
 }
 
 impl Drop for GpuInner {
@@ -139,6 +144,9 @@ fn create_inner(
         bgl,
         instance_buf,
         tiles: [None, None, None, None, None, None],
+        submit: js_sys::Array::new(),
+        last_n: u32::MAX,
+        last_mode: u32::MAX,
     })
 }
 
@@ -178,12 +186,16 @@ fn draw_frame(inner: &mut GpuInner, sources: &js_sys::Array, mode: u32) -> bool 
     let n = sources.length().min(MAX_TILES_U32);
     let mut packed = [0u8; INSTANCE_BYTES];
     let rect_count = pack_instances(n.max(1), mode, &mut packed);
-    if inner
-        .queue
-        .write_buffer_with_u32_and_u8_slice(&inner.instance_buf, 0, &packed)
-        .is_err()
-    {
-        return false;
+    if inner.last_n != n || inner.last_mode != mode {
+        if inner
+            .queue
+            .write_buffer_with_u32_and_u8_slice(&inner.instance_buf, 0, &packed)
+            .is_err()
+        {
+            return false;
+        }
+        inner.last_n = n;
+        inner.last_mode = mode;
     }
 
     let draw_n = (n as usize).min(rect_count);
@@ -200,7 +212,7 @@ fn draw_frame(inner: &mut GpuInner, sources: &js_sys::Array, mode: u32) -> bool 
             continue;
         }
         *slot = Some((i, w, h));
-        if !copy_tile(inner, i, &val, w, h) {
+        if !copy_tile(inner, i, &val) {
             *slot = None;
         }
     }
@@ -231,24 +243,22 @@ fn draw_frame(inner: &mut GpuInner, sources: &js_sys::Array, mode: u32) -> bool 
         pass.draw_with_instance_count(6, 1);
     }
     pass.end();
-    inner.queue.submit(&js_sys::Array::of1(&encoder.finish()));
+    inner.submit.set(0, encoder.finish().into());
+    inner.queue.submit(&inner.submit);
     true
 }
 
-fn copy_tile(inner: &GpuInner, i: usize, source: &JsValue, w: u32, h: u32) -> bool {
+fn copy_tile(inner: &GpuInner, i: usize, source: &JsValue) -> bool {
     let Some(slot) = inner.tiles[i].as_ref() else {
         return false;
     };
-    let Ok(obj) = source.clone().dyn_into::<js_sys::Object>() else {
+    let Some(obj) = source.dyn_ref::<js_sys::Object>() else {
         return false;
     };
-    let src = GpuCopyExternalImageSourceInfo::new(&obj);
-    let dest = GpuCopyExternalImageDestInfo::new(&slot.texture);
-    let size = GpuExtent3dDict::new(w);
-    size.set_height(h);
+    let src = GpuCopyExternalImageSourceInfo::new(obj);
     inner
         .queue
-        .copy_external_image_to_texture_with_gpu_extent_3d_dict(&src, &dest, &size)
+        .copy_external_image_to_texture_with_gpu_extent_3d_dict(&src, &slot.copy_dest, &slot.extent)
         .is_ok()
 }
 
@@ -282,11 +292,16 @@ fn ensure_tile(inner: &mut GpuInner, i: usize, w: u32, h: u32) -> bool {
     if let Some(old) = inner.tiles[i].take() {
         old.texture.destroy();
     }
+    let copy_dest = GpuCopyExternalImageDestInfo::new(&texture);
+    let extent = GpuExtent3dDict::new(w);
+    extent.set_height(h);
     inner.tiles[i] = Some(TileSlot {
         width: w,
         height: h,
         texture,
         bind_group,
+        copy_dest,
+        extent,
     });
     true
 }

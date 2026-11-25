@@ -45,7 +45,7 @@ test("webgpu draw only disables after several failed frames", () => {
   assert.match(src, /DRAW_FAIL_LIMIT = 3/);
   assert.match(src, /drawFails >= DRAW_FAIL_LIMIT/);
   assert.doesNotMatch(src, /if \(!ok\) \{\s*gpuFail = true/);
-  assert.match(src, /try \{\s*ok = gpu_compositor_draw/s);
+  assert.match(src, /try \{\s*const ok = gpu_compositor_draw/s);
   assert.match(src, /console\.warn\("wgpu draw failed"/);
 });
 
@@ -58,6 +58,9 @@ test("webgpu-ts reuses per-tile buffers and destroys old textures", () => {
   assert.match(src, /let inflight/);
   assert.match(src, /DRAW_FAIL_LIMIT = 3/);
   assert.match(src, /device\.destroy\(\);\s*throw err/s);
+  assert.match(src, /rect: new Float32Array\(4\)/);
+  assert.doesNotMatch(src, /new Float32Array\(\[/);
+  assert.match(src, /writeBuffer\(slot\.rectBuf, 0, rect\)/);
 });
 
 test("bench publishes results without as unknown as", () => {

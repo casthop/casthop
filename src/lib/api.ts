@@ -1,20 +1,28 @@
-import type { LayoutId, PublicDestination, PublicStudio } from "../../worker/types";
-import { HOST_KEY_HEADER } from "../../worker/security";
+import type { LayoutId, PublicDestination, PublicStudio, StudioMember, StudioRecord, ViewerRole } from "../../worker/types";
 
-export type { PublicStudio, PublicDestination };
+export type { PublicStudio, PublicDestination, StudioMember, StudioRecord, ViewerRole };
 
-function headers(hostKey?: string, extra?: HeadersInit): HeadersInit {
+export type StudioView = PublicStudio & { viewerRole: ViewerRole };
+
+export type AccountMe = {
+  id: string;
+  email: string | null;
+  name: string;
+  githubId: string | null;
+};
+
+function headers(extra?: HeadersInit): HeadersInit {
   return {
     "Content-Type": "application/json",
-    ...(hostKey ? { [HOST_KEY_HEADER]: hostKey } : {}),
     ...(extra ?? {}),
   };
 }
 
-export async function api<T>(path: string, init?: RequestInit & { hostKey?: string }): Promise<T> {
+export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
+    credentials: "same-origin",
     ...init,
-    headers: headers(init?.hostKey, init?.headers),
+    headers: headers(init?.headers),
   });
   const data = (await res.json().catch(() => ({}))) as T & { error?: string };
   if (!res.ok) {
@@ -23,19 +31,38 @@ export async function api<T>(path: string, init?: RequestInit & { hostKey?: stri
   return data;
 }
 
+export function getMe() {
+  return api<AccountMe>("/api/auth/me");
+}
+
+export function requestMagicLink(email: string) {
+  return api<{ ok: true; devLogin?: string }>("/api/auth/magic-link", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function logout() {
+  return api<{ ok: true }>("/api/auth/logout", { method: "POST" });
+}
+
+export function listStudios() {
+  return api<{ studios: StudioRecord[] }>("/api/studios");
+}
+
 export function createStudio(title: string) {
-  return api<{ id: string; title: string; hostKey: string; hostUrl: string; guestUrl: string }>("/api/studios", {
+  return api<{ id: string; title: string; role: "owner"; hostUrl: string; guestUrl: string }>("/api/studios", {
     method: "POST",
     body: JSON.stringify({ title }),
   });
 }
 
-export function getStudio(id: string, hostKey?: string) {
-  return api<PublicStudio>(`/api/studios/${id}`, { hostKey });
+export function getStudio(id: string) {
+  return api<StudioView>(`/api/studios/${id}`);
 }
 
 export function getConfig() {
-  return api<{ livekitUrl: string; maxOnStage: number }>("/api/config");
+  return api<{ livekitUrl: string; maxOnStage: number; github: boolean; signedIn: boolean }>("/api/config");
 }
 
 export function getHealth() {
@@ -44,7 +71,7 @@ export function getHealth() {
 
 export function mintToken(
   id: string,
-  body: { name: string; role: "host" | "guest"; hostKey?: string; identity?: string; guestSecret?: string },
+  body: { name: string; role: "host" | "guest"; identity?: string; guestSecret?: string },
 ) {
   return api<{
     token: string;
@@ -54,56 +81,65 @@ export function mintToken(
     url: string;
     canPublish: boolean;
     guestSecret?: string;
-  }>(`/api/studios/${id}/token`, { method: "POST", body: JSON.stringify(body), hostKey: body.hostKey });
+  }>(`/api/studios/${id}/token`, { method: "POST", body: JSON.stringify(body) });
 }
 
-export function setStage(id: string, hostKey: string, identity: string, on: boolean) {
+export function setStage(id: string, identity: string, on: boolean) {
   return api<PublicStudio>(`/api/studios/${id}/stage`, {
     method: "POST",
-    hostKey,
-    body: JSON.stringify({ hostKey, identity, on }),
+    body: JSON.stringify({ identity, on }),
   });
 }
 
-export function setLayout(id: string, hostKey: string, layout: LayoutId) {
+export function setLayout(id: string, layout: LayoutId) {
   return api<PublicStudio>(`/api/studios/${id}/layout`, {
     method: "POST",
-    hostKey,
-    body: JSON.stringify({ hostKey, layout }),
+    body: JSON.stringify({ layout }),
   });
 }
 
-export function setDestinations(id: string, hostKey: string, destinations: PublicDestination[]) {
+export function setDestinations(id: string, destinations: PublicDestination[]) {
   return api<PublicStudio>(`/api/studios/${id}/destinations`, {
     method: "POST",
-    hostKey,
-    body: JSON.stringify({ hostKey, destinations }),
+    body: JSON.stringify({ destinations }),
   });
 }
 
-export function setBanner(id: string, hostKey: string, patch: { title?: string; bannerTitle?: string; bannerSubtitle?: string }) {
+export function setBanner(id: string, patch: { title?: string; bannerTitle?: string; bannerSubtitle?: string }) {
   return api<PublicStudio>(`/api/studios/${id}/banner`, {
     method: "POST",
-    hostKey,
-    body: JSON.stringify({ hostKey, ...patch }),
+    body: JSON.stringify(patch),
   });
 }
 
-export function setLive(id: string, hostKey: string, live: boolean) {
+export function setLive(id: string, live: boolean) {
   return api<PublicStudio>(`/api/studios/${id}/live`, {
     method: "POST",
-    hostKey,
-    body: JSON.stringify({ hostKey, live }),
+    body: JSON.stringify({ live }),
   });
 }
 
 export function sendChat(
   id: string,
-  body: { text: string; identity?: string; guestSecret?: string; hostKey?: string },
+  body: { text: string; identity?: string; guestSecret?: string },
 ) {
   return api<PublicStudio>(`/api/studios/${id}/chat`, {
     method: "POST",
-    hostKey: body.hostKey,
     body: JSON.stringify(body),
   });
+}
+
+export function listCohosts(id: string) {
+  return api<{ members: StudioMember[]; pending: { id: string; email: string }[] }>(`/api/studios/${id}/cohosts`);
+}
+
+export function inviteCohost(id: string, email: string) {
+  return api<{ ok: true; pending?: boolean; member?: StudioMember }>(`/api/studios/${id}/cohosts`, {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function removeCohost(id: string, accountId: string) {
+  return api<{ ok: true }>(`/api/studios/${id}/cohosts/${accountId}`, { method: "DELETE" });
 }

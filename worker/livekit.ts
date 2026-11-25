@@ -1,37 +1,11 @@
 import type { Env, LayoutId } from "./types";
 import { layoutToEgress } from "./types";
+import { bytesToB64Url, hmacSha256B64Url, randomId, sha256hex, timingSafeEqual } from "./security";
 
-function bytesToB64Url(bytes: Uint8Array): string {
-  let s = "";
-  for (const b of bytes) s += String.fromCharCode(b);
-  return btoa(s).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
-}
+export { randomId, sha256hex };
 
 function jsonToB64Url(obj: unknown): string {
   return bytesToB64Url(new TextEncoder().encode(JSON.stringify(obj)));
-}
-
-async function hmacSha256B64Url(secret: string, data: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
-  return bytesToB64Url(new Uint8Array(sig));
-}
-
-export async function sha256hex(s: string): Promise<string> {
-  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
-  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-export function randomId(bytes = 8): string {
-  const buf = new Uint8Array(bytes);
-  crypto.getRandomValues(buf);
-  return bytesToB64Url(buf).replaceAll("-", "x").replaceAll("_", "y").slice(0, bytes + 4);
 }
 
 type VideoGrant = {
@@ -90,10 +64,7 @@ export async function guestSecretFor(env: Env, studioId: string, identity: strin
 export async function guestSecretOk(env: Env, studioId: string, identity: string, secret: string): Promise<boolean> {
   if (!secret || !identity) return false;
   const expected = await guestSecretFor(env, studioId, identity);
-  if (expected.length !== secret.length) return false;
-  let diff = 0;
-  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ secret.charCodeAt(i);
-  return diff === 0;
+  return timingSafeEqual(expected, secret);
 }
 
 export async function mintApiToken(env: Env): Promise<string> {

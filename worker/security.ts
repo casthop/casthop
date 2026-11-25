@@ -4,13 +4,23 @@ export const DEV_API_KEY = "devkey";
 export const DEV_API_SECRET = "casthop_dev_secret_not_for_production_use_32b";
 export const HOST_IDENTITY = "host";
 export const MAX_PARTICIPANTS = 64;
-export const HOST_KEY_HEADER = "x-casthop-host-key";
+export const SESSION_COOKIE = "casthop_session";
+export const OAUTH_COOKIE = "casthop_oauth";
 export const CLAIM_STALE_MS = 30_000;
 export const GUEST_STALE_MS = 2 * 60 * 60 * 1000;
 export const TOKEN_MINT_WINDOW_MS = 60_000;
 export const TOKEN_MINT_MAX = 20;
+export const TOKEN_IP_WINDOW_MS = 60_000;
+export const TOKEN_IP_MAX = 60;
+export const SIGNIN_WINDOW_MS = 15 * 60 * 1000;
+export const SIGNIN_IP_MAX = 5;
+export const SIGNIN_EMAIL_MAX = 3;
 export const CHAT_WINDOW_MS = 10_000;
 export const CHAT_MAX = 8;
+export const SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+export const SESSION_ROTATE_MS = 60 * 60 * 1000;
+export const MAGIC_TTL_MS = 15 * 60 * 1000;
+export const OAUTH_TTL_MS = 10 * 60 * 1000;
 
 export function normalizeHost(host: string): string {
   return host.toLowerCase().replace(/^\[|\]$/g, "");
@@ -176,4 +186,101 @@ export function asIdentity(value: unknown): string {
 
 export function isHostIdentity(identity: string): boolean {
   return identity === HOST_IDENTITY || identity.startsWith("host-");
+}
+
+export function hostIdentityFor(accountId: string, role: "owner" | "cohost"): string {
+  if (role === "owner") return HOST_IDENTITY;
+  const slug = accountId.replaceAll(/[^a-zA-Z0-9]/g, "").slice(0, 12) || "cohost";
+  return `host-${slug}`;
+}
+
+export function bytesToB64Url(bytes: Uint8Array): string {
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+
+export function randomId(bytes = 8): string {
+  const buf = new Uint8Array(bytes);
+  crypto.getRandomValues(buf);
+  return bytesToB64Url(buf).replaceAll("-", "x").replaceAll("_", "y").slice(0, bytes + 4);
+}
+
+export async function sha256hex(s: string): Promise<string> {
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export async function hmacSha256B64Url(secret: string, data: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
+  return bytesToB64Url(new Uint8Array(sig));
+}
+
+export function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/** Reconstructable host secret so the Worker can talk to the DO after checking the account. Never sent to the browser. */
+export async function hostKeyFor(env: Pick<Env, "LIVEKIT_API_SECRET">, studioId: string): Promise<string> {
+  return hmacSha256B64Url(env.LIVEKIT_API_SECRET, `hostkey:${studioId}`);
+}
+
+export function asEmail(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const email = value.trim().toLowerCase();
+  if (email.length < 3 || email.length > 254) return null;
+  if (!/^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/i.test(email)) return null;
+  return email;
+}
+
+export function nameFromEmail(email: string): string {
+  const local = email.split("@")[0] ?? "Host";
+  const cleaned = local.replaceAll(/[._+\-]+/g, " ").trim();
+  if (!cleaned) return "Host";
+  return cleaned.replaceAll(/\b\w/g, (ch) => ch.toUpperCase()).slice(0, 40);
+}
+
+export function cookieValue(header: string | undefined, name: string): string {
+  if (!header) return "";
+  for (const part of header.split(";")) {
+    const [k, ...rest] = part.trim().split("=");
+    if (k === name) return decodeURIComponent(rest.join("="));
+  }
+  return "";
+}
+
+export function clientIp(headers: { get: (name: string) => string | null | undefined }): string {
+  const cf = headers.get("cf-connecting-ip")?.trim();
+  if (cf) return cf.slice(0, 64);
+  const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  if (forwarded) return forwarded.slice(0, 64);
+  return "local";
+}
+
+export function isSecureRequest(url: string): boolean {
+  try {
+    return new URL(url).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+export function setCookie(name: string, value: string, opts: { maxAge: number; secure: boolean }): string {
+  const parts = [`${name}=${encodeURIComponent(value)}`, "Path=/", "HttpOnly", "SameSite=Lax", `Max-Age=${opts.maxAge}`];
+  if (opts.secure) parts.push("Secure");
+  return parts.join("; ");
+}
+
+export function clearCookie(name: string, secure: boolean): string {
+  return setCookie(name, "", { maxAge: 0, secure });
 }

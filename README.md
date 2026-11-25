@@ -1,6 +1,6 @@
 # Casthop
 
-Open-source browser live studio. A host opens a room in the browser, guests join from a link (no account), up to six people sit on stage, and the composite goes live to several RTMP destinations at once, with a recording kept.
+Open-source browser live studio. A host signs in and opens a room in the browser, guests join from a link (no account), up to six people sit on stage, and the composite goes live to several RTMP destinations at once, with a recording kept.
 
 This repository is the first working prototype: prove the core, measure it, then polish.
 
@@ -49,7 +49,7 @@ npm install
 npm run dev
 ```
 
-Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Create a studio, copy the guest link, put people on stage, Go Live.
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Email yourself a magic link (the Worker prints it in the console), open a studio, copy the guest link, put people on stage, Go Live. Optional GitHub OAuth: set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `.dev.vars`.
 
 Rebuild the WASM module (needs rustc 1.83+ and the `wasm32-unknown-unknown` target):
 
@@ -98,7 +98,7 @@ The app falls back to a generated canvas+silent-audio track so a VM without `/de
 1. LiveKit + Egress + Redis + an RTMP edge (MediaMTX, nginx-rtmp, or a real destination).
 2. Worker + D1 + Durable Objects (`wrangler deploy`). Put `LIVEKIT_API_SECRET` in Worker secrets, never in git.
 3. Generate real API keys (`lk generate-keys`) and replace the local defaults in `infra/livekit.yaml` and `infra/egress.yaml`.
-4. Point destination URLs at real YouTube / LinkedIn / X ingest. Stream keys stay in Durable Object storage (not the repo, and not the guest/public API). `GET /api/studios/:id` and the WebSocket `state` frame return only a masked suffix (`rtmp://…/xxxx`) plus `hasKey`. The host receives full URLs on authenticated GET (`x-casthop-host-key`). Generate real API keys (`lk generate-keys`); the Worker returns 503 if the published `devkey` is used with a non-loopback LiveKit URL.
+4. Point destination URLs at real YouTube / LinkedIn / X ingest. Stream keys stay in Durable Object storage (not the repo, and not the guest/public API). `GET /api/studios/:id` and the WebSocket `state` frame return only a masked suffix (`rtmp://…/xxxx`) plus `hasKey`. Owners and co-hosts receive full URLs on a signed-in GET (session cookie). Generate real API keys (`lk generate-keys`); the Worker returns 503 if the published `devkey` is used with a non-loopback LiveKit URL. Sign-in is email magic link (console logger by default, or `MAIL_WEBHOOK_URL`) and optional GitHub OAuth.
 5. Optional: `casthop-post normalize` then copy finished MP4s to R2 for replay.
 
 The local compose file is the media plane. The Worker is the control plane. They talk over the LiveKit Twirp API.
@@ -117,7 +117,7 @@ Done in this prototype: custom compositor page with WASM layout, RNNoise in an A
 2. workers-rs for hot `/api` endpoints.
 3. Destination chat ingest (YouTube liveChat, LinkedIn, X).
 4. R2 replay viewer; HLS from R2 instead of Stream for public VODs.
-5. Auth (email) and studio list; v0 host URL is a capability link.
+5. ~~Auth (email) and studio list~~ — accounts, magic link, optional GitHub, owner/co-host sessions.
 6. TURN for guests behind strict NAT.
 7. Decide Stream Live vs Egress fan-out with production numbers.
 

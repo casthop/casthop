@@ -3,7 +3,6 @@ export type Session = {
   identity: string;
   name: string;
   role: "host" | "guest";
-  hostKey?: string;
   guestSecret?: string;
   cameraId?: string;
   micId?: string;

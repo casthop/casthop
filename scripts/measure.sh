@@ -32,10 +32,19 @@ log "waiting for app and livekit"
 wait_http "$APP/api/health" app
 wait_http "$LK_URL" livekit
 
-create=$(curl -sf -X POST "$APP/api/studios" -H 'content-type: application/json' \
+cookie_jar="$OUT/cookies.txt"
+rm -f "$cookie_jar"
+magic=$(curl -sf -c "$cookie_jar" -X POST "$APP/api/auth/magic-link" -H 'content-type: application/json' \
+  -d '{"email":"measure@example.com"}')
+login=$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("devLogin",""))' <<<"$magic")
+if [[ -z "$login" ]]; then
+  log "magic link did not return devLogin; sign in first or use local default keys"
+  exit 1
+fi
+curl -sf -c "$cookie_jar" -b "$cookie_jar" -o /dev/null "$APP$login"
+create=$(curl -sf -c "$cookie_jar" -b "$cookie_jar" -X POST "$APP/api/studios" -H 'content-type: application/json' \
   -d '{"title":"Measurement session"}')
 id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$create")
-host=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["hostKey"])' <<<"$create")
 log "studio $id"
 
 # Host token so the room exists and someone is subscribed locally via lk.
@@ -58,8 +67,8 @@ run_n() {
   sleep 4
 
   log "go live"
-  live_json=$(curl -s -X POST "$APP/api/studios/$id/live" -H 'content-type: application/json' \
-    -d "{\"hostKey\":\"$host\",\"live\":true}") || true
+  live_json=$(curl -s -c "$cookie_jar" -b "$cookie_jar" -X POST "$APP/api/studios/$id/live" \
+    -H 'content-type: application/json' -d '{"live":true}') || true
   printf '%s\n' "$live_json" >"$OUT/live-$n.json"
   sleep 6
 
@@ -78,8 +87,8 @@ run_n() {
   # LiveKit room stats via CLI if available
   lk room list --url "$LK_URL" --api-key "$API_KEY" --api-secret "$API_SECRET" >"$OUT/rooms-$n.txt" 2>&1 || true
 
-  curl -s -X POST "$APP/api/studios/$id/live" -H 'content-type: application/json' \
-    -d "{\"hostKey\":\"$host\",\"live\":false}" >/dev/null || true
+  curl -s -c "$cookie_jar" -b "$cookie_jar" -X POST "$APP/api/studios/$id/live" \
+    -H 'content-type: application/json' -d '{"live":false}' >/dev/null || true
 
   for pid in "${pids[@]:-}"; do
     kill "$pid" 2>/dev/null || true

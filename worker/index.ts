@@ -3,35 +3,61 @@ import type { Env, PublicStudio } from "./types";
 import { MAX_ON_STAGE } from "./types";
 import { StudioDurableObject } from "./studio";
 import {
+  asEmail,
   asName,
+  clearCookie,
+  clientIp,
   devKeyGuardError,
-  HOST_IDENTITY,
-  HOST_KEY_HEADER,
+  hostKeyFor,
   isHostIdentity,
+  isSecureRequest,
+  OAUTH_COOKIE,
+  randomId,
+  sha256hex,
+  TOKEN_IP_MAX,
+  TOKEN_IP_WINDOW_MS,
 } from "./security";
 import {
   guestSecretFor,
   guestSecretOk,
   livekitHealth,
   mintParticipantToken,
-  randomId,
-  sha256hex,
   startRoomComposite,
   stopEgress,
   updateParticipantPublish,
 } from "./livekit";
+import {
+  accountByEmail,
+  accountById,
+  allowRate,
+  deleteCohost,
+  deleteInvite,
+  ensureDb,
+  insertInvite,
+  insertMember,
+  insertStudioRow,
+  invitesForStudio,
+  listStudiosFor,
+  memberFor,
+  membersOf,
+} from "./db";
+import { mailerFor } from "./mail";
+import {
+  attachSessionCookie,
+  consumeMagicToken,
+  createSession,
+  destroySession,
+  finishGithub,
+  githubConfigured,
+  hostAuth,
+  issueMagicLink,
+  loadSession,
+  startGithub,
+} from "./auth";
 
 export { StudioDurableObject };
 
 export const app = new Hono<{ Bindings: Env }>();
-
-async function ensureDb(db: D1Database): Promise<void> {
-  await db
-    .prepare(
-      "CREATE TABLE IF NOT EXISTS studios (id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at INTEGER NOT NULL)",
-    )
-    .run();
-}
 
 function studioStub(env: Env, id: string): DurableObjectStub {
   return env.STUDIO.get(env.STUDIO.idFromName(id));
@@ -46,15 +72,14 @@ async function doAction(env: Env, id: string, action: string, body: unknown, met
   });
 }
 
-function hostKeyFrom(c: { req: { header: (n: string) => string | undefined; json: () => Promise<unknown> } }, body: Record<string, unknown>): string {
-  const header = c.req.header(HOST_KEY_HEADER) ?? c.req.header("X-Casthop-Host-Key");
-  if (header) return header;
-  return typeof body.hostKey === "string" ? body.hostKey : "";
+function rateError(err: unknown): err is Error & { status: number } {
+  return err instanceof Error && "status" in err && (err as Error & { status: number }).status === 429;
 }
 
 app.use("/api/*", async (c, next) => {
   const err = devKeyGuardError(c.env);
   if (err) return c.json({ error: err }, 503);
+  await ensureDb(c.env.DB);
   return next();
 });
 
@@ -67,22 +92,106 @@ app.get("/api/health", async (c) => {
   });
 });
 
-app.get("/api/config", (c) => {
+app.get("/api/config", async (c) => {
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
   return c.json({
     livekitUrl: c.env.PUBLIC_LIVEKIT_URL,
     maxOnStage: MAX_ON_STAGE,
+    github: githubConfigured(c.env),
+    signedIn: Boolean(sess),
   });
 });
 
+app.get("/api/auth/me", async (c) => {
+  const sess = await loadSession(c);
+  if (!sess) {
+    c.header("Set-Cookie", await destroySession(c), { append: true });
+    return c.json({ error: "signed out" }, 401);
+  }
+  attachSessionCookie(c, sess.cookie);
+  return c.json({
+    id: sess.account.id,
+    email: sess.account.email,
+    name: sess.account.name,
+    githubId: sess.account.githubId,
+  });
+});
+
+app.post("/api/auth/magic-link", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { email?: string };
+  const email = asEmail(body.email);
+  if (!email) return c.json({ error: "valid email required" }, 400);
+  try {
+    const result = await issueMagicLink(c, email);
+    return c.json(result);
+  } catch (err) {
+    if (rateError(err)) return c.json({ error: "too many attempts" }, 429);
+    throw err;
+  }
+});
+
+app.get("/api/auth/callback", async (c) => {
+  const token = c.req.query("token") ?? "";
+  const account = token ? await consumeMagicToken(c, token) : null;
+  if (!account) {
+    return c.redirect("/?auth=invalid");
+  }
+  const cookie = await createSession(c, account);
+  c.header("Set-Cookie", cookie, { append: true });
+  return c.redirect("/");
+});
+
+app.get("/api/auth/github", async (c) => {
+  try {
+    const started = await startGithub(c);
+    if (!started) return c.json({ error: "GitHub sign-in is not configured" }, 404);
+    c.header("Set-Cookie", started.cookie, { append: true });
+    return c.redirect(started.url);
+  } catch (err) {
+    if (rateError(err)) return c.json({ error: "too many attempts" }, 429);
+    throw err;
+  }
+});
+
+app.get("/api/auth/github/callback", async (c) => {
+  const code = c.req.query("code") ?? "";
+  const state = c.req.query("state") ?? "";
+  const account = code ? await finishGithub(c, code, state) : null;
+  c.header("Set-Cookie", clearCookie(OAUTH_COOKIE, isSecureRequest(c.req.url)), { append: true });
+  if (!account) return c.redirect("/?auth=invalid");
+  const cookie = await createSession(c, account);
+  c.header("Set-Cookie", cookie, { append: true });
+  return c.redirect("/");
+});
+
+app.post("/api/auth/logout", async (c) => {
+  const sess = await loadSession(c);
+  const cookie = await destroySession(c, sess?.sessionId);
+  c.header("Set-Cookie", cookie, { append: true });
+  return c.json({ ok: true });
+});
+
+app.get("/api/studios", async (c) => {
+  const sess = await loadSession(c);
+  if (!sess) return c.json({ error: "sign in required" }, 401);
+  attachSessionCookie(c, sess.cookie);
+  const studios = await listStudiosFor(c.env.DB, sess.account.id);
+  return c.json({ studios });
+});
+
 app.post("/api/studios", async (c) => {
-  await ensureDb(c.env.DB);
+  const sess = await loadSession(c);
+  if (!sess) return c.json({ error: "sign in required" }, 401);
+  attachSessionCookie(c, sess.cookie);
   const body = (await c.req.json().catch(() => ({}))) as { title?: string };
   const title = asName(body.title, "Weekly product update");
   const id = randomId(8).toLowerCase();
-  const hostKey = randomId(16);
+  const hostKey = await hostKeyFor(c.env, id);
   const hostKeyHash = await sha256hex(hostKey);
   const createdAt = Date.now();
-  await c.env.DB.prepare("INSERT INTO studios (id, title, created_at) VALUES (?, ?, ?)").bind(id, title, createdAt).run();
+  await insertStudioRow(c.env.DB, id, title, createdAt, sess.account.id);
+  await insertMember(c.env.DB, id, sess.account.id, "owner", createdAt);
   const created = await studioStub(c.env, id).fetch(`https://studio/${id}?action=create`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -95,24 +204,28 @@ app.post("/api/studios", async (c) => {
   return c.json({
     id,
     title,
-    hostKey,
-    hostUrl: `${origin}/studio/${id}?host=${encodeURIComponent(hostKey)}`,
+    role: "owner" as const,
+    hostUrl: `${origin}/studio/${id}`,
     guestUrl: `${origin}/join/${id}`,
   });
 });
 
 app.get("/api/studios/:id", async (c) => {
   const id = c.req.param("id");
-  const hostKey = c.req.header(HOST_KEY_HEADER) ?? "";
-  if (hostKey) {
-    const snap = await doAction(c.env, id, "host-snapshot", { hostKey });
-    if (snap.status === 403) return c.json({ error: "host key required" }, 403);
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (host) {
+    const snap = await doAction(c.env, id, "host-snapshot", { hostKey: host.hostKey });
+    if (snap.status === 403) return c.json({ error: "host access required" }, 403);
     if (!snap.ok) return new Response(snap.body, { status: snap.status, headers: snap.headers });
     const data = (await snap.json()) as { state: PublicStudio };
-    return c.json(data.state);
+    return c.json({ ...data.state, viewerRole: host.role });
   }
   const res = await studioStub(c.env, id).fetch(`https://studio/${id}`);
-  return new Response(res.body, { status: res.status, headers: res.headers });
+  if (!res.ok) return new Response(res.body, { status: res.status, headers: res.headers });
+  const state = (await res.json()) as PublicStudio;
+  return c.json({ ...state, viewerRole: "guest" as const });
 });
 
 app.get("/api/studios/:id/ws", async (c) => {
@@ -122,22 +235,25 @@ app.get("/api/studios/:id/ws", async (c) => {
 
 app.post("/api/studios/:id/token", async (c) => {
   const id = c.req.param("id");
+  const ip = clientIp(c.req.raw.headers);
+  if (!(await allowRate(c.env.DB, `token:ip:${ip}`, TOKEN_IP_MAX, TOKEN_IP_WINDOW_MS))) {
+    return c.json({ error: "too many joins" }, 429);
+  }
   const body = (await c.req.json().catch(() => ({}))) as {
     name?: string;
     role?: "host" | "guest";
-    hostKey?: string;
     identity?: string;
     guestSecret?: string;
   };
-  const name = asName(body.name, body.role === "host" ? "Host" : "Guest");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
 
   if (body.role === "host") {
-    const hostKey = hostKeyFrom(c, body);
-    if (!hostKey) return c.json({ error: "host key required" }, 403);
-    const auth = await doAction(c.env, id, "auth", { hostKey });
-    if (!auth.ok) return c.json({ error: "bad host key" }, 403);
-    const identity = HOST_IDENTITY;
-    const joined = await doAction(c.env, id, "join", { identity, name, role: "host", hostKey });
+    const host = await hostAuth(c.env, id, sess?.account);
+    if (!host) return c.json({ error: "host access required" }, 403);
+    const name = asName(body.name, host.name || "Host");
+    const identity = host.identity;
+    const joined = await doAction(c.env, id, "join", { identity, name, role: "host", hostKey: host.hostKey });
     if (!joined.ok) return new Response(joined.body, { status: joined.status, headers: joined.headers });
     const token = await mintParticipantToken({
       env: c.env,
@@ -171,6 +287,7 @@ app.post("/api/studios/:id/token", async (c) => {
     guestSecret = await guestSecretFor(c.env, id, identity);
   }
 
+  const name = asName(body.name, "Guest");
   const joined = await doAction(c.env, id, "join", { identity, name, role: "guest" });
   if (!joined.ok) return new Response(joined.body, { status: joined.status, headers: joined.headers });
   const joinedBody = (await joined.json()) as { onStage?: boolean };
@@ -197,8 +314,12 @@ app.post("/api/studios/:id/token", async (c) => {
 
 app.post("/api/studios/:id/stage", async (c) => {
   const id = c.req.param("id");
-  const body = (await c.req.json().catch(() => ({}))) as { identity?: string; on?: boolean; hostKey?: string };
-  const res = await doAction(c.env, id, "stage", body);
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (!host) return c.json({ error: "host access required" }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as { identity?: string; on?: boolean };
+  const res = await doAction(c.env, id, "stage", { ...body, hostKey: host.hostKey });
   if (res.ok && body.identity) {
     try {
       await updateParticipantPublish(c.env, id, body.identity, Boolean(body.on));
@@ -211,32 +332,51 @@ app.post("/api/studios/:id/stage", async (c) => {
 
 app.post("/api/studios/:id/layout", async (c) => {
   const id = c.req.param("id");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (!host) return c.json({ error: "host access required" }, 403);
   const body = await c.req.json().catch(() => ({}));
-  const res = await doAction(c.env, id, "layout", body);
+  const res = await doAction(c.env, id, "layout", { ...(body as object), hostKey: host.hostKey });
   return new Response(res.body, { status: res.status, headers: res.headers });
 });
 
 app.post("/api/studios/:id/destinations", async (c) => {
   const id = c.req.param("id");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (!host) return c.json({ error: "host access required" }, 403);
   const body = await c.req.json().catch(() => ({}));
-  const res = await doAction(c.env, id, "destinations", body);
+  const res = await doAction(c.env, id, "destinations", { ...(body as object), hostKey: host.hostKey });
   return new Response(res.body, { status: res.status, headers: res.headers });
 });
 
 app.post("/api/studios/:id/banner", async (c) => {
   const id = c.req.param("id");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (!host) return c.json({ error: "host access required" }, 403);
   const body = await c.req.json().catch(() => ({}));
-  const res = await doAction(c.env, id, "banner", body);
+  const res = await doAction(c.env, id, "banner", { ...(body as object), hostKey: host.hostKey });
   return new Response(res.body, { status: res.status, headers: res.headers });
 });
 
 app.post("/api/studios/:id/chat", async (c) => {
   const id = c.req.param("id");
   const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-  const hostKey = hostKeyFrom(c, body);
-  if (hostKey) body.hostKey = hostKey;
-  if (!hostKey && !(typeof body.guestSecret === "string" && typeof body.identity === "string")) {
-    return c.json({ error: "chat auth required" }, 403);
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (host) {
+    body.hostKey = host.hostKey;
+    body.identity = host.identity;
+  } else {
+    delete body.hostKey;
+    if (!(typeof body.guestSecret === "string" && typeof body.identity === "string")) {
+      return c.json({ error: "chat auth required" }, 403);
+    }
   }
   const res = await doAction(c.env, id, "chat", body);
   return new Response(res.body, { status: res.status, headers: res.headers });
@@ -244,14 +384,17 @@ app.post("/api/studios/:id/chat", async (c) => {
 
 app.post("/api/studios/:id/live", async (c) => {
   const id = c.req.param("id");
-  const body = (await c.req.json().catch(() => ({}))) as { hostKey?: string; live?: boolean };
-  const hostKey = hostKeyFrom(c, body);
-  if (!hostKey) return c.json({ error: "host key required" }, 403);
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (!host) return c.json({ error: "host access required" }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as { live?: boolean };
   if (typeof body.live !== "boolean") return c.json({ error: "live required" }, 400);
+  const hostKey = host.hostKey;
 
   const snap = await doAction(c.env, id, "host-snapshot", { hostKey });
   if (snap.status === 404) return c.json({ error: "Studio not found" }, 404);
-  if (!snap.ok) return c.json({ error: "host key required" }, 403);
+  if (!snap.ok) return c.json({ error: "host access required" }, 403);
   const data = (await snap.json()) as {
     state: PublicStudio;
     secrets: { destinations: { url: string; enabled: boolean }[]; egressId: string | null };
@@ -315,6 +458,59 @@ app.post("/api/studios/:id/live", async (c) => {
     await doAction(c.env, id, "live", { hostKey, live: false, egressId: null });
     return c.json({ error: "Could not go live" }, 502);
   }
+});
+
+app.get("/api/studios/:id/cohosts", async (c) => {
+  const id = c.req.param("id");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (!host) return c.json({ error: "host access required" }, 403);
+  const members = await membersOf(c.env.DB, id);
+  const pending = await invitesForStudio(c.env.DB, id);
+  return c.json({ members, pending });
+});
+
+app.post("/api/studios/:id/cohosts", async (c) => {
+  const id = c.req.param("id");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (!sess || !host || host.role !== "owner") return c.json({ error: "owner required" }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as { email?: string };
+  const email = asEmail(body.email);
+  if (!email) return c.json({ error: "valid email required" }, 400);
+  if (sess.account.email === email) return c.json({ error: "already a member" }, 409);
+  const existingAccount = await accountByEmail(c.env.DB, email);
+  if (existingAccount) {
+    const already = await memberFor(c.env.DB, id, existingAccount.id);
+    if (already) return c.json({ error: "already a member" }, 409);
+    await insertMember(c.env.DB, id, existingAccount.id, "cohost", Date.now());
+    return c.json({ ok: true, member: { accountId: existingAccount.id, email, name: existingAccount.name, role: "cohost" } });
+  }
+  const pending = await invitesForStudio(c.env.DB, id);
+  if (pending.some((p) => p.email === email)) return c.json({ error: "already invited" }, 409);
+  await insertInvite(c.env.DB, randomId(10), id, email, Date.now());
+  const origin = new URL(c.req.url).origin;
+  await mailerFor(c.env).send({
+    to: email,
+    subject: "Co-host invite for a Casthop studio",
+    text: `You were invited to co-host a studio. Sign in at ${origin} with this email, then open ${origin}/studio/${id}\n`,
+  });
+  return c.json({ ok: true, pending: true, email });
+});
+
+app.delete("/api/studios/:id/cohosts/:accountId", async (c) => {
+  const id = c.req.param("id");
+  const accountId = c.req.param("accountId");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (!host || host.role !== "owner") return c.json({ error: "owner required" }, 403);
+  const target = await accountById(c.env.DB, accountId);
+  await deleteCohost(c.env.DB, id, accountId);
+  if (target?.email) await deleteInvite(c.env.DB, id, target.email);
+  return c.json({ ok: true });
 });
 
 export default {

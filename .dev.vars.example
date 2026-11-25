@@ -7,3 +7,12 @@ RTMP_YOUTUBE=rtmp://127.0.0.1:1935/live/youtube
 RTMP_LINKEDIN=rtmp://127.0.0.1:1935/live/linkedin
 RTMP_X=rtmp://127.0.0.1:1935/live/x
 EGRESS_TEMPLATE_URL=http://127.0.0.1:5173/egress-template
+
+# Optional GitHub OAuth. Leave unset to hide the GitHub button.
+# GITHUB_CLIENT_ID=
+# GITHUB_CLIENT_SECRET=
+
+# Optional mail webhook. Unset = log the magic link to the Worker console.
+# POST JSON { to, subject, text }. No paid provider required.
+# MAIL_WEBHOOK_URL=
+# MAIL_WEBHOOK_TOKEN=

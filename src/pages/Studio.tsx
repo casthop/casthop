@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import {
   LocalParticipant,
   RemoteParticipant,
@@ -13,6 +13,8 @@ import { Logo } from "../components/Logo";
 import { VideoTile } from "../components/VideoTile";
 import {
   getStudio,
+  inviteCohost,
+  listCohosts,
   mintToken,
   sendChat,
   setDestinations,
@@ -21,11 +23,13 @@ import {
   setLive,
   setStage,
   type PublicStudio,
+  type StudioMember,
+  type StudioView,
 } from "../lib/api";
 import { mediaPipeline } from "../lib/effects";
 import { hueFor, openUserMedia } from "../lib/media";
 import { loadSession, saveSession } from "../lib/session";
-import { HOST_IDENTITY } from "../../worker/security";
+import { isHostIdentity } from "../../worker/security";
 import type { LayoutId, ParticipantInfo, PublicDestination } from "../../worker/types";
 
 function formatLive(ms: number): string {
@@ -70,12 +74,10 @@ function DestBadge({ kind }: { kind: string }) {
 
 export function Studio() {
   const { id = "" } = useParams();
-  const [params] = useSearchParams();
-  const hostKey = params.get("host") ?? loadSession(id)?.hostKey;
-  const isHost = Boolean(hostKey);
   const publishingRef = useRef(false);
 
-  const [studio, setStudio] = useState<PublicStudio | null>(null);
+  const [studio, setStudio] = useState<StudioView | null>(null);
+  const isHost = studio?.viewerRole === "owner" || studio?.viewerRole === "cohost";
   const [room, setRoom] = useState<Room | null>(null);
   const [peers, setPeers] = useState<(RemoteParticipant | LocalParticipant)[]>([]);
   const [micOn, setMicOn] = useState(true);
@@ -86,7 +88,8 @@ export function Studio() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [now, setNow] = useState(Date.now());
   const identityRef = useRef<string>("");
-  const nameRef = useRef<string>(isHost ? "Host" : "Guest");
+  const nameRef = useRef<string>("Guest");
+  const isHostRef = useRef(false);
 
   useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 1000);
@@ -94,28 +97,12 @@ export function Studio() {
   }, []);
 
   useEffect(() => {
-    const fromUrl = params.get("host");
-    if (!fromUrl) return;
-    const saved = loadSession(id);
-    saveSession({
-      studioId: id,
-      identity: saved?.identity ?? "",
-      name: saved?.name ?? "Host",
-      role: "host",
-      hostKey: fromUrl,
-      guestSecret: saved?.guestSecret,
-      cameraId: saved?.cameraId,
-      micId: saved?.micId,
-    });
-    history.replaceState(null, "", location.pathname);
-  }, [id, params]);
-
-  useEffect(() => {
     let closed = false;
     let ws: WebSocket | null = null;
     let timer = 0;
     let delay = 500;
-    const apply = (next: PublicStudio) => setStudio((prev) => mergeStudio(prev, next));
+    const apply = (next: PublicStudio, viewerRole?: StudioView["viewerRole"]) =>
+      setStudio((prev) => mergeStudio(prev, next, viewerRole ?? prev?.viewerRole ?? "guest"));
     const connect = () => {
       if (closed) return;
       const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -129,33 +116,40 @@ export function Studio() {
       };
       ws.onclose = () => {
         if (closed) return;
-        void getStudio(id, hostKey ?? undefined).then(apply).catch(() => undefined);
+        void getStudio(id)
+          .then((s) => apply(s, s.viewerRole))
+          .catch(() => undefined);
         timer = window.setTimeout(connect, delay);
         delay = Math.min(delay * 2, 8000);
       };
     };
     connect();
-    getStudio(id, hostKey ?? undefined).then(apply).catch((err) => setError(err.message));
+    getStudio(id)
+      .then((s) => apply(s, s.viewerRole))
+      .catch((err) => setError(err.message));
     return () => {
       closed = true;
       window.clearTimeout(timer);
       ws?.close();
     };
-  }, [id, hostKey]);
+  }, [id]);
 
   useEffect(() => {
     let cancelled = false;
     let current: Room | null = null;
     (async () => {
+      const snap = studio ?? (await getStudio(id));
+      if (cancelled) return;
+      const host = snap.viewerRole === "owner" || snap.viewerRole === "cohost";
+      isHostRef.current = host;
       const saved = loadSession(id);
-      const name = saved?.name ?? (isHost ? "Host" : "Guest");
+      const name = saved?.name ?? (host ? "Host" : "Guest");
       nameRef.current = name;
       const minted = await mintToken(id, {
         name,
-        role: isHost ? "host" : "guest",
-        hostKey: hostKey ?? undefined,
-        identity: saved?.guestSecret ? saved.identity : undefined,
-        guestSecret: saved?.guestSecret,
+        role: host ? "host" : "guest",
+        identity: !host && saved?.guestSecret ? saved.identity : undefined,
+        guestSecret: !host ? saved?.guestSecret : undefined,
       });
       if (cancelled) return;
       identityRef.current = minted.identity;
@@ -164,7 +158,6 @@ export function Studio() {
         identity: minted.identity,
         name: minted.name,
         role: minted.role,
-        hostKey: hostKey ?? undefined,
         guestSecret: minted.guestSecret ?? saved?.guestSecret,
         cameraId: saved?.cameraId,
         micId: saved?.micId,
@@ -193,7 +186,7 @@ export function Studio() {
       lk.on(RoomEvent.TrackUnmuted, bump);
       lk.on(RoomEvent.DataReceived, (payload, participant) => {
         try {
-          if (participant?.identity !== HOST_IDENTITY) return;
+          if (!participant?.identity || !isHostIdentity(participant.identity)) return;
           const msg = JSON.parse(new TextDecoder().decode(payload)) as { type?: string; on?: boolean };
           if (msg.type === "publish" && msg.on) void publishLocal(lk);
         } catch {
@@ -214,7 +207,7 @@ export function Studio() {
       cancelled = true;
       current?.disconnect();
     };
-  }, [id, hostKey, isHost]);
+  }, [id]);
 
   useEffect(() => {
     if (!room || !studio) return;
@@ -278,26 +271,26 @@ export function Studio() {
   async function shareScreen() {
     try {
       await room?.localParticipant.setScreenShareEnabled(true);
-      if (hostKey) await setLayout(id, hostKey, "screen");
+      if (isHostRef.current) await setLayout(id, "screen");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Screen share failed");
     }
   }
 
   async function onLayout(layout: LayoutId) {
-    if (!hostKey) return;
+    if (!isHost) return;
     try {
-      await setLayout(id, hostKey, layout);
+      await setLayout(id, layout);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Layout failed");
     }
   }
 
   async function onGoLive() {
-    if (!hostKey) return;
+    if (!isHost) return;
     setError("");
     try {
-      await setLive(id, hostKey, !studio?.live);
+      await setLive(id, !studio?.live);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Live failed");
     }
@@ -314,7 +307,6 @@ export function Studio() {
         text,
         identity: identityRef.current,
         guestSecret: saved?.guestSecret,
-        hostKey: hostKey ?? undefined,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Chat failed");
@@ -328,9 +320,9 @@ export function Studio() {
   }
 
   async function promote(identity: string, on: boolean) {
-    if (!hostKey) return;
+    if (!isHost) return;
     try {
-      await setStage(id, hostKey, identity, on);
+      await setStage(id, identity, on);
       const payload = new TextEncoder().encode(JSON.stringify({ type: "publish", on }));
       await room?.localParticipant.publishData(payload, { destinationIdentities: [identity] });
     } catch (err) {
@@ -507,9 +499,11 @@ export function Studio() {
                   aria-pressed={d.enabled}
                   aria-label={`${d.enabled ? "Disable" : "Enable"} ${d.label}`}
                   onClick={() => {
-                    if (!hostKey) return;
+                    if (!isHost) return;
                     const next = studio.destinations.map((x) => (x.id === d.id ? { ...x, enabled: !x.enabled } : x));
-                    void setDestinations(id, hostKey, next).then(setStudio).catch((err) => setError(err.message));
+                    void setDestinations(id, next)
+                      .then((s) => setStudio((prev) => mergeStudio(prev, s, prev?.viewerRole ?? "guest")))
+                      .catch((err) => setError(err.message));
                   }}
                 >
                   <i />
@@ -548,19 +542,21 @@ export function Studio() {
         </aside>
       </div>
 
-      {settingsOpen && hostKey ? (
+      {settingsOpen && isHost ? (
         <SettingsPanel
+          studioId={id}
           studio={studio}
+          canInvite={studio.viewerRole === "owner"}
           onClose={() => setSettingsOpen(false)}
           onSave={async (next) => {
             try {
-              const saved = await setDestinations(id, hostKey, next.destinations);
-              await setBanner(id, hostKey, {
+              const saved = await setDestinations(id, next.destinations);
+              await setBanner(id, {
                 title: next.title,
                 bannerTitle: next.bannerTitle,
                 bannerSubtitle: next.bannerSubtitle,
               });
-              setStudio(saved);
+              setStudio((prev) => mergeStudio(prev, saved, prev?.viewerRole ?? "guest"));
               setSettingsOpen(false);
             } catch (err) {
               setError(err instanceof Error ? err.message : "Save failed");
@@ -586,11 +582,15 @@ export function Studio() {
 }
 
 function SettingsPanel({
+  studioId,
   studio,
+  canInvite,
   onClose,
   onSave,
 }: {
+  studioId: string;
   studio: PublicStudio;
+  canInvite: boolean;
   onClose: () => void;
   onSave: (next: { title: string; bannerTitle: string; bannerSubtitle: string; destinations: PublicDestination[] }) => void;
 }) {
@@ -598,6 +598,34 @@ function SettingsPanel({
   const [bannerTitle, setBannerTitle] = useState(studio.bannerTitle);
   const [bannerSubtitle, setBannerSubtitle] = useState(studio.bannerSubtitle);
   const [destinations, setDest] = useState(studio.destinations);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [members, setMembers] = useState<StudioMember[]>([]);
+  const [pending, setPending] = useState<{ email: string }[]>([]);
+  const [inviteNote, setInviteNote] = useState("");
+
+  useEffect(() => {
+    listCohosts(studioId)
+      .then((data) => {
+        setMembers(data.members);
+        setPending(data.pending);
+      })
+      .catch(() => undefined);
+  }, [studioId]);
+
+  async function onInvite(e: FormEvent) {
+    e.preventDefault();
+    setInviteNote("");
+    try {
+      await inviteCohost(studioId, inviteEmail);
+      setInviteEmail("");
+      setInviteNote("Invite sent.");
+      const data = await listCohosts(studioId);
+      setMembers(data.members);
+      setPending(data.pending);
+    } catch (err) {
+      setInviteNote(err instanceof Error ? err.message : "Invite failed");
+    }
+  }
 
   return (
     <div className="panel" onClick={onClose}>
@@ -628,6 +656,33 @@ function SettingsPanel({
             />
           </label>
         ))}
+        {canInvite ? (
+          <form className="cohost-form" onSubmit={onInvite}>
+            <label>
+              Invite co-host
+              <input
+                type="email"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="producer@example.com"
+              />
+            </label>
+            <button className="btn" type="submit">
+              Invite
+            </button>
+            {inviteNote ? <p className="sent-note">{inviteNote}</p> : null}
+            <ul className="cohost-list">
+              {members.map((m) => (
+                <li key={m.accountId}>
+                  {m.name} · {m.role}
+                </li>
+              ))}
+              {pending.map((p) => (
+                <li key={p.email}>{p.email} · pending</li>
+              ))}
+            </ul>
+          </form>
+        ) : null}
         <button
           className="btn primary"
           type="button"
@@ -653,10 +708,15 @@ function visibleStage<T>(layout: LayoutId, people: T[]): T[] {
   return people.slice(0, 6);
 }
 
-function mergeStudio(prev: PublicStudio | null, next: PublicStudio): PublicStudio {
-  if (!prev) return next;
+function mergeStudio(
+  prev: StudioView | null,
+  next: PublicStudio,
+  viewerRole: StudioView["viewerRole"],
+): StudioView {
+  const merged: StudioView = { ...next, viewerRole };
+  if (!prev) return merged;
   return {
-    ...next,
+    ...merged,
     destinations: next.destinations.map((d) => {
       const old = prev.destinations.find((x) => x.id === d.id);
       return { ...d, url: d.url || old?.url };

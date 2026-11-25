@@ -72,7 +72,38 @@ export type Env = {
   RTMP_X: string;
   EGRESS_TEMPLATE_URL: string;
   CASTHOP_ALLOW_DEV_KEYS?: string;
+  GITHUB_CLIENT_ID?: string;
+  GITHUB_CLIENT_SECRET?: string;
+  MAIL_WEBHOOK_URL?: string;
+  MAIL_WEBHOOK_TOKEN?: string;
 };
+
+export type Account = {
+  id: string;
+  email: string | null;
+  name: string;
+  githubId: string | null;
+  createdAt: number;
+};
+
+export type MemberRole = "owner" | "cohost";
+
+export type StudioRecord = {
+  id: string;
+  title: string;
+  ownerId: string;
+  createdAt: number;
+  role: MemberRole;
+};
+
+export type StudioMember = {
+  accountId: string;
+  email: string | null;
+  name: string;
+  role: MemberRole;
+};
+
+export type ViewerRole = "owner" | "cohost" | "guest";
 
 export type PublicStudio = Omit<StudioState, "hostKeyHash" | "destinations" | "recordingPath" | "egressId" | "liveStartingAt"> & {
   destinations: PublicDestination[];

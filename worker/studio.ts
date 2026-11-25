@@ -287,8 +287,10 @@ export class StudioDurableObject {
     isHost: boolean,
   ): Promise<{ identity: string; name: string } | null> {
     if (isHost) {
-      const host = state.participants.find((p) => p.role === "host");
-      return { identity: HOST_IDENTITY, name: host?.name || "Host" };
+      const claimed = asIdentity(body.identity);
+      const identity = claimed && isHostIdentity(claimed) ? claimed : HOST_IDENTITY;
+      const person = state.participants.find((p) => p.identity === identity) ?? state.participants.find((p) => p.role === "host");
+      return { identity, name: person?.name || "Host" };
     }
     const identity = asIdentity(body.identity);
     const secret = typeof body.guestSecret === "string" ? body.guestSecret : "";

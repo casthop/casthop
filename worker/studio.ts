@@ -41,6 +41,7 @@ import {
   isTerminalHealth,
   MAX_STREAM_RETRIES,
   nextBackoffMs,
+  nextWatchMs,
   normalizeStudio,
   parseEgressInfo,
   parseEgressList,
@@ -463,7 +464,7 @@ export class StudioDurableObject {
     const occupied = identities ? studioHasPeople(identities) : false;
 
     const active = pickActiveEgress(listed, state.egressId, state.abandonedEgressIds);
-    const producing = active ? egressIsProducing(active) : false;
+    const producing = active ? egressIsProducing(active, { alreadyLive: state.live }) : false;
     if (active && producing && !this.compositorGone(state, identities, active.egressId) && !heartbeatLost(state, Date.now(), heartbeatStaleMs(this.env.CASTHOP_HEARTBEAT_MS))) {
       state.wantLive = true;
       state.live = true;
@@ -477,13 +478,13 @@ export class StudioDurableObject {
       state.egressRecoveringSince = null;
       applyStreamResults(state.destinations, active.streams, true, Date.now(), true);
       await this.putState(state);
-      await this.scheduleWatch(Date.now() + WATCH_MS);
+      await this.scheduleWatch(Date.now() + nextWatchMs(true));
       return json(publicState(state, { includeUrls: true }));
     }
     if (active && state.egressId === active.egressId && isRunningHealth(active.status)) {
       setDestStatuses(state.destinations, "connecting");
       await this.putState(state);
-      await this.scheduleWatch(Date.now() + WATCH_MS);
+      await this.scheduleWatch(Date.now() + nextWatchMs(false));
       return json(publicState(state, { includeUrls: true }));
     }
     if (active) {
@@ -536,7 +537,7 @@ export class StudioDurableObject {
       latest.egressHeartbeatAt = null;
       setDestStatuses(latest.destinations, "connecting");
       await this.putState(latest);
-      await this.scheduleWatch(Date.now() + WATCH_MS);
+      await this.scheduleWatch(Date.now() + nextWatchMs(false));
       return json(publicState(latest, { includeUrls: true }));
     } catch (err) {
       console.warn("egress start failed", err);
@@ -678,7 +679,7 @@ export class StudioDurableObject {
     if (isForeignEgress(state.egressId, info.egressId, info.status, state.wantLive, state.abandonedEgressIds)) {
       return;
     }
-    const producing = egressIsProducing(info);
+    const producing = egressIsProducing(info, { alreadyLive: state.live });
     const dropped = applyStreamResults(
       state.destinations,
       info.streams,
@@ -701,7 +702,7 @@ export class StudioDurableObject {
         }
         state.egressId = info.egressId;
         await this.putState(state);
-        await this.scheduleWatch(Date.now() + WATCH_MS);
+        await this.scheduleWatch(Date.now() + nextWatchMs(false));
         return;
       }
       state.live = true;

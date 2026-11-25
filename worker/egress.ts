@@ -10,8 +10,16 @@ export const RECOVERY_BUDGET_MS = 30_000;
 export const START_EGRESS_TIMEOUT_MS = 30_000;
 /** Don't block recovery on a hung StopEgress. */
 export const STOP_ABANDON_MS = 2_500;
-/** Compositor page posts a beat every 2s; miss a couple and reconnect. */
-export const HEARTBEAT_STALE_MS = 5_000;
+/** Compositor page posts a beat every 1s; miss a couple and reconnect within 5s. */
+export const HEARTBEAT_BEAT_MS = 1_000;
+export const HEARTBEAT_STALE_MS = 3_000;
+/** ListEgress often while connecting so Live tracks bytes/duration, not the 3s watch. */
+export const STARTING_WATCH_MS = 500;
+/**
+ * LiveKit 1.15 leaves stream duration/bytes at 0 while RTMP is already publishing.
+ * started_at lands ~1–3 s before MediaMTX; wait this long unless duration/bytes appear.
+ */
+export const OUTPUT_SETTLE_MS = 3_000;
 export const MAX_ABANDONED_EGRESS = 16;
 export const MAX_BACKOFF_MS = 30_000;
 export const BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 16_000, MAX_BACKOFF_MS] as const;
@@ -79,6 +87,10 @@ export function remainingRecoveryMs(
 export function startEgressTimeoutMs(remainingMs: number | null, capMs = START_EGRESS_TIMEOUT_MS): number {
   if (remainingMs == null) return capMs;
   return Math.min(capMs, Math.max(0, Math.floor(remainingMs)));
+}
+
+export function nextWatchMs(producing: boolean): number {
+  return producing ? WATCH_MS : STARTING_WATCH_MS;
 }
 
 export function heartbeatStaleMs(raw: string | undefined): number {
@@ -561,28 +573,39 @@ export function pickActiveEgress(
   return items.find((e) => isRunningHealth(e.status) && !skip.has(e.egressId)) ?? null;
 }
 
-/** True when this stream has actually started sending. */
-export function streamOutputStarted(stream: StreamResult): boolean {
-  return (stream.startedAt ?? 0) > 0 || (stream.duration ?? 0) > 0 || (stream.bytes ?? 0) > 0;
+/** True when this stream has actually sent output. started_at needs a settle unless duration/bytes. */
+export function streamOutputStarted(stream: StreamResult, now = Date.now()): boolean {
+  if ((stream.duration ?? 0) > 0 || (stream.bytes ?? 0) > 0) return true;
+  const started = stream.startedAt ?? 0;
+  if (started <= 0) return false;
+  return now - started >= OUTPUT_SETTLE_MS;
 }
 
-/** LiveKit stream started_at / duration / bytes. Omitted zeros (protojson) are not started. */
-export function egressOutputStarted(info: ParsedEgress): boolean {
-  return info.streams.some(streamOutputStarted);
+/** LiveKit stream duration / bytes, or started_at after the RTMP settle. */
+export function egressOutputStarted(info: ParsedEgress, now = Date.now()): boolean {
+  return info.streams.some((stream) => streamOutputStarted(stream, now));
 }
 
-/** ListEgress "active" is not enough; RTMP (or equivalent) must have started. */
+function streamStillActive(stream: StreamResult): boolean {
+  return stream.status === "active" && ((stream.startedAt ?? 0) > 0 || streamOutputStarted(stream));
+}
+
+/** ListEgress "active" is not enough; wait for bytes, duration, or started_at settle. */
 export function egressIsProducing(
   info: ParsedEgress,
-  _opts?: {
+  opts?: {
     identities?: string[] | null;
     now?: number;
     staleMs?: number;
     fromUpdate?: boolean;
+    alreadyLive?: boolean;
   },
 ): boolean {
   if (!isRunningHealth(info.status)) return false;
-  return egressOutputStarted(info);
+  const now = opts?.now ?? Date.now();
+  if (egressOutputStarted(info, now)) return true;
+  // Sparse later updates omit duration/bytes; do not drop Live for that.
+  return Boolean(opts?.alreadyLive && info.streams.some(streamStillActive));
 }
 
 export function recordingPathFor(studioId: string, at = new Date()): string {

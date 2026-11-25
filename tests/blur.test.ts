@@ -59,8 +59,10 @@ test("WASM blur keeps a solid person and mixes a checkerboard background", async
     casthop_blur_new: () => number;
     casthop_blur_setup: (h: number, w: number, height: number, mw: number, mh: number, r: number, t: number) => number;
     casthop_blur_frame_ptr: (h: number) => number;
+    casthop_blur_frame_len: (h: number) => number;
     casthop_blur_mask_ptr: (h: number) => number;
     casthop_blur_process: (h: number) => number;
+    casthop_blur_free: (h: number) => void;
     memory: WebAssembly.Memory;
   };
   const w = 64;
@@ -99,6 +101,10 @@ test("WASM blur keeps a solid person and mixes a checkerboard background", async
   assert.ok(Math.abs(person - 200) < 8, `person pixel ${person}`);
   const bg = frame[(16 * w + 48) * 4] ?? 0;
   assert.ok(bg !== 0 && bg !== 255, `background should be mixed, got ${bg}`);
+  assert.ok(exp.casthop_blur_frame_len(handle) > 0);
+  exp.casthop_blur_free(handle);
+  assert.equal(exp.casthop_blur_frame_len(handle), 0);
+  assert.equal(exp.casthop_blur_new(), handle);
 });
 
 test("JS blur fallback matches the WASM mix contract", () => {

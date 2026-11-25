@@ -17,12 +17,6 @@
 const MAX_W: u32 = 1920;
 const MAX_H: u32 = 1080;
 const MAX_MASK: u32 = 512;
-const DEFAULT_W: u32 = 1280;
-const DEFAULT_H: u32 = 720;
-const DEFAULT_MW: u32 = 256;
-const DEFAULT_MH: u32 = 144;
-const DEFAULT_RADIUS: u32 = 24;
-const DEFAULT_TEMPORAL: u32 = 180;
 
 pub struct Pipeline {
     pub width: u32,
@@ -44,19 +38,7 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    pub fn new() -> Self {
-        Self::with_dims(
-            DEFAULT_W,
-            DEFAULT_H,
-            DEFAULT_MW,
-            DEFAULT_MH,
-            DEFAULT_RADIUS,
-            DEFAULT_TEMPORAL,
-        )
-        .unwrap_or_else(Self::empty)
-    }
-
-    fn empty() -> Self {
+    pub(crate) fn empty() -> Self {
         Self {
             width: 0,
             height: 0,
@@ -441,7 +423,7 @@ mod tests {
 
     #[test]
     fn person_stays_background_blurs() {
-        let mut p = Pipeline::new();
+        let mut p = Pipeline::empty();
         assert!(p.setup(64, 64, 16, 16, 24, 0));
         // Left half red (person), right half a sharp checker so blur is visible.
         for y in 0..64u32 {
@@ -475,7 +457,7 @@ mod tests {
 
     #[test]
     fn temporal_eases_in() {
-        let mut p = Pipeline::new();
+        let mut p = Pipeline::empty();
         assert!(p.setup(32, 32, 8, 8, 8, 200));
         solid(&mut p, 40, 40, 40);
         p.mask.fill(255);
@@ -493,7 +475,7 @@ mod tests {
 
     #[test]
     fn bad_setup_rejected() {
-        let mut p = Pipeline::new();
+        let mut p = Pipeline::empty();
         assert!(!p.setup(0, 720, 256, 144, 24, 180));
         assert!(!p.setup(1280, 720, 0, 144, 24, 180));
         assert!(!p.setup(4000, 720, 256, 144, 24, 180));

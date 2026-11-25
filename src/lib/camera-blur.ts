@@ -64,7 +64,12 @@ export async function startCameraBlur(
   video.playsInline = true;
   video.autoplay = true;
   video.srcObject = new MediaStream([source]);
-  await video.play();
+  try {
+    await video.play();
+  } catch (err) {
+    video.srcObject = null;
+    throw err;
+  }
   const width = Math.max(16, Math.min(1920, video.videoWidth || settings.width || 1280));
   const height = Math.max(16, Math.min(1080, video.videoHeight || settings.height || 720));
 
@@ -73,79 +78,96 @@ export async function startCameraBlur(
   canvas.height = height;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) {
+    video.pause();
     video.srcObject = null;
     throw new Error("no 2d canvas");
   }
 
-  const { createSegmenter } = await import("./segmenter");
-  const segmenter = await createSegmenter();
-  const composite = await makeComposite(backend);
-  composite.setup(width, height, segmenter.maskWidth, segmenter.maskHeight);
+  let segmenter: {
+    maskWidth: number;
+    maskHeight: number;
+    mask: Uint8Array;
+    segment(source: TexImageSource, timestampMs: number): boolean;
+    close(): void;
+  } | undefined;
+  let composite: Composite | undefined;
+  let out: MediaStream | undefined;
+  try {
+    const { createSegmenter } = await import("./segmenter");
+    segmenter = await createSegmenter();
+    composite = await makeComposite(backend);
+    composite.setup(width, height, segmenter.maskWidth, segmenter.maskHeight);
 
-  const out = canvas.captureStream(30);
-  const outTrack = out.getVideoTracks()[0];
-  if (!outTrack) {
-    segmenter.close();
-    composite.free();
-    video.srcObject = null;
-    throw new Error("captureStream failed");
-  }
+    out = canvas.captureStream(30);
+    const outTrack = out.getVideoTracks()[0];
+    if (!outTrack) throw new Error("captureStream failed");
 
-  let running = true;
-  let frameCb = 0;
-  let raf = 0;
-  let lastTs = -1;
-  let maskW = segmenter.maskWidth;
-  let maskH = segmenter.maskHeight;
+    let running = true;
+    let frameCb = 0;
+    let raf = 0;
+    let lastTs = -1;
+    let maskW = segmenter.maskWidth;
+    let maskH = segmenter.maskHeight;
+    const liveSegmenter = segmenter;
+    const liveComposite = composite;
+    const liveOut = out;
 
-  const tick = (now: number, mediaTime?: number) => {
-    if (!running) return;
-    const ts = mediaTime !== undefined ? mediaTime * 1000 : now;
-    if (ts <= lastTs) {
-      schedule(tick);
-      return;
-    }
-    lastTs = ts;
-    ctx.drawImage(video, 0, 0, width, height);
-    if (segmenter.segment(video, ts)) {
-      if (segmenter.maskWidth !== maskW || segmenter.maskHeight !== maskH) {
-        maskW = segmenter.maskWidth;
-        maskH = segmenter.maskHeight;
-        composite.setup(width, height, maskW, maskH);
+    const tick = (now: number, mediaTime?: number) => {
+      if (!running) return;
+      const ts = mediaTime !== undefined ? mediaTime * 1000 : now;
+      if (ts <= lastTs) {
+        schedule(tick);
+        return;
       }
-      const frame = ctx.getImageData(0, 0, width, height);
-      composite.process(frame.data, segmenter.mask, maskW, maskH);
-      ctx.putImageData(frame, 0, 0);
-    }
-    schedule(tick);
-  };
-
-  const schedule = (cb: (now: number, mediaTime?: number) => void) => {
-    const v = video as HTMLVideoElement & {
-      requestVideoFrameCallback?: (fn: (now: number, meta: { mediaTime: number }) => void) => number;
+      lastTs = ts;
+      ctx.drawImage(video, 0, 0, width, height);
+      if (liveSegmenter.segment(video, ts)) {
+        if (liveSegmenter.maskWidth !== maskW || liveSegmenter.maskHeight !== maskH) {
+          maskW = liveSegmenter.maskWidth;
+          maskH = liveSegmenter.maskHeight;
+          liveComposite.setup(width, height, maskW, maskH);
+        }
+        const frame = ctx.getImageData(0, 0, width, height);
+        liveComposite.process(frame.data, liveSegmenter.mask, maskW, maskH);
+        ctx.putImageData(frame, 0, 0);
+      }
+      schedule(tick);
     };
-    if (v.requestVideoFrameCallback) {
-      frameCb = v.requestVideoFrameCallback((now, meta) => cb(now, meta.mediaTime));
-    } else {
-      raf = requestAnimationFrame((t) => cb(t));
-    }
-  };
 
-  schedule(tick);
+    const schedule = (cb: (now: number, mediaTime?: number) => void) => {
+      const v = video as HTMLVideoElement & {
+        requestVideoFrameCallback?: (fn: (now: number, meta: { mediaTime: number }) => void) => number;
+      };
+      if (v.requestVideoFrameCallback) {
+        frameCb = v.requestVideoFrameCallback((now, meta) => cb(now, meta.mediaTime));
+      } else {
+        raf = requestAnimationFrame((t) => cb(t));
+      }
+    };
 
-  return {
-    track: outTrack,
-    stop: () => {
-      running = false;
-      const v = video as HTMLVideoElement & { cancelVideoFrameCallback?: (id: number) => void };
-      if (frameCb && v.cancelVideoFrameCallback) v.cancelVideoFrameCallback(frameCb);
-      if (raf) cancelAnimationFrame(raf);
-      outTrack.stop();
-      out.getTracks().forEach((t) => t.stop());
-      video.pause();
-      video.srcObject = null;
-      segmenter.close();
-      composite.free();
-    },
-  };
+    schedule(tick);
+
+    return {
+      track: outTrack,
+      stop: () => {
+        running = false;
+        const v = video as HTMLVideoElement & { cancelVideoFrameCallback?: (id: number) => void };
+        if (frameCb && v.cancelVideoFrameCallback) v.cancelVideoFrameCallback(frameCb);
+        if (raf) cancelAnimationFrame(raf);
+        outTrack.stop();
+        liveOut.getTracks().forEach((t) => t.stop());
+        video.pause();
+        video.srcObject = null;
+        liveSegmenter.close();
+        liveComposite.free();
+      },
+    };
+  } catch (err) {
+    out?.getTracks().forEach((t) => t.stop());
+    composite?.free();
+    segmenter?.close();
+    video.pause();
+    video.srcObject = null;
+    throw err;
+  }
 }

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { comparePerf, formatPerfTable, regressionLimit } from "../src/lib/perf-gate.ts";
+import { comparePerf, compareWorkerToMain, formatPerfTable, regressionLimit } from "../src/lib/perf-gate.ts";
 import { percentile } from "../src/lib/compose-support.ts";
 import { pickComposeThreadFrom } from "../src/lib/compose-backend.ts";
 
@@ -62,17 +62,32 @@ test("comparePerf fails only on gated metrics beyond 15%", () => {
   assert.equal(failFrame.ok, false);
   const failTasks = comparePerf({ ...sample, longTaskTotalMs: 400 }, baseline);
   assert.equal(failTasks.ok, false);
-  const gha = comparePerf({ ...sample, p95FrameMs: 24.2, longTaskTotalMs: 0 }, {
-    ...baseline,
-    p50FrameMs: 16.9,
-    p95FrameMs: 24.2,
-    longTaskCount: 0,
-    longTaskTotalMs: 0,
-  });
-  assert.equal(gha.ok, true);
   const table = formatPerfTable(ok.rows);
   assert.match(table, /p95 frame ms/);
   assert.match(table, /long task total ms/);
+});
+
+test("compareWorkerToMain fails when worker p95 is more than 15% worse", () => {
+  const main = {
+    p50FrameMs: 7,
+    p95FrameMs: 10,
+    droppedFrames: 0,
+    longTaskCount: 0,
+    longTaskTotalMs: 0,
+    inputLatencyP95Ms: 16,
+    frames: 1800,
+    thread: "main",
+    backend: "canvas2d",
+    tiles: 6,
+    seconds: 30,
+  };
+  const worker = { ...main, thread: "worker", frames: 900, p95FrameMs: 11, longTaskTotalMs: 0 };
+  assert.equal(compareWorkerToMain(worker, main).ok, true);
+  assert.equal(compareWorkerToMain({ ...worker, p95FrameMs: 20 }, main).ok, false);
+  assert.equal(compareWorkerToMain({ ...worker, longTaskTotalMs: 400 }, main).ok, false);
+  const table = formatPerfTable(compareWorkerToMain(worker, main).rows, "worker", "main");
+  assert.match(table, /worker/);
+  assert.match(table, /main/);
 });
 
 test("perf baseline JSON has gated fields", () => {
@@ -84,8 +99,8 @@ test("perf baseline JSON has gated fields", () => {
     seconds: number;
   };
   assert.equal(raw.version, 1);
-  assert.ok(raw.p95FrameMs > 0);
-  assert.ok(raw.longTaskTotalMs >= 0);
+  assert.equal(raw.p95FrameMs, 11.6);
+  assert.equal(raw.longTaskTotalMs, 0);
   assert.equal(raw.tiles, 6);
   assert.equal(raw.seconds, 30);
 });
@@ -105,8 +120,9 @@ test("offthread compose uses OffscreenCanvas and VideoFrame transfer", () => {
   assert.match(worker, /!order.includes\(id\)/);
   assert.match(worker, /reader\.cancel/);
   assert.match(worker, /OUTPUT_INTERVAL_MS/);
-  assert.match(worker, /requestAnimationFrame/);
-  assert.match(worker, /setTimeout\(run, 16\)/);
+  assert.match(worker, /setTimeout\(tick/);
+  assert.doesNotMatch(worker, /requestAnimationFrame/);
+  assert.match(program, /captureStream\(30\)/);
   assert.match(program, /worker\.terminate\(\)/);
   assert.match(program, /outputTrack\?\.stop\(\)/);
   assert.match(egress, /startProgramCompose/);

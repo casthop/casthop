@@ -64,21 +64,23 @@ async function startWorker(opts: {
   subtitle: string;
 }): Promise<ProgramCompose> {
   const worker = spawnComposeWorker();
-  const offscreen = opts.canvas.transferControlToOffscreen();
   let outputTrack: MediaStreamTrack | null = null;
-  const transfer: Transferable[] = [offscreen];
-  let writable: WritableStream<VideoFrame> | undefined;
-  if (supportsTrackGenerator()) {
-    const gen = new MediaStreamTrackGenerator({ kind: "video" });
-    outputTrack = gen;
-    writable = gen.writable;
-    transfer.push(writable);
-  } else if (typeof opts.canvas.captureStream === "function") {
+  // One 30 fps compose paints the OffscreenCanvas; captureStream samples that same frame.
+  if (typeof opts.canvas.captureStream === "function") {
     try {
       outputTrack = opts.canvas.captureStream(30).getVideoTracks()[0] ?? null;
     } catch {
       outputTrack = null;
     }
+  }
+  const offscreen = opts.canvas.transferControlToOffscreen();
+  const transfer: Transferable[] = [offscreen];
+  let writable: WritableStream<VideoFrame> | undefined;
+  if (!outputTrack && supportsTrackGenerator()) {
+    const gen = new MediaStreamTrackGenerator({ kind: "video" });
+    outputTrack = gen;
+    writable = gen.writable;
+    transfer.push(writable);
   }
   post(
     worker,

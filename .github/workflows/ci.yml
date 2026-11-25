@@ -97,7 +97,7 @@ jobs:
           echo "timeout waiting for app"
           cat /tmp/casthop-dev.log || true
           exit 1
-      - name: Compositor perf vs baseline
+      - name: Compositor perf main vs worker
         env:
           CI: "true"
           PERF: "1"

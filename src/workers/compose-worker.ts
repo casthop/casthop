@@ -19,12 +19,10 @@ let title = "Casthop";
 let subtitle = "live";
 let writer: WritableStreamDefaultWriter<VideoFrame> | null = null;
 let busy = false;
-let raf = 0;
 let timer = 0;
 let dropped = 0;
 let frames = 0;
 let running = true;
-let lastOutput = 0;
 
 function post(msg: ComposeWorkerOut): void {
   self.postMessage(msg);
@@ -45,11 +43,9 @@ function sources(): VideoFrame[] {
   return out;
 }
 
-async function writeOutput(t0: number): Promise<void> {
+async function writeOutput(): Promise<void> {
   if (!writer || !canvas) return;
-  if (t0 - lastOutput < OUTPUT_INTERVAL_MS) return;
-  lastOutput = t0;
-  const vf = new VideoFrame(canvas, { timestamp: Math.round(t0 * 1000), alpha: "discard" });
+  const vf = new VideoFrame(canvas, { timestamp: Math.round(performance.now() * 1000), alpha: "discard" });
   try {
     await writer.write(vf);
   } finally {
@@ -59,7 +55,6 @@ async function writeOutput(t0: number): Promise<void> {
 
 async function composeOnce(): Promise<void> {
   if (!canvas || !running) return;
-  const t0 = performance.now();
   const result = await composeFrame({
     backend,
     videos: sources(),
@@ -69,53 +64,41 @@ async function composeOnce(): Promise<void> {
     canvas,
   });
   backend = result.backend;
-  await writeOutput(t0);
-  pushSample(samples, cursor, performance.now() - t0);
+  pushSample(samples, cursor, result.ms);
   frames += 1;
+  await writeOutput();
 }
 
 function cancelSchedule(): void {
-  if (raf && typeof cancelAnimationFrame === "function") cancelAnimationFrame(raf);
   if (timer) self.clearTimeout(timer);
-  raf = 0;
   timer = 0;
 }
 
-function schedule(cb: () => void): void {
-  let done = false;
-  const run = () => {
-    if (done) return;
-    done = true;
-    raf = 0;
-    timer = 0;
-    cb();
-  };
-  // rAF for a displayed OffscreenCanvas; timeout so headless workers still compose.
-  if (typeof requestAnimationFrame === "function") raf = requestAnimationFrame(run);
-  timer = self.setTimeout(run, 16);
+function startLoop(): void {
+  if (!running || timer) return;
+  timer = self.setTimeout(tick, 0);
 }
 
 function tick(): void {
+  timer = 0;
   if (!running) return;
   if (busy) {
     dropped += 1;
-    schedule(tick);
+    timer = self.setTimeout(tick, OUTPUT_INTERVAL_MS);
     return;
   }
   busy = true;
+  const t0 = performance.now();
   void composeOnce()
     .catch((err) => {
       post({ type: "error", message: err instanceof Error ? err.message : String(err) });
     })
     .finally(() => {
       busy = false;
-      if (running) schedule(tick);
+      if (!running) return;
+      const wait = Math.max(0, OUTPUT_INTERVAL_MS - (performance.now() - t0));
+      timer = self.setTimeout(tick, wait);
     });
-}
-
-function startLoop(): void {
-  if (!running || raf || timer) return;
-  schedule(tick);
 }
 
 async function pump(id: string, readable: ReadableStream<VideoFrame>, signal: AbortSignal): Promise<void> {

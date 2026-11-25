@@ -46,11 +46,23 @@ export function regressionLimit(baseline: number, floor: number, pct = PCT): num
 export function comparePerf(measured: PerfMeasured, baseline: PerfBaseline): { rows: PerfRow[]; ok: boolean } {
   const rows: PerfRow[] = [
     row("p95 frame ms", measured.p95FrameMs, baseline.p95FrameMs, 4, true),
-    row("long task total ms", measured.longTaskTotalMs, baseline.longTaskTotalMs, 80, true),
+    row("long task total ms", measured.longTaskTotalMs, baseline.longTaskTotalMs, 50, true),
     row("p50 frame ms", measured.p50FrameMs, baseline.p50FrameMs, 2, false),
     row("dropped frames", measured.droppedFrames, baseline.droppedFrames, 8, false),
     row("long task count", measured.longTaskCount, baseline.longTaskCount, 2, false),
     row("input latency p95 ms", measured.inputLatencyP95Ms, baseline.inputLatencyP95Ms, 8, false),
+  ];
+  return { rows, ok: rows.filter((r) => r.gate).every((r) => r.ok) };
+}
+
+export function compareWorkerToMain(worker: PerfMeasured, main: PerfMeasured): { rows: PerfRow[]; ok: boolean } {
+  const rows: PerfRow[] = [
+    row("p95 frame ms", worker.p95FrameMs, main.p95FrameMs, 1, true),
+    row("long task total ms", worker.longTaskTotalMs, main.longTaskTotalMs, 50, true),
+    row("p50 frame ms", worker.p50FrameMs, main.p50FrameMs, 2, false),
+    row("dropped frames", worker.droppedFrames, main.droppedFrames, 8, false),
+    row("long task count", worker.longTaskCount, main.longTaskCount, 2, false),
+    row("input latency p95 ms", worker.inputLatencyP95Ms, main.inputLatencyP95Ms, 8, false),
   ];
   return { rows, ok: rows.filter((r) => r.gate).every((r) => r.ok) };
 }
@@ -60,8 +72,8 @@ function row(name: string, measured: number, baseline: number, floor: number, ga
   return { name, measured, baseline, limit, gate, ok: measured <= limit };
 }
 
-export function formatPerfTable(rows: PerfRow[]): string {
-  const head = pad("metric", 24) + pad("measured", 12) + pad("baseline", 12) + pad("limit", 12) + "gate";
+export function formatPerfTable(rows: PerfRow[], measuredLabel = "measured", baselineLabel = "baseline"): string {
+  const head = pad("metric", 24) + pad(measuredLabel, 12) + pad(baselineLabel, 12) + pad("limit", 12) + "gate";
   const line = "-".repeat(head.length);
   const body = rows.map((r) => {
     const flag = r.gate ? (r.ok ? "ok" : "FAIL") : "info";

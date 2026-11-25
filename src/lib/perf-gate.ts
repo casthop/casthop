@@ -39,8 +39,18 @@ export type PerfRow = {
 
 const PCT = 0.15;
 
+/** Program output and the worker compose loop are 30 fps. Main-thread rAF is ~60. */
+export const WORKER_OUTPUT_FPS = 30;
+
+export const WORKER_FRAME_BUDGET_MS = 1000 / WORKER_OUTPUT_FPS;
+
 export function regressionLimit(baseline: number, floor: number, pct = PCT): number {
   return Math.max(baseline * (1 + pct), baseline + floor);
+}
+
+export function bandLimits(target: number, floor: number, pct = PCT): { lo: number; hi: number } {
+  const slack = Math.max(target * pct, floor);
+  return { lo: target - slack, hi: target + slack };
 }
 
 export function comparePerf(measured: PerfMeasured, baseline: PerfBaseline): { rows: PerfRow[]; ok: boolean } {
@@ -56,11 +66,16 @@ export function comparePerf(measured: PerfMeasured, baseline: PerfBaseline): { r
 }
 
 export function compareWorkerToMain(worker: PerfMeasured, main: PerfMeasured): { rows: PerfRow[]; ok: boolean } {
+  const expectedFrames = WORKER_OUTPUT_FPS * worker.seconds;
   const rows: PerfRow[] = [
-    row("p95 frame ms", worker.p95FrameMs, main.p95FrameMs, 1, true),
+    // Typical VideoFrame cost is ~2–3 ms above the <video> path. p95 vs main is the
+    // 60 fps rAF tail on a different loop; GHA swings 0.8–1.6× with no code change.
+    row("p50 frame ms", worker.p50FrameMs, main.p50FrameMs, 4, true),
+    cap("p95 30fps slot ms", worker.p95FrameMs, WORKER_FRAME_BUDGET_MS, true),
     row("long task total ms", worker.longTaskTotalMs, main.longTaskTotalMs, 50, true),
-    row("p50 frame ms", worker.p50FrameMs, main.p50FrameMs, 2, false),
-    row("dropped frames", worker.droppedFrames, main.droppedFrames, 8, false),
+    band("worker frames", worker.frames, expectedFrames, 0, true),
+    row("dropped frames", worker.droppedFrames, main.droppedFrames, 8, true),
+    row("p95 frame ms", worker.p95FrameMs, main.p95FrameMs, 2, false),
     row("long task count", worker.longTaskCount, main.longTaskCount, 2, false),
     row("input latency p95 ms", worker.inputLatencyP95Ms, main.inputLatencyP95Ms, 8, false),
   ];
@@ -70,6 +85,22 @@ export function compareWorkerToMain(worker: PerfMeasured, main: PerfMeasured): {
 function row(name: string, measured: number, baseline: number, floor: number, gate: boolean): PerfRow {
   const limit = regressionLimit(baseline, floor);
   return { name, measured, baseline, limit, gate, ok: measured <= limit };
+}
+
+function cap(name: string, measured: number, budget: number, gate: boolean): PerfRow {
+  return { name, measured, baseline: budget, limit: budget, gate, ok: measured <= budget };
+}
+
+function band(name: string, measured: number, target: number, floor: number, gate: boolean): PerfRow {
+  const { lo, hi } = bandLimits(target, floor);
+  return {
+    name,
+    measured,
+    baseline: target,
+    limit: measured < lo ? lo : hi,
+    gate,
+    ok: measured >= lo && measured <= hi,
+  };
 }
 
 export function formatPerfTable(rows: PerfRow[], measuredLabel = "measured", baselineLabel = "baseline"): string {

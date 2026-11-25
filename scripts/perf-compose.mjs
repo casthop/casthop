@@ -1,8 +1,10 @@
 #!/usr/bin/env bun
 /**
  * Headless compositor perf: 6 tiles + overlay for ~30s on main and worker
- * in one Chrome. Fails if the worker p95 frame time or long-task total is
- * more than 15% worse than main on the same runner.
+ * in one Chrome. Worker compose is 30 fps (program output); main is ~60 fps
+ * rAF. Fails if worker p50 is more than 15% worse than main (4 ms floor),
+ * worker p95 misses the 33 ms 30 fps slot, frames leave 30 fps ±15%,
+ * dropped frames exceed main, or long tasks exceed main.
  *
  * Needs `bun run dev` and Chrome. Skip unless CI=true or PERF=1.
  */
@@ -173,7 +175,7 @@ try {
   console.log(formatPerfTable(rows, "worker", "main"));
   if (!ok) {
     failed = 1;
-    console.error("worker path worse than main by more than 15%");
+    console.error("worker path missed the main-vs-worker gate");
   }
   ws.close();
 } catch (err) {

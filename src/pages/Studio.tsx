@@ -436,9 +436,30 @@ export function Studio() {
     if (!isHost || !studio) return;
     setError("");
     const phaseNow = studio.livePhase ?? (studio.live ? "live" : "idle");
+    if (phaseNow === "failed") return;
     const busy = phaseNow === "live" || phaseNow === "starting" || phaseNow === "retrying" || phaseNow === "stopping";
     try {
       await setLive(id, !busy);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Live failed");
+    }
+  }
+
+  async function onRetryLive() {
+    if (!isHost || !studio) return;
+    setError("");
+    try {
+      await setLive(id, true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Live failed");
+    }
+  }
+
+  async function onEndLive() {
+    if (!isHost || !studio) return;
+    setError("");
+    try {
+      await setLive(id, false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Live failed");
     }
@@ -499,6 +520,7 @@ export function Studio() {
     if (phase === "starting") return "Starting…";
     if (phase === "retrying") return liveError ? `Reconnecting · ${liveError}` : "Reconnecting…";
     if (phase === "stopping") return "Stopping…";
+    if (phase === "failed") return liveError ? `Live failed · ${liveError}` : "Live failed";
     if (liveOn) return `Live · ${formatLive(liveMs)}`;
     return "Ready · not live";
   }
@@ -511,7 +533,7 @@ export function Studio() {
           Studio · {studio.title}
         </div>
         <div className="right">
-          <span className={`live-pill ${liveOn ? "on" : ""} ${phase === "retrying" ? "retry" : ""} ${phase === "starting" ? "wait" : ""}`}>
+          <span className={`live-pill ${liveOn ? "on" : ""} ${phase === "retrying" ? "retry" : ""} ${phase === "starting" ? "wait" : ""} ${phase === "failed" ? "fail" : ""}`}>
             <span className="dot" />
             {livePillText()}
           </span>
@@ -634,7 +656,17 @@ export function Studio() {
                 <UserPlus size={16} /> Invite guest
               </button>
             ) : null}
-            {isHost ? (
+            {isHost && phase === "failed" ? (
+              <>
+                <button className="go-live" type="button" onClick={() => void onRetryLive()} disabled={!room}>
+                  <span className="orb" />
+                  Retry
+                </button>
+                <button className="go-live end" type="button" onClick={() => void onEndLive()}>
+                  End live
+                </button>
+              </>
+            ) : isHost ? (
               <button
                 className={`go-live ${liveBusy ? "end" : ""}`}
                 type="button"

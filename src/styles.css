@@ -293,6 +293,11 @@ a {
   background: #6d64f7;
 }
 
+.live-pill.fail .dot {
+  background: #c43c41;
+  box-shadow: 0 0 0 4px rgba(196, 60, 65, 0.16);
+}
+
 .settings {
   height: 34px;
   padding: 0 14px;

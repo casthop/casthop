@@ -110,7 +110,7 @@ function twirpTimeoutMs(path: string): number {
   return 8_000;
 }
 
-async function twirp<T>(env: Env, path: string, body: unknown, room?: string): Promise<T> {
+async function twirp<T>(env: Env, path: string, body: unknown, room?: string, timeoutMs?: number): Promise<T> {
   const token = await mintApiToken(env, room);
   const res = await fetch(`${env.LIVEKIT_HTTP_URL}${path}`, {
     method: "POST",
@@ -119,7 +119,7 @@ async function twirp<T>(env: Env, path: string, body: unknown, room?: string): P
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(twirpTimeoutMs(path)),
+    signal: AbortSignal.timeout(timeoutMs ?? twirpTimeoutMs(path)),
   });
   const text = await res.text();
   if (!res.ok) {
@@ -200,8 +200,8 @@ export async function startRoomComposite(opts: {
   return { egressId };
 }
 
-export async function stopEgress(env: Env, egressId: string): Promise<void> {
-  await twirp(env, "/twirp/livekit.Egress/StopEgress", { egress_id: egressId });
+export async function stopEgress(env: Env, egressId: string, timeoutMs?: number): Promise<void> {
+  await twirp(env, "/twirp/livekit.Egress/StopEgress", { egress_id: egressId }, undefined, timeoutMs);
 }
 
 export async function updateEgressLayout(env: Env, egressId: string, layout: LayoutId): Promise<void> {

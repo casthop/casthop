@@ -28,6 +28,7 @@ import {
 import {
   applyStreamResults,
   compositorGraceMs,
+  egressIsProducing,
   emptyGraceMs,
   enabledUrls,
   failedStreamUrls,
@@ -43,7 +44,11 @@ import {
   pickActiveEgress,
   publicError,
   recordingPathFor,
+  recoveryBudgetMs,
+  recoveryTimedOut,
+  rememberAbandoned,
   setDestStatuses,
+  STOP_ABANDON_MS,
   studioHasCompositor,
   studioHasPeople,
   WATCH_MS,
@@ -396,14 +401,16 @@ export class StudioDurableObject {
 
     this.launching = true;
     try {
-      return await this.runStartLive(state);
+      return await this.runStartLive(state, fromWatch);
     } finally {
       this.launching = false;
     }
   }
 
-  private async runStartLive(state: StudioState): Promise<Response> {
+  private async runStartLive(state: StudioState, fromWatch = false): Promise<Response> {
     state.wantLive = true;
+    state.liveFailed = false;
+    if (!fromWatch) state.egressRecoveringSince = null;
     state.liveStartingAt = Date.now();
     await this.putState(state);
 
@@ -431,27 +438,31 @@ export class StudioDurableObject {
     state = afterPeople;
     const occupied = identities ? studioHasPeople(identities) : false;
 
-    const active = pickActiveEgress(listed, state.egressId);
-    if (active && !this.compositorGone(state, identities, active.egressId)) {
+    const active = pickActiveEgress(listed, state.egressId, state.abandonedEgressIds);
+    const producing = active
+      ? egressIsProducing(active, { identities, fromUpdate: false })
+      : false;
+    if (active && producing && !this.compositorGone(state, identities, active.egressId)) {
       state.wantLive = true;
       state.live = true;
+      state.liveFailed = false;
       state.liveStartedAt = state.liveStartedAt ?? Date.now();
       state.liveStartingAt = undefined;
       state.egressId = active.egressId;
       state.liveError = null;
       state.egressRetryCount = 0;
       state.egressRetryAt = null;
-      applyStreamResults(state.destinations, active.streams, true);
+      state.egressRecoveringSince = null;
+      applyStreamResults(state.destinations, active.streams, true, Date.now(), true);
       await this.putState(state);
       await this.scheduleWatch(Date.now() + WATCH_MS);
       return json(publicState(state, { includeUrls: true }));
     }
     if (active) {
-      try {
-        await stopEgress(this.env, active.egressId);
-      } catch (err) {
-        console.warn("stop stale compositor", err);
-      }
+      await this.abandonEgress(state, active.egressId);
+      const afterStop = await this.getState();
+      if (!afterStop?.wantLive) return json(publicState(afterStop ?? state, { includeUrls: true }));
+      state = afterStop;
     }
 
     state.liveError = null;
@@ -513,12 +524,14 @@ export class StudioDurableObject {
     const latest = (await this.getState()) ?? state;
     latest.wantLive = false;
     latest.live = false;
+    latest.liveFailed = false;
     latest.liveStartedAt = null;
     latest.liveStartingAt = undefined;
     latest.egressId = null;
     latest.liveError = reason === "stopped" ? null : reason;
     latest.egressRetryCount = 0;
     latest.egressRetryAt = null;
+    latest.egressRecoveringSince = null;
     setDestStatuses(latest.destinations, reason === "stopped" ? "stopped" : "idle", null);
     if (reason === "stopped") {
       for (const d of latest.destinations) {
@@ -558,40 +571,43 @@ export class StudioDurableObject {
       await this.stopLive(state, "stopped");
       return;
     }
+    if (state.liveFailed) {
+      await this.clearWatch();
+      return;
+    }
     const identities = await this.watchPresence(state, false);
     const latest = await this.getState();
-    if (!latest?.wantLive) return;
+    if (!latest?.wantLive || latest.liveFailed) return;
     // Waiting out the empty-room grace: don't treat a missing compositor as a crash.
     if (latest.emptySince) {
       await this.scheduleWatch(latest.emptySince + emptyGraceMs(this.env.CASTHOP_EMPTY_GRACE_MS));
       return;
     }
     if (this.compositorGone(latest, identities)) {
-      if (latest.egressId) {
-        try {
-          await stopEgress(this.env, latest.egressId);
-        } catch (err) {
-          console.warn("stop missing compositor", err);
-        }
-      }
-      await this.markRetry(latest, "Compositor left");
+      await this.restartDeadEgress(latest, latest.egressId, "Compositor left");
       return;
     }
 
     try {
       const listed = parseEgressList(await listEgressRaw(this.env, latest.id));
-      const active = pickActiveEgress(listed, latest.egressId);
+      const active = pickActiveEgress(listed, latest.egressId, latest.abandonedEgressIds);
       if (active) {
-        await this.applyEgress(latest, active, "poll");
+        await this.applyEgress(latest, active, "poll", identities);
         return;
       }
       const known = listed.find((e) => e.egressId === latest.egressId);
       if (known && isTerminalHealth(known.status)) {
-        await this.applyEgress(latest, known, "poll");
+        await this.applyEgress(latest, known, "poll", identities);
         return;
       }
       if (latest.live || latest.egressId) {
-        await this.markRetry(latest, latest.liveError ?? "Egress disappeared");
+        const started = latest.liveStartedAt ?? 0;
+        const grace = compositorGraceMs(this.env.CASTHOP_COMPOSITOR_GRACE_MS);
+        if (started && Date.now() - started < grace) {
+          await this.scheduleWatch(Date.now() + WATCH_MS);
+          return;
+        }
+        await this.restartDeadEgress(latest, latest.egressId, latest.liveError ?? "Egress disappeared");
         return;
       }
       if (latest.egressRetryAt && Date.now() < latest.egressRetryAt) {
@@ -605,20 +621,51 @@ export class StudioDurableObject {
     }
   }
 
-  private async applyEgress(state: StudioState, info: ReturnType<typeof parseEgressInfo>, event: string): Promise<void> {
+  private async applyEgress(
+    state: StudioState,
+    info: ReturnType<typeof parseEgressInfo>,
+    event: string,
+    identities: string[] | null = null,
+  ): Promise<void> {
     if (!info) return;
-    if (isForeignEgress(state.egressId, info.egressId, info.status, state.wantLive)) {
+    if (isForeignEgress(state.egressId, info.egressId, info.status, state.wantLive, state.abandonedEgressIds)) {
       return;
     }
-    const dropped = applyStreamResults(state.destinations, info.streams, isActiveHealth(info.status));
+    const fromUpdate = event !== "poll";
+    const producing = egressIsProducing(info, { identities, fromUpdate });
+    const dropped = applyStreamResults(
+      state.destinations,
+      info.streams,
+      isActiveHealth(info.status),
+      Date.now(),
+      producing && isActiveHealth(info.status),
+    );
     if (isActiveHealth(info.status)) {
+      if (!producing && !fromUpdate) {
+        const listedDead =
+          this.compositorGone(state, identities, info.egressId) || (!state.live && !state.egressId);
+        if (listedDead) {
+          await this.restartDeadEgress(state, info.egressId, "Compositor left");
+          return;
+        }
+        await this.putState(state);
+        await this.scheduleWatch(Date.now() + WATCH_MS);
+        return;
+      }
+      if (!producing) {
+        await this.putState(state);
+        await this.scheduleWatch(Date.now() + WATCH_MS);
+        return;
+      }
       state.live = true;
+      state.liveFailed = false;
       state.liveStartedAt = state.liveStartedAt ?? Date.now();
       state.liveStartingAt = undefined;
       state.egressId = info.egressId;
       state.liveError = null;
       state.egressRetryCount = 0;
       state.egressRetryAt = null;
+      state.egressRecoveringSince = null;
       await this.putState(state);
       if (dropped) await this.retryFailedStreams(state, info);
       await this.scheduleWatch(Date.now() + WATCH_MS);
@@ -659,10 +706,68 @@ export class StudioDurableObject {
     }
   }
 
+  private async abandonEgress(state: StudioState, egressId: string | null): Promise<void> {
+    if (egressId) {
+      state.abandonedEgressIds = rememberAbandoned(state.abandonedEgressIds, egressId);
+      if (state.egressId === egressId) {
+        state.egressId = null;
+        state.live = false;
+      }
+      await this.putState(state);
+      try {
+        await stopEgress(this.env, egressId, STOP_ABANDON_MS);
+      } catch (err) {
+        console.warn("abandon egress", err);
+      }
+      return;
+    }
+    if (state.egressId) {
+      state.egressId = null;
+      state.live = false;
+      await this.putState(state);
+    }
+  }
+
+  private async restartDeadEgress(state: StudioState, egressId: string | null, error: string): Promise<Response> {
+    if (!state.egressRecoveringSince) state.egressRecoveringSince = Date.now();
+    await this.abandonEgress(state, egressId);
+    const latest = (await this.getState()) ?? state;
+    if (!latest.wantLive || latest.liveFailed) return json(publicState(latest, { includeUrls: true }));
+    latest.egressRecoveringSince = state.egressRecoveringSince ?? latest.egressRecoveringSince;
+    latest.live = false;
+    if (egressId && latest.egressId === egressId) latest.egressId = null;
+    if (recoveryTimedOut(latest, Date.now(), recoveryBudgetMs(this.env.CASTHOP_RECOVERY_MS))) {
+      return this.markFailed(latest, error);
+    }
+    latest.liveError = error;
+    setDestStatuses(latest.destinations, "retrying", error);
+    await this.putState(latest);
+    return this.startLive(latest, true);
+  }
+
+  private async markFailed(state: StudioState, error: string): Promise<Response> {
+    state.wantLive = true;
+    state.live = false;
+    state.liveFailed = true;
+    state.liveStartingAt = undefined;
+    state.egressId = null;
+    state.liveError = error;
+    state.egressRetryAt = null;
+    setDestStatuses(state.destinations, "failed", error);
+    await this.putState(state);
+    await this.clearWatch();
+    return json(publicState(state, { includeUrls: true }));
+  }
+
   private async markRetry(state: StudioState, error: string): Promise<Response> {
+    if (!state.egressRecoveringSince) state.egressRecoveringSince = Date.now();
+    if (recoveryTimedOut(state, Date.now(), recoveryBudgetMs(this.env.CASTHOP_RECOVERY_MS))) {
+      return this.markFailed(state, error);
+    }
     const delay = nextBackoffMs(state.egressRetryCount, this.env.CASTHOP_BACKOFF_MS);
     state.wantLive = true;
     state.live = false;
+    state.liveFailed = false;
     state.liveStartingAt = undefined;
     state.egressId = null;
     state.liveError = error;

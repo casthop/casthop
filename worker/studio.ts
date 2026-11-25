@@ -31,7 +31,9 @@ import {
   enabledUrls,
   failedStreamUrls,
   isActiveHealth,
+  isForeignEgress,
   isTerminalHealth,
+  MAX_STREAM_RETRIES,
   nextBackoffMs,
   normalizeStudio,
   parseEgressInfo,
@@ -528,8 +530,8 @@ export class StudioDurableObject {
 
   private async applyEgress(state: StudioState, info: ReturnType<typeof parseEgressInfo>, event: string): Promise<void> {
     if (!info) return;
-    // A late egress_ended for the previous compositor must not tear down the current one.
-    if (state.egressId && info.egressId !== state.egressId) {
+    // Skip events for another compositor, including terminal ones after we cleared egressId.
+    if (isForeignEgress(state.egressId, info.egressId, info.status)) {
       return;
     }
     const dropped = applyStreamResults(state.destinations, info.streams, isActiveHealth(info.status));
@@ -558,12 +560,17 @@ export class StudioDurableObject {
 
   private async retryFailedStreams(state: StudioState, info: NonNullable<ReturnType<typeof parseEgressInfo>>): Promise<void> {
     if (!state.egressId) return;
-    const urls = failedStreamUrls(state.destinations, info.streams);
+    const now = Date.now();
+    const urls = failedStreamUrls(state.destinations, info.streams, now);
     if (!urls.length) return;
     try {
       await updateStream(this.env, state.egressId, urls, urls);
       for (const d of state.destinations) {
-        if (urls.includes(d.url)) d.status = "retrying";
+        if (!urls.includes(d.url)) continue;
+        const attempt = d.retryCount ?? 0;
+        d.retryCount = attempt + 1;
+        d.retryAt = now + nextBackoffMs(attempt, this.env.CASTHOP_BACKOFF_MS);
+        d.status = d.retryCount >= MAX_STREAM_RETRIES ? "failed" : "retrying";
       }
       await this.putState(state);
     } catch (err) {

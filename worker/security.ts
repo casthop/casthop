@@ -168,6 +168,8 @@ export function sanitizeDestinations(
       enabled: Boolean(r.enabled),
       status: Boolean(r.enabled) && url ? status : "idle",
       error: urlChanged ? null : (prev?.error ?? null),
+      retryCount: urlChanged ? 0 : (prev?.retryCount ?? 0),
+      retryAt: urlChanged ? null : (prev?.retryAt ?? null),
     });
   }
   return out;

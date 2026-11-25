@@ -17,6 +17,8 @@ export type Destination = {
   enabled: boolean;
   status: DestStatus;
   error: string | null;
+  retryCount?: number;
+  retryAt?: number | null;
 };
 
 /** Wire format. `url` is present only for an authenticated host. */
@@ -119,7 +121,7 @@ function idleDest(
   url: string,
   enabled: boolean,
 ): Destination {
-  return { id, kind, label, detail, url, enabled, status: "idle", error: null };
+  return { id, kind, label, detail, url, enabled, status: "idle", error: null, retryCount: 0, retryAt: null };
 }
 
 export function defaultDestinations(env: Pick<Env, "RTMP_YOUTUBE" | "RTMP_LINKEDIN" | "RTMP_X">): Destination[] {

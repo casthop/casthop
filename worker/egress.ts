@@ -4,6 +4,7 @@ export const WATCH_MS = 3_000;
 export const EMPTY_GRACE_MS = 45_000;
 export const MAX_BACKOFF_MS = 30_000;
 export const BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 16_000, MAX_BACKOFF_MS] as const;
+export const MAX_STREAM_RETRIES = BACKOFF_MS.length;
 
 export type EgressHealth = "starting" | "active" | "ending" | "complete" | "failed" | "unknown";
 
@@ -47,6 +48,18 @@ export function isTerminalHealth(status: EgressHealth): boolean {
   return status === "complete" || status === "failed";
 }
 
+/** True when this info is for a compositor we are not currently running. */
+export function isForeignEgress(ownedId: string | null, infoId: string, status: EgressHealth): boolean {
+  if (infoId === ownedId) return false;
+  if (ownedId) return true;
+  return !isActiveHealth(status);
+}
+
+export function streamRetryDue(dest: Destination, now = Date.now()): boolean {
+  if ((dest.retryCount ?? 0) >= MAX_STREAM_RETRIES) return false;
+  return (dest.retryAt ?? 0) <= now;
+}
+
 export function livePhaseOf(state: StudioState, now = Date.now()): LivePhase {
   const want = state.wantLive ?? state.live;
   if (!want && (state.live || state.egressId)) return "stopping";
@@ -78,16 +91,27 @@ export function setDestStatuses(destinations: Destination[], status: DestStatus,
     }
     d.status = status;
     d.error = error;
+    if (status === "connecting" || status === "idle" || status === "stopped" || status === "live") {
+      d.retryCount = 0;
+      d.retryAt = null;
+    }
   }
 }
 
-export function applyStreamResults(destinations: Destination[], streams: StreamResult[], live: boolean): boolean {
+export function applyStreamResults(
+  destinations: Destination[],
+  streams: StreamResult[],
+  live: boolean,
+  now = Date.now(),
+): boolean {
   const byUrl = new Map(streams.map((s) => [s.url, s]));
   let needsRetry = false;
   for (const d of destinations) {
     if (!d.enabled || !d.url) {
       d.status = "idle";
       d.error = null;
+      d.retryCount = 0;
+      d.retryAt = null;
       continue;
     }
     if (!live) {
@@ -102,10 +126,16 @@ export function applyStreamResults(destinations: Destination[], streams: StreamR
     if (stream.status === "active") {
       d.status = "live";
       d.error = null;
+      d.retryCount = 0;
+      d.retryAt = null;
     } else if (stream.status === "failed") {
-      d.status = "retrying";
       d.error = publicError(stream.error) ?? "RTMP dropped";
-      needsRetry = true;
+      if (!streamRetryDue(d, now)) {
+        d.status = (d.retryCount ?? 0) >= MAX_STREAM_RETRIES ? "failed" : "retrying";
+      } else {
+        d.status = "retrying";
+        needsRetry = true;
+      }
     } else if (stream.status === "finished") {
       d.status = "stopped";
       d.error = publicError(stream.error);
@@ -116,9 +146,15 @@ export function applyStreamResults(destinations: Destination[], streams: StreamR
   return needsRetry;
 }
 
-export function failedStreamUrls(destinations: Destination[], streams: StreamResult[]): string[] {
-  const enabled = new Set(enabledUrls(destinations));
-  return streams.filter((s) => s.status === "failed" && enabled.has(s.url)).map((s) => s.url);
+export function failedStreamUrls(destinations: Destination[], streams: StreamResult[], now = Date.now()): string[] {
+  const byUrl = new Map(destinations.filter((d) => d.enabled && d.url).map((d) => [d.url, d]));
+  return streams
+    .filter((s) => {
+      if (s.status !== "failed") return false;
+      const dest = byUrl.get(s.url);
+      return Boolean(dest && streamRetryDue(dest, now));
+    })
+    .map((s) => s.url);
 }
 
 export function asRecord(value: unknown): Record<string, unknown> | null {
@@ -262,6 +298,8 @@ export function normalizeStudio(state: StudioState): StudioState {
       ...d,
       status: d.status ?? (state.live && d.enabled ? "live" : "idle"),
       error: d.error ?? null,
+      retryCount: d.retryCount ?? 0,
+      retryAt: d.retryAt ?? null,
     })),
   };
 }

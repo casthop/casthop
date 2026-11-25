@@ -5,7 +5,9 @@ import { DEV_API_KEY, DEV_API_SECRET, HOST_KEY_HEADER } from "../worker/security
 import { mintApiToken, signLivekitWebhook } from "../worker/livekit.ts";
 import {
   applyStreamResults,
+  isForeignEgress,
   livePhaseOf,
+  MAX_STREAM_RETRIES,
   nextBackoffMs,
   parseEgressInfo,
   parseEgressList,
@@ -195,6 +197,15 @@ test("parseEgressInfo reads camelCase and snake_case stream results", () => {
   assert.equal(parseEgressList({ items: [{ egressId: "EG_2", status: 4 }] })[0]?.status, "failed");
 });
 
+test("isForeignEgress ignores terminal info when we do not own a compositor", () => {
+  assert.equal(isForeignEgress("EG_live", "EG_live", "failed"), false);
+  assert.equal(isForeignEgress("EG_live", "EG_old", "failed"), true);
+  assert.equal(isForeignEgress("EG_live", "EG_old", "active"), true);
+  assert.equal(isForeignEgress(null, "EG_old", "failed"), true);
+  assert.equal(isForeignEgress(null, "EG_old", "complete"), true);
+  assert.equal(isForeignEgress(null, "EG_new", "active"), false);
+});
+
 test("applyStreamResults sets per-destination status without exposing urls", () => {
   const dests: Destination[] = [
     { id: "youtube", kind: "youtube", label: "YouTube", detail: "", url: YT, enabled: true, status: "connecting", error: null },
@@ -212,6 +223,30 @@ test("applyStreamResults sets per-destination status without exposing urls", () 
   assert.equal(dests[0]?.status, "live");
   assert.equal(dests[1]?.status, "retrying");
   assert.equal(dests[1]?.error?.includes("super-secret"), false);
+});
+
+test("applyStreamResults waits for backoff and gives up after MAX_STREAM_RETRIES", () => {
+  const dests: Destination[] = [
+    {
+      id: "linkedin",
+      kind: "linkedin",
+      label: "LinkedIn",
+      detail: "",
+      url: LI,
+      enabled: true,
+      status: "retrying",
+      error: "RTMP dropped",
+      retryCount: 1,
+      retryAt: Date.now() + 60_000,
+    },
+  ];
+  assert.equal(applyStreamResults(dests, [{ url: LI, status: "failed", error: "still down" }], true), false);
+  assert.equal(dests[0]?.status, "retrying");
+
+  dests[0]!.retryCount = MAX_STREAM_RETRIES;
+  dests[0]!.retryAt = 0;
+  assert.equal(applyStreamResults(dests, [{ url: LI, status: "failed", error: "still down" }], true), false);
+  assert.equal(dests[0]?.status, "failed");
 });
 
 test("livePhaseOf maps host intent vs compositor health", () => {
@@ -319,6 +354,48 @@ test("unsigned webhook is 401; signed egress_ended retries start", async () => {
   assert.ok(egressStarts > starts);
 });
 
+test("terminal webhook after crash does not markRetry while egressId is empty", async () => {
+  listedParticipants = [{ identity: "host" }];
+  listedEgress = { items: [] };
+  const env = makeEnv();
+  const { id, hostKey } = await createStudio(env);
+  const started = await json<PublicStudio>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      env,
+    ),
+  );
+  assert.ok(started.egressId);
+  const crash = JSON.stringify({
+    event: "egress_ended",
+    egressInfo: { egressId: started.egressId, roomName: id, status: "EGRESS_FAILED", error: "chrome crashed" },
+  });
+  await app.request(
+    "https://casthop.test/api/livekit/webhook",
+    { method: "POST", headers: { Authorization: await signLivekitWebhook(env, crash) }, body: crash },
+    env,
+  );
+  const starts = egressStarts;
+  const late = JSON.stringify({
+    event: "egress_ended",
+    egressInfo: { egressId: started.egressId, roomName: id, status: "EGRESS_FAILED", error: "chrome crashed" },
+  });
+  const res = await app.request(
+    "https://casthop.test/api/livekit/webhook",
+    { method: "POST", headers: { Authorization: await signLivekitWebhook(env, late) }, body: late },
+    env,
+  );
+  assert.equal(res.status, 200);
+  const after = await json<PublicStudio>(res);
+  assert.equal(after.livePhase, "retrying");
+  listedEgress = { items: [] };
+  await env.STUDIO.get(env.STUDIO.idFromName(id)).fetch(
+    new Request(`https://studio/${id}?action=watch`, { method: "POST", body: "{}" }),
+  );
+  assert.equal(egressStarts, starts + 1);
+});
+
 test("late egress_ended for a previous compositor does not retry the live one", async () => {
   listedParticipants = [{ identity: "host" }];
   listedEgress = { items: [] };
@@ -397,6 +474,47 @@ test("egress_updated marks a dropped RTMP destination and reattaches it", async 
   assert.equal(state.destinations.find((d) => d.id === "youtube")?.status, "live");
   assert.equal(state.destinations.find((d) => d.id === "linkedin")?.status, "retrying");
   assert.ok(streamUpdates > before);
+});
+
+test("a failed RTMP destination is not reattached forever", async () => {
+  listedParticipants = [{ identity: "host" }];
+  listedEgress = { items: [] };
+  const env = makeEnv();
+  const { id, hostKey } = await createStudio(env);
+  const started = await json<PublicStudio>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(hostKey), body: JSON.stringify({ live: true }) },
+      env,
+    ),
+  );
+  const before = streamUpdates;
+  let last: PublicStudio | undefined;
+  for (let i = 0; i < MAX_STREAM_RETRIES + 2; i++) {
+    const body = JSON.stringify({
+      event: "egress_updated",
+      egressInfo: {
+        egressId: started.egressId,
+        roomName: id,
+        status: "EGRESS_ACTIVE",
+        streamResults: [
+          { url: YT, status: "ACTIVE" },
+          { url: LI, status: "FAILED", error: "broken pipe" },
+          { url: X, status: "ACTIVE" },
+        ],
+      },
+    });
+    const res = await app.request(
+      "https://casthop.test/api/livekit/webhook",
+      { method: "POST", headers: { Authorization: await signLivekitWebhook(env, body) }, body },
+      env,
+    );
+    assert.equal(res.status, 200, await res.clone().text());
+    last = await json<PublicStudio>(res);
+  }
+  assert.equal(streamUpdates, before + MAX_STREAM_RETRIES);
+  assert.equal(last?.destinations.find((d) => d.id === "linkedin")?.status, "failed");
+  assert.equal(last?.destinations.find((d) => d.id === "youtube")?.status, "live");
 });
 
 test("empty LiveKit room stops stale egress after grace", async () => {

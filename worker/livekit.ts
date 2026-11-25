@@ -1,5 +1,6 @@
 import type { Env, LayoutId } from "./types";
 import { layoutToEgress } from "./types";
+import { publicError } from "./egress";
 
 function bytesToB64Url(bytes: Uint8Array): string {
   let s = "";
@@ -124,7 +125,8 @@ async function twirp<T>(env: Env, path: string, body: unknown, room?: string): P
   });
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`LiveKit ${path} ${res.status}: ${text.slice(0, 400)}`);
+    const detail = publicError(text.slice(0, 400)) ?? "request failed";
+    throw new Error(`LiveKit ${path} ${res.status}: ${detail}`);
   }
   return text ? (JSON.parse(text) as T) : ({} as T);
 }

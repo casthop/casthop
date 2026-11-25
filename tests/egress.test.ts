@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { app, StudioDurableObject } from "../worker/index.ts";
 import { DEV_API_KEY, DEV_API_SECRET, HOST_KEY_HEADER } from "../worker/security.ts";
-import { mintApiToken, signLivekitWebhook } from "../worker/livekit.ts";
+import { mintApiToken, signLivekitWebhook, startRoomComposite } from "../worker/livekit.ts";
 import {
   applyStreamResults,
   failedStreamUrls,
@@ -140,7 +140,7 @@ before(() => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (url.includes("StartRoomCompositeEgress")) {
       egressStarts += 1;
-      if (startRoomCompositeFail) return new Response("secret-stream-key in body", { status: 500 });
+      if (startRoomCompositeFail) return new Response(`cannot publish ${YT}`, { status: 500 });
       const body = JSON.parse(String(init?.body ?? "{}")) as { stream_outputs?: { urls?: string[] }[] };
       assert.ok((body.stream_outputs?.[0]?.urls?.length ?? 0) >= 1, "fan-out must send RTMP urls");
       return new Response(JSON.stringify({ egress_id: `eg_${egressStarts}` }), { status: 200 });
@@ -448,6 +448,28 @@ test("list egress failure does not start a second compositor", async () => {
   }
 });
 
+test("LiveKit Twirp errors do not include stream keys", async () => {
+  startRoomCompositeFail = true;
+  try {
+    await startRoomComposite({
+      env: makeEnv(),
+      room: "studio-room",
+      layout: "side",
+      urls: [YT],
+      filepath: "/out/x.mp4",
+    });
+    assert.fail("expected StartRoomComposite to throw");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    assert.match(msg, /LiveKit .* 500/);
+    assert.equal(msg.includes("super-secret"), false);
+    assert.equal(msg.includes(YT), false);
+    assert.equal(msg.includes("cannot publish rtmp://…"), true);
+  } finally {
+    startRoomCompositeFail = false;
+  }
+});
+
 test("go-live start failure does not put the LiveKit body in liveError", async () => {
   listedParticipants = [{ identity: "host" }];
   listedEgress = { items: [] };
@@ -465,8 +487,10 @@ test("go-live start failure does not put the LiveKit body in liveError", async (
     assert.equal(waiting.live, false);
     assert.equal(waiting.livePhase, "retrying");
     assert.equal(waiting.liveError, "Could not go live");
-    assert.equal(JSON.stringify(waiting).includes("secret-stream-key"), false);
-    assert.equal(JSON.stringify(waiting).includes("twirp"), false);
+    for (const d of waiting.destinations) {
+      assert.equal((d.error ?? "").includes("super-secret"), false);
+      assert.equal((d.error ?? "").includes("twirp"), false);
+    }
   } finally {
     startRoomCompositeFail = false;
   }

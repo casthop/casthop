@@ -96,7 +96,19 @@ function fakeSegmenter(onClose: () => void): LiveSegmenter {
 function installDom(opts: { ctx?: object | null; captureTracks?: FakeTrack[]; video?: FakeVideo }) {
   const videos: FakeVideo[] = [];
   const captureTracks = opts.captureTracks ?? [fakeTrack()];
-  const ctx = opts.ctx === undefined ? { drawImage() {}, getImageData() {}, putImageData() {} } : opts.ctx;
+  const ctx =
+    opts.ctx === undefined
+      ? {
+          drawImage() {},
+          createImageData(w: number, h: number) {
+            return { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) };
+          },
+          getImageData(_x: number, _y: number, w: number, h: number) {
+            return { data: new Uint8ClampedArray(w * h * 4) };
+          },
+          putImageData() {},
+        }
+      : opts.ctx;
   const previous = {
     document: globalThis.document,
     MediaStream: globalThis.MediaStream,

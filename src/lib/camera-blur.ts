@@ -119,6 +119,7 @@ export async function startCameraBlur(
 
     let running = true;
     let stopped = false;
+    let grabbing = false;
     let frameCb = 0;
     let raf = 0;
     let lastTs = -1;
@@ -127,6 +128,14 @@ export async function startCameraBlur(
     const liveSegmenter = segmenter;
     const liveComposite = composite;
     const liveOut = out;
+    const imageData = makeScratch(workCtx, width, height);
+
+    const mix = () => {
+      if (liveComposite.process(imageData.data, liveSegmenter.mask, maskW, maskH)) {
+        workCtx.putImageData(imageData, 0, 0);
+        ctx.drawImage(work, 0, 0);
+      }
+    };
 
     const tick = (now: number, mediaTime?: number) => {
       if (!running) return;
@@ -135,22 +144,39 @@ export async function startCameraBlur(
         schedule(tick);
         return;
       }
+      if (grabbing) {
+        schedule(tick);
+        return;
+      }
       lastTs = ts;
       try {
-        workCtx.drawImage(video, 0, 0, width, height);
-        if (liveSegmenter.segment(video, ts)) {
-          if (liveSegmenter.maskWidth !== maskW || liveSegmenter.maskHeight !== maskH) {
-            if (!liveComposite.setup(width, height, liveSegmenter.maskWidth, liveSegmenter.maskHeight)) {
-              throw new Error("blur setup failed");
+        if (!liveSegmenter.segment(video, ts)) {
+          schedule(tick);
+          return;
+        }
+        if (liveSegmenter.maskWidth !== maskW || liveSegmenter.maskHeight !== maskH) {
+          if (!liveComposite.setup(width, height, liveSegmenter.maskWidth, liveSegmenter.maskHeight)) {
+            throw new Error("blur setup failed");
+          }
+          maskW = liveSegmenter.maskWidth;
+          maskH = liveSegmenter.maskHeight;
+        }
+        const filled = fillPixels(video, workCtx, imageData, width, height);
+        if (typeof filled === "boolean") {
+          if (filled) mix();
+        } else {
+          grabbing = true;
+          void filled.then((ok) => {
+            grabbing = false;
+            if (!running) return;
+            try {
+              if (ok) mix();
+            } catch (err) {
+              console.warn("casthop blur", err);
             }
-            maskW = liveSegmenter.maskWidth;
-            maskH = liveSegmenter.maskHeight;
-          }
-          const frame = workCtx.getImageData(0, 0, width, height);
-          if (liveComposite.process(frame.data, liveSegmenter.mask, maskW, maskH)) {
-            workCtx.putImageData(frame, 0, 0);
-            ctx.drawImage(work, 0, 0);
-          }
+            schedule(tick);
+          });
+          return;
         }
       } catch (err) {
         console.warn("casthop blur", err);
@@ -195,5 +221,56 @@ export async function startCameraBlur(
     video.pause();
     video.srcObject = null;
     throw err;
+  }
+}
+
+function makeScratch(ctx: CanvasRenderingContext2D, w: number, h: number): ImageData {
+  if (typeof ctx.createImageData === "function") return ctx.createImageData(w, h);
+  if (typeof ImageData === "function") return new ImageData(w, h);
+  return { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) } as ImageData;
+}
+
+function fillFromCanvas(
+  video: HTMLVideoElement,
+  workCtx: CanvasRenderingContext2D,
+  dest: ImageData,
+  width: number,
+  height: number,
+): boolean {
+  workCtx.drawImage(video, 0, 0, width, height);
+  const snap = workCtx.getImageData(0, 0, width, height);
+  if (!snap?.data) return false;
+  dest.data.set(snap.data);
+  return true;
+}
+
+function fillPixels(
+  video: HTMLVideoElement,
+  workCtx: CanvasRenderingContext2D,
+  dest: ImageData,
+  width: number,
+  height: number,
+): boolean | Promise<boolean> {
+  const VF = (globalThis as unknown as { VideoFrame?: new (src: HTMLVideoElement) => VideoFrame }).VideoFrame;
+  if (typeof VF !== "function") return fillFromCanvas(video, workCtx, dest, width, height);
+  try {
+    const vf = new VF(video);
+    const opts = { format: "RGBA" as const };
+    if (typeof vf.allocationSize === "function" && vf.allocationSize(opts) !== dest.data.byteLength) {
+      vf.close();
+      return fillFromCanvas(video, workCtx, dest, width, height);
+    }
+    return Promise.resolve(vf.copyTo(dest.data, opts)).then(
+      () => {
+        vf.close();
+        return true;
+      },
+      () => {
+        vf.close();
+        return fillFromCanvas(video, workCtx, dest, width, height);
+      },
+    );
+  } catch {
+    return fillFromCanvas(video, workCtx, dest, width, height);
   }
 }

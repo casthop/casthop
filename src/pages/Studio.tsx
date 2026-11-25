@@ -137,6 +137,7 @@ export function Studio() {
   useEffect(() => {
     let cancelled = false;
     let current: Room | null = null;
+    let refreshTimer = 0;
     (async () => {
       const snap = studio ?? (await getStudio(id));
       if (cancelled) return;
@@ -193,6 +194,42 @@ export function Studio() {
           /* ignore */
         }
       });
+      async function refreshHostToken() {
+        const next = await mintToken(id, { name: nameRef.current, role: "host" });
+        scheduleRefresh(next.expiresIn);
+        return next;
+      }
+      function scheduleRefresh(expiresIn: number) {
+        window.clearTimeout(refreshTimer);
+        const waitMs = Math.max(30_000, (expiresIn - 120) * 1000);
+        refreshTimer = window.setTimeout(() => {
+          void refreshHostToken().catch((err) => {
+            if (cancelled) return;
+            setError(err instanceof Error ? err.message : "Could not refresh");
+            current?.disconnect();
+          });
+        }, waitMs);
+      }
+      lk.on(RoomEvent.Disconnected, () => {
+        if (cancelled || !isHostRef.current) return;
+        void (async () => {
+          try {
+            const next = await refreshHostToken();
+            if (cancelled) return;
+            await lk.connect(next.url, next.token);
+            if (cancelled) {
+              lk.disconnect();
+              return;
+            }
+            current = lk;
+            setRoom(lk);
+            bump();
+            if (next.canPublish) await publishLocal(lk);
+          } catch (err) {
+            if (!cancelled) setError(err instanceof Error ? err.message : "Could not reconnect");
+          }
+        })();
+      });
       await lk.connect(minted.url, minted.token);
       if (cancelled) {
         lk.disconnect();
@@ -202,9 +239,11 @@ export function Studio() {
       setRoom(lk);
       bump();
       if (minted.canPublish) await publishLocal(lk);
+      if (host) scheduleRefresh(minted.expiresIn);
     })().catch((err) => setError(err instanceof Error ? err.message : "Could not connect"));
     return () => {
       cancelled = true;
+      window.clearTimeout(refreshTimer);
       current?.disconnect();
     };
   }, [id]);

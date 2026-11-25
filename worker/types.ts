@@ -54,6 +54,8 @@ export type StudioState = {
   bannerSubtitle: string;
   destinations: Destination[];
   participants: ParticipantInfo[];
+  /** Identities removed from the studio; join rejects them until they are a member again. */
+  kickedIdentities?: string[];
   chat: ChatMessage[];
   createdAt: number;
 };
@@ -106,7 +108,10 @@ export type StudioMember = {
 
 export type ViewerRole = "owner" | "cohost" | "guest";
 
-export type PublicStudio = Omit<StudioState, "hostKeyHash" | "destinations" | "recordingPath" | "egressId" | "liveStartingAt"> & {
+export type PublicStudio = Omit<
+  StudioState,
+  "hostKeyHash" | "destinations" | "recordingPath" | "egressId" | "liveStartingAt" | "kickedIdentities"
+> & {
   destinations: PublicDestination[];
   egressId?: string | null;
 };

@@ -22,6 +22,8 @@ import {
   guestSecretFor,
   guestSecretOk,
   livekitHealth,
+  GUEST_TOKEN_TTL_SEC,
+  HOST_TOKEN_TTL_SEC,
   mintParticipantToken,
   removeParticipant,
   startRoomComposite,
@@ -266,6 +268,7 @@ app.post("/api/studios/:id/token", async (c) => {
       canPublish: true,
       canPublishData: true,
       roomAdmin: true,
+      ttlSec: HOST_TOKEN_TTL_SEC,
     });
     return c.json({
       token,
@@ -274,6 +277,7 @@ app.post("/api/studios/:id/token", async (c) => {
       role: "host" as const,
       url: c.env.PUBLIC_LIVEKIT_URL,
       canPublish: true,
+      expiresIn: HOST_TOKEN_TTL_SEC,
     });
   }
 
@@ -303,6 +307,7 @@ app.post("/api/studios/:id/token", async (c) => {
     canPublish,
     canPublishData: false,
     roomAdmin: false,
+    ttlSec: GUEST_TOKEN_TTL_SEC,
   });
   return c.json({
     token,
@@ -312,6 +317,7 @@ app.post("/api/studios/:id/token", async (c) => {
     url: c.env.PUBLIC_LIVEKIT_URL,
     canPublish,
     guestSecret,
+    expiresIn: GUEST_TOKEN_TTL_SEC,
   });
 });
 

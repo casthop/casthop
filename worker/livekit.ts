@@ -21,7 +21,19 @@ type VideoGrant = {
   canUpdateOwnMetadata?: boolean;
 };
 
-async function signJwt(apiKey: string, apiSecret: string, sub: string, name: string, video: VideoGrant): Promise<string> {
+/** Host/co-host LiveKit JWTs. Short so a kick cannot be undone with a leftover token. */
+export const HOST_TOKEN_TTL_SEC = 10 * 60;
+export const GUEST_TOKEN_TTL_SEC = 6 * 60 * 60;
+export const API_TOKEN_TTL_SEC = 6 * 60 * 60;
+
+async function signJwt(
+  apiKey: string,
+  apiSecret: string,
+  sub: string,
+  name: string,
+  video: VideoGrant,
+  ttlSec: number,
+): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const header = { alg: "HS256", typ: "JWT" };
   const claims = {
@@ -29,7 +41,7 @@ async function signJwt(apiKey: string, apiSecret: string, sub: string, name: str
     sub,
     name,
     nbf: now - 10,
-    exp: now + 60 * 60 * 6,
+    exp: now + ttlSec,
     jti: crypto.randomUUID(),
     video,
   };
@@ -45,16 +57,24 @@ export async function mintParticipantToken(opts: {
   canPublish: boolean;
   canPublishData?: boolean;
   roomAdmin?: boolean;
+  ttlSec?: number;
 }): Promise<string> {
-  return signJwt(opts.env.LIVEKIT_API_KEY, opts.env.LIVEKIT_API_SECRET, opts.identity, opts.name, {
-    room: opts.room,
-    roomJoin: true,
-    canPublish: opts.canPublish,
-    canSubscribe: true,
-    canPublishData: opts.canPublishData ?? opts.canPublish,
-    canUpdateOwnMetadata: false,
-    roomAdmin: !!opts.roomAdmin,
-  });
+  return signJwt(
+    opts.env.LIVEKIT_API_KEY,
+    opts.env.LIVEKIT_API_SECRET,
+    opts.identity,
+    opts.name,
+    {
+      room: opts.room,
+      roomJoin: true,
+      canPublish: opts.canPublish,
+      canSubscribe: true,
+      canPublishData: opts.canPublishData ?? opts.canPublish,
+      canUpdateOwnMetadata: false,
+      roomAdmin: !!opts.roomAdmin,
+    },
+    opts.ttlSec ?? GUEST_TOKEN_TTL_SEC,
+  );
 }
 
 export async function guestSecretFor(env: Env, studioId: string, identity: string): Promise<string> {
@@ -68,12 +88,19 @@ export async function guestSecretOk(env: Env, studioId: string, identity: string
 }
 
 export async function mintApiToken(env: Env): Promise<string> {
-  return signJwt(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, "casthop-api", "casthop", {
-    roomCreate: true,
-    roomList: true,
-    roomAdmin: true,
-    roomRecord: true,
-  });
+  return signJwt(
+    env.LIVEKIT_API_KEY,
+    env.LIVEKIT_API_SECRET,
+    "casthop-api",
+    "casthop",
+    {
+      roomCreate: true,
+      roomList: true,
+      roomAdmin: true,
+      roomRecord: true,
+    },
+    API_TOKEN_TTL_SEC,
+  );
 }
 
 async function twirp<T>(env: Env, path: string, body: unknown): Promise<T> {

@@ -80,6 +80,7 @@ export function mintToken(
     role: "host" | "guest";
     url: string;
     canPublish: boolean;
+    expiresIn: number;
     guestSecret?: string;
   }>(`/api/studios/${id}/token`, { method: "POST", body: JSON.stringify(body) });
 }

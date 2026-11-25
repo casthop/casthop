@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { app, StudioDurableObject } from "../worker/index.ts";
+import { GUEST_TOKEN_TTL_SEC, HOST_TOKEN_TTL_SEC } from "../worker/livekit.ts";
 import { DEV_API_KEY, DEV_API_SECRET, HOST_IDENTITY, SESSION_COOKIE } from "../worker/security.ts";
 import type { Env, PublicStudio } from "../worker/types.ts";
 import { FakeD1 } from "./fake-d1.ts";
@@ -19,14 +20,22 @@ let githubEmails: { email: string; primary?: boolean; verified?: boolean }[] = [
 ];
 let githubUserEmail: string | null = null;
 
-function jwtPayload(token: string): { sub: string; name: string; video: Record<string, unknown> } {
+function jwtPayload(token: string): { sub: string; name: string; exp: number; video: Record<string, unknown> } {
   const payload = token.split(".")[1];
   if (!payload) throw new Error("bad jwt");
   return JSON.parse(Buffer.from(payload.replaceAll("-", "+").replaceAll("_", "/"), "base64").toString()) as {
     sub: string;
     name: string;
+    exp: number;
     video: Record<string, unknown>;
   };
+}
+
+function assertTtl(token: string, ttlSec: number): void {
+  const now = Math.floor(Date.now() / 1000);
+  const { exp } = jwtPayload(token);
+  assert.ok(exp - now <= ttlSec + 5, `exp ${exp} farther than ${ttlSec}s`);
+  assert.ok(exp - now >= ttlSec - 15, `exp ${exp} shorter than ${ttlSec}s`);
 }
 
 function fakeCtx(): DurableObjectState {
@@ -204,7 +213,7 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
 
   const outsiderCookie = await signIn(env, "other@example.com");
 
-  const guestMint = await json<{ token: string; identity: string; guestSecret: string; canPublish: boolean }>(
+  const guestMint = await json<{ token: string; identity: string; guestSecret: string; canPublish: boolean; expiresIn: number }>(
     await app.request(
       `https://casthop.test/api/studios/${id}/token`,
       {
@@ -221,8 +230,10 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
   assert.equal(guestJwt.sub, guestMint.identity);
   assert.equal(guestJwt.video.canPublish, false);
   assert.equal(guestJwt.video.roomAdmin, false);
+  assert.equal(guestMint.expiresIn, GUEST_TOKEN_TTL_SEC);
+  assertTtl(guestMint.token, GUEST_TOKEN_TTL_SEC);
 
-  const hostMint = await json<{ token: string; identity: string }>(
+  const hostMint = await json<{ token: string; identity: string; expiresIn: number }>(
     await app.request(
       `https://casthop.test/api/studios/${id}/token`,
       {
@@ -237,8 +248,10 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
   const hostJwt = jwtPayload(hostMint.token);
   assert.equal(hostJwt.video.canPublish, true);
   assert.equal(hostJwt.video.roomAdmin, true);
+  assert.equal(hostMint.expiresIn, HOST_TOKEN_TTL_SEC);
+  assertTtl(hostMint.token, HOST_TOKEN_TTL_SEC);
 
-  const cohostMint = await json<{ token: string; identity: string }>(
+  const cohostMint = await json<{ token: string; identity: string; expiresIn: number }>(
     await app.request(
       `https://casthop.test/api/studios/${id}/token`,
       {
@@ -251,6 +264,8 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
   );
   assert.match(cohostMint.identity, /^host-/);
   assert.notEqual(cohostMint.identity, HOST_IDENTITY);
+  assert.equal(cohostMint.expiresIn, HOST_TOKEN_TTL_SEC);
+  assertTtl(cohostMint.token, HOST_TOKEN_TTL_SEC);
 
   const expiredEnv = makeEnv();
   const expiredCookie = await signIn(expiredEnv, "expired@example.com");
@@ -1155,7 +1170,7 @@ test("magic link is single-use", async () => {
   assert.equal(second.headers.get("location"), "/?auth=invalid");
 });
 
-test("removing a co-host kicks them from LiveKit and the studio participant list", async () => {
+test("removing a co-host kicks them, expires host tokens quickly, and denies rejoin by identity", async () => {
   livekitRemoved.length = 0;
   const env = makeEnv();
   const ownerCookie = await signIn(env, "owner@example.com");
@@ -1174,7 +1189,7 @@ test("removing a co-host kicks them from LiveKit and the studio participant list
   const cohost = await json<{ id: string }>(
     await app.request("https://casthop.test/api/auth/me", { headers: { Cookie: cohostCookie } }, env),
   );
-  const minted = await json<{ identity: string }>(
+  const minted = await json<{ identity: string; token: string; expiresIn: number }>(
     await app.request(
       `https://casthop.test/api/studios/${id}/token`,
       {
@@ -1185,6 +1200,8 @@ test("removing a co-host kicks them from LiveKit and the studio participant list
       env,
     ),
   );
+  assert.equal(minted.expiresIn, HOST_TOKEN_TTL_SEC);
+  assertTtl(minted.token, HOST_TOKEN_TTL_SEC);
   const before = await json<{ participants: { identity: string }[] }>(
     await app.request(`https://casthop.test/api/studios/${id}`, { headers: { Cookie: ownerCookie } }, env),
   );
@@ -1216,4 +1233,37 @@ test("removing a co-host kicks them from LiveKit and the studio participant list
     env,
   );
   assert.equal(remint.status, 403);
+
+  const sneak = await env.STUDIO.get(env.STUDIO.idFromName(id)).fetch(`https://studio/${id}?action=join`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ identity: minted.identity, name: "Co", role: "host" }),
+  });
+  assert.equal(sneak.status, 403);
+  const sneakBody = await json<{ error?: string }>(sneak);
+  assert.equal(sneakBody.error, "removed from studio");
+
+  const reinvite = await app.request(
+    `https://casthop.test/api/studios/${id}/cohosts`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: ownerCookie },
+      body: JSON.stringify({ email: "cohost-kick@example.com" }),
+    },
+    env,
+  );
+  assert.equal(reinvite.status, 200, await reinvite.clone().text());
+  const back = await json<{ token: string; expiresIn: number }>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/token`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: cohostCookie },
+        body: JSON.stringify({ name: "Co", role: "host" }),
+      },
+      env,
+    ),
+  );
+  assert.equal(back.expiresIn, HOST_TOKEN_TTL_SEC);
+  assertTtl(back.token, HOST_TOKEN_TTL_SEC);
 });

@@ -5,6 +5,9 @@ export const ISO_MAX_CHUNKS = 20_000;
 export const ISO_CHUNK_WINDOW_MS = 60_000;
 /** Camera + screen at a 2 s timeslice is 60 PUTs/min; extra headroom is for retries. */
 export const ISO_CHUNK_MAX = 180;
+/** Camera + screen, plus a remount, per person per live. */
+export const ISO_TRACKS_PER_IDENTITY = 4;
+export const ISO_TRACKS_MAX = 100;
 
 export function isoPrefix(studioId: string, trackId: string): string {
   return `iso/${studioId}/${trackId}/`;

@@ -9,6 +9,7 @@ import {
   isoChunkKey,
   isoMimeOk,
   isoPrefix,
+  ISO_TRACKS_PER_IDENTITY,
   listIsoChunkKeys,
   mixedFilename,
   parseChunkIndex,
@@ -437,6 +438,66 @@ test("host can enable ISO, each person uploads chunks, host downloads concat", a
     env,
   );
   assert.equal(lateChunk.status, 200, await lateChunk.clone().text());
+});
+
+test("iso-start caps tracks per identity in a session", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "owner@example.com");
+  const id = await createStudio(env, cookie);
+  await app.request(
+    `https://casthop.test/api/studios/${id}/iso-pref`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ separateRecordings: true }),
+    },
+    env,
+  );
+  await app.request(
+    `https://casthop.test/api/studios/${id}/token`,
+    { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ name: "Host", role: "host" }) },
+    env,
+  );
+  const live = await json<PublicStudio>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ live: true }) },
+      env,
+    ),
+  );
+  assert.ok(live.isoSessionId);
+  for (let i = 0; i < ISO_TRACKS_PER_IDENTITY; i += 1) {
+    const res = await app.request(
+      `https://casthop.test/api/studios/${id}/iso`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: cookie },
+        body: JSON.stringify({
+          kind: "camera",
+          mimeType: "video/webm",
+          sessionId: live.isoSessionId,
+          startedAt: Date.now(),
+        }),
+      },
+      env,
+    );
+    assert.equal(res.status, 200, await res.clone().text());
+  }
+  const over = await app.request(
+    `https://casthop.test/api/studios/${id}/iso`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({
+        kind: "camera",
+        mimeType: "video/webm",
+        sessionId: live.isoSessionId,
+        startedAt: Date.now(),
+      }),
+    },
+    env,
+  );
+  assert.equal(over.status, 429);
 });
 
 test("publicState omits iso track files", () => {

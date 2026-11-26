@@ -82,7 +82,7 @@ Per-person ISO tracks use the browser `MediaRecorder` (VP8/Opus WebM, 2 s timesl
 
 `/internal/perf`, 6 canvas tiles + banner overlay, 30 s after warmup. Local Chrome 157 `--disable-gpu` compared `?thread=main` vs Worker. CI runs both paths on the same runner.
 
-The worker is **30 fps on purpose** (one compose per program frame, `captureStream(30)`). Main is ~60 fps rAF. ~900 vs ~1800 frames in 30 s is not a drop. Worker-vs-main **p95** is a bad CI gate: the loops differ (VideoFrame @ 30 fps vs `<video>` @ 60 fps rAF) and GHA ratios swing 0.8–1.6× with no code change, including 13.6 vs 8.6 while still holding 902 frames and 0 drops. CI gates worker **p50 vs main** (15% or 8 ms), worker **p95 vs the 33 ms 30 fps slot**, frames in 30 fps ±15%, dropped frames, and long tasks. p95 vs main stays in the table as info.
+The worker is **30 fps on purpose** (one compose per program frame, `captureStream(30)`). Main is ~60 fps rAF. ~900 vs ~1800 frames in 30 s is not a drop. Worker-vs-main **p95** is a bad CI gate: the loops differ (VideoFrame @ 30 fps vs `<video>` @ 60 fps rAF) and GHA ratios swing 0.8–1.6× with no code change, including 13.6 vs 8.6 while still holding 902 frames and 0 drops. CI gates worker **p50 vs main** (15% or 4 ms, the measured 2–3 ms VideoFrame tax), worker **p95 vs the 33 ms 30 fps slot**, frames in 30 fps ±15%, dropped frames, and long tasks. p95 vs main stays in the table as info.
 
 | | Main thread (local) | Worker (local) |
 |---|---|---|
@@ -93,7 +93,7 @@ The worker is **30 fps on purpose** (one compose per program frame, `captureStre
 | Long tasks | 0 ms | **0 ms** |
 | Input latency p95 (Tap while composing) | 17.72 ms | **15.81 ms** |
 
-GHA headless `--disable-gpu` (Chrome 158): worker 902–911 frames, 0 dropped. Main p95 7.7–17 ms. Worker p95 9.0–15.5 ms, once 13.6 vs main 8.6 on a fast box. Fast runners: worker p50 is ~5–6 ms slower (11.9–12.1 vs main 6.3–7), so a 4 ms floor failed those boxes with 0 drops. Floor is 8 ms. Slow runners: worker p95 can beat main because main picks up long tasks.
+GHA headless `--disable-gpu` (Chrome 158): worker 902–911 frames, 0 dropped. Main p95 7.7–17 ms. Worker p95 9.0–15.5 ms, once 13.6 vs main 8.6 on a fast box. Fast runners: worker p50 ~2–3 ms slower. Slow runners: worker p95 can beat main because main picks up long tasks.
 
 Compose is no longer on the UI thread. The worker paints the OffscreenCanvas once per 30 fps output frame; `captureStream(30)` samples that same frame for the program track. No second compose for preview. `tests/perf-baseline.json` is the local snapshot from this machine; CI does not loosen it. Force main with `?thread=main`.
 

@@ -385,6 +385,8 @@ a {
 .studio .title {
   font-weight: 500;
   font-size: 14px;
+  margin: 0;
+  line-height: inherit;
 }
 
 .studio .spacer {
@@ -892,6 +894,10 @@ a {
   padding: 10px 12px;
   border-radius: 8px;
   line-height: 1.5;
+}
+
+.studio .msg .body {
+  display: block;
 }
 
 .studio .msg .meta {

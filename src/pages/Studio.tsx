@@ -683,9 +683,10 @@ export function Studio() {
     }
   }
 
-  async function onChat(e: FormEvent) {
+  async function onChat(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const text = chatDraft.trim();
+    const fromForm = String(new FormData(e.currentTarget).get("text") ?? "").trim();
+    const text = fromForm || chatDraft.trim();
     if (!text) return;
     setChatDraft("");
     if (shot) {
@@ -705,11 +706,12 @@ export function Studio() {
     }
     try {
       const saved = loadSession(id);
-      await sendChat(id, {
+      const next = await sendChat(id, {
         text,
         identity: identityRef.current,
         guestSecret: saved?.guestSecret,
       });
+      setStudio((prev) => mergeStudio(prev, next, prev?.viewerRole ?? "guest"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Chat failed");
     }
@@ -822,7 +824,7 @@ export function Studio() {
         <a className="brand" href="/" aria-label="Casthop home">
           <span className="mark" aria-hidden="true" />
           <span className="slash">/</span>
-          <span className="title">{studio.title}</span>
+          <h1 className="title">{studio.title}</h1>
         </a>
         <div className="spacer" />
         <div
@@ -1283,7 +1285,7 @@ function ChatPanel({
   isHost: boolean;
   chatDraft: string;
   onDraft: (value: string) => void;
-  onChat: (e: FormEvent) => void;
+  onChat: (e: FormEvent<HTMLFormElement>) => void;
   onPin: (id: string | null) => void;
 }) {
   return (
@@ -1309,7 +1311,7 @@ function ChatPanel({
                   </button>
                 ) : null}
               </div>
-              {m.text}
+              <span className="body">{m.text}</span>
             </div>
           );
         })}
@@ -1317,6 +1319,7 @@ function ChatPanel({
       <form className="compose" onSubmit={onChat}>
         <div className="input-row">
           <input
+            name="text"
             aria-label="Studio chat"
             value={chatDraft}
             onChange={(e) => onDraft(e.target.value)}

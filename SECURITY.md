@@ -51,4 +51,4 @@ These never go in git, client bundles, or logs:
 
 Local defaults in `.env.example` / `.dev.vars.example` (`devkey` / `casthop_dev_secret_…`) are public and loopback-only. The Worker returns 503 if that pair is used with a non-loopback LiveKit URL. Generate real keys with `lk generate-keys` before any networked deploy.
 
-Copy `.dev.vars.example` to `.dev.vars` locally. `.dev.vars` and `.env` are gitignored. See [Configuration](site/src/content/docs/configuration.mdx).
+Copy `.dev.vars.example` to `.dev.vars` locally. `.dev.vars` and `.env` are gitignored. See [Configuration](site/src/content/docs/en/configuration.mdx).

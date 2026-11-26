@@ -1,0 +1,9 @@
+{
+  // Assets-only Worker for the marketing site. Do not reuse the "casthop" Worker name.
+  "name": "casthop-site",
+  "compatibility_date": "2026-11-25",
+  "assets": {
+    "directory": "./dist",
+    "html_handling": "auto-trailing-slash"
+  }
+}

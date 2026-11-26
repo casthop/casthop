@@ -1,10 +1,25 @@
 import { getCollection, type CollectionEntry } from "astro:content";
+import { DEFAULT_LOCALE, isLocale, type Locale } from "../i18n";
 
 export type Doc = CollectionEntry<"docs">;
 
-export async function sortedDocs(): Promise<Doc[]> {
+export function parseDocId(id: string): { locale: Locale; slug: string } {
+  const slash = id.indexOf("/");
+  if (slash === -1) return { locale: DEFAULT_LOCALE, slug: id };
+  const head = id.slice(0, slash);
+  const slug = id.slice(slash + 1);
+  return { locale: isLocale(head) ? head : DEFAULT_LOCALE, slug };
+}
+
+export async function docsFor(locale: Locale): Promise<Doc[]> {
   const docs = await getCollection("docs");
-  return docs.sort((a, b) => a.data.order - b.data.order);
+  const mine = docs.filter((d) => parseDocId(d.id).locale === locale);
+  if (mine.length) return mine.sort((a, b) => a.data.order - b.data.order);
+  return docs.filter((d) => parseDocId(d.id).locale === DEFAULT_LOCALE).sort((a, b) => a.data.order - b.data.order);
+}
+
+export async function sortedDocs(): Promise<Doc[]> {
+  return docsFor(DEFAULT_LOCALE);
 }
 
 export function groupDocs(docs: Doc[]): { group: string; items: Doc[] }[] {
@@ -17,7 +32,6 @@ export function groupDocs(docs: Doc[]): { group: string; items: Doc[] }[] {
   return groups;
 }
 
-// Plain text for the offline search index. Drops code fences' markers and MDX syntax noise.
 export function plainText(body: string): string {
   return body
     .replace(/^import .*$/gm, "")

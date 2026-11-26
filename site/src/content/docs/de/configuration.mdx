@@ -1,0 +1,84 @@
+---
+title: Konfiguration
+description: Umgebungsvariablen für docker compose und den Worker, mit den lokalen Defaults.
+group: Betrieb
+order: 4
+---
+
+Kopiere `.env.example` nach `.env` für docker compose und `.dev.vars.example` nach `.dev.vars` für den Worker. In Produktion die Worker-Werte als Worker secrets oder vars setzen. Beide Beispiel-Dateien listen jede Variable, die die App liest, mit einem Einzeiler-Kommentar.
+
+<p class="note">Der Wert <code>casthop_dev_secret_…</code> in den Beispiel-Dateien ist ein dokumentierter lokaler Default. Er ist öffentlich, also nicht für Produktion. Erzeuge eigene Keys mit <code>lk generate-keys</code>.</p>
+
+## LiveKit
+
+| Name | Zweck | Lokaler Default |
+|---|---|---|
+| `LIVEKIT_API_KEY` | LiveKit-API-Key. | `devkey` |
+| `LIVEKIT_API_SECRET` | LiveKit-API-Secret. Bleibt in Worker secrets und geht nie an den Browser. | der dokumentierte lokale Default, nicht für Produktion |
+| `LIVEKIT_HTTP_URL` | Wo der Worker LiveKit erreicht. | `http://127.0.0.1:7880` |
+| `PUBLIC_LIVEKIT_URL` | Die LiveKit-URL, zu der Browser verbinden. | `ws://127.0.0.1:7880` |
+
+Der Worker antwortet mit 503, wenn `devkey` mit einer nicht-loopback LiveKit-URL genutzt wird. `CASTHOP_ALLOW_DEV_KEYS=1` hebt das auf und existiert nur für Tests.
+
+## Egress
+
+| Name | Zweck | Lokaler Default |
+|---|---|---|
+| `EGRESS_OUTPUT_DIR` | Pfad im Egress-Container. Compose mountet `./data/recordings` hier. Keine Worker-Var. | `/out` |
+| `EGRESS_TEMPLATE_URL` | Die Compositor-Seite, die Egress öffnet. | `http://127.0.0.1:5173/egress-template` |
+
+## Ziele
+
+| Name | Zweck | Lokaler Default |
+|---|---|---|
+| `RTMP_YOUTUBE` | Standard-YouTube-Ziel. | `rtmp://127.0.0.1:1935/live/youtube` |
+| `RTMP_LINKEDIN` | Standard-LinkedIn-Ziel. | `rtmp://127.0.0.1:1935/live/linkedin` |
+| `RTMP_X` | Standard-X-Ziel. | `rtmp://127.0.0.1:1935/live/x` |
+
+Das sind lokale MediaMTX-Platzhalter. Ersetze sie durch echte Ingest-URLs, sobald du sie hast, und committe keine echten Stream-Keys.
+
+## Worker
+
+| Name | Zweck | Lokaler Default |
+|---|---|---|
+| `HOST_KEY_SECRET` | Eigenes HMAC für Worker-zu-Durable-Object-Host-Keys. Fällt auf `LIVEKIT_API_SECRET` zurück, wenn ungesetzt. In Produktion setzen. | unset |
+| `PUBLIC_ORIGIN` | Öffentliche Site-URL für Magic-Link-Mail, Co-Host-Einladungen und GitHub OAuth. | unset (Loopback-Host wird genutzt) |
+| `CASTHOP_TRUST_FORWARDED` | Auf `1` setzen, um `CF-Connecting-IP` und `X-Forwarded-For` hinter einem Reverse-Proxy zu vertrauen. | unset |
+| `CASTHOP_ALLOW_DEV_KEYS` | Erlaubt das veröffentlichte Dev-Keypaar mit einem nicht-loopback LiveKit. Nur Tests. | unset |
+
+## Timing überschreiben
+
+Optional. Ungesetzt gelten die Code-Defaults in `worker/egress.ts`. Tests setzen manche auf `0` oder ein paar Millisekunden.
+
+| Name | Zweck | Default |
+|---|---|---|
+| `CASTHOP_EMPTY_GRACE_MS` | Live beenden, nachdem das Studio so lange leer war. | `45000` |
+| `CASTHOP_COMPOSITOR_GRACE_MS` | Warten, bis Compositor-Chrome nach StartRoomComposite beitritt. | `15000` |
+| `CASTHOP_RECOVERY_MS` | Aufhören, einen toten Compositor neu zu starten; der Host kann Retry. | `30000` |
+| `CASTHOP_HEARTBEAT_MS` | Compositor-Beat ist danach veraltet (die Seite postet jede 1 s). | `3000` |
+| `CASTHOP_BACKOFF_MS` | RTMP-Retry-Backoff überschreiben. Unset = 1 s, 2 s, 4 s, 8 s, 16 s, 30 s. `0` für Tests. | unset |
+
+## Anmeldung
+
+| Name | Zweck | Lokaler Default |
+|---|---|---|
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Optionales GitHub OAuth. Ungesetzt blendet den GitHub-Button aus. | unset |
+| `MAIL_WEBHOOK_URL` | Optional. Casthop POSTet JSON `{ to, subject, text }`. Ungesetzt landet der Magic-Link in der Worker-Konsole. | unset |
+| `MAIL_WEBHOOK_TOKEN` | Optionaler Token für den Mail-Webhook. | unset |
+
+## YouTube-Live-Chat
+
+Kommentare der YouTube-Sendung erscheinen im Studio-Chatpanel, solange die Show live ist. Der Host kann einen auf das Compositor-Overlay pinnen. Ohne Credentials bleibt das versteckt; das Studio bricht nicht ab.
+
+| Name | Zweck | Lokaler Default |
+|---|---|---|
+| `YOUTUBE_API_KEY` | YouTube-Data-API-Key für öffentliches `liveChatMessages.list`. | unset |
+| `YOUTUBE_LIVE_CHAT_ID` | Lookup überspringen und diesen Live-Chat abfragen. | unset |
+| `YOUTUBE_VIDEO_ID` | `activeLiveChatId` aus einem Video auflösen. | unset |
+| `YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN` | Die aktive Sendung des Owners finden (`liveBroadcasts.list?mine=true`). | unset |
+
+Entweder ein API-Key plus Live-Chat- oder Video-ID, oder das OAuth-Refresh-Trio. Polling nutzt das `pollingIntervalMillis` der API. Die X-API braucht eine bezahlte Stufe, LinkedIn-Kommentare eine Partner-API; diese Ziele werden nicht ingested.
+
+## Stream-Keys
+
+Stream-Keys sind keine Umgebungsvariablen. Sie leben im Durable-Object-Speicher, nie im Repo. Die öffentliche API liefert nur ein maskiertes Suffix wie `rtmp://…/xxxx` plus ein `hasKey`-Flag.

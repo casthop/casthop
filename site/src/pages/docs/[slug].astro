@@ -1,0 +1,14 @@
+---
+import { render } from "astro:content";
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import { docsFor, parseDocId } from "../../lib/docs";
+
+export async function getStaticPaths() {
+  const docs = await docsFor("en");
+  return docs.map((doc) => ({ params: { slug: parseDocId(doc.id).slug }, props: { doc } }));
+}
+
+const { doc } = Astro.props;
+const { Content, headings } = await render(doc);
+---
+<DocsLayout doc={doc} headings={headings} locale="en"><Content /></DocsLayout>

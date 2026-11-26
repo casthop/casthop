@@ -1,0 +1,22 @@
+---
+import { render } from "astro:content";
+import DocsLayout from "../../../layouts/DocsLayout.astro";
+import { docsFor, parseDocId } from "../../../lib/docs";
+import { otherLocales, type Locale } from "../../../i18n";
+
+export async function getStaticPaths() {
+  const locales = otherLocales();
+  const paths = [];
+  for (const locale of locales) {
+    const docs = await docsFor(locale);
+    for (const doc of docs) {
+      paths.push({ params: { locale, slug: parseDocId(doc.id).slug }, props: { doc, locale } });
+    }
+  }
+  return paths;
+}
+
+const { doc, locale } = Astro.props as { doc: Awaited<ReturnType<typeof docsFor>>[number]; locale: Locale };
+const { Content, headings } = await render(doc);
+---
+<DocsLayout doc={doc} headings={headings} locale={locale}><Content /></DocsLayout>

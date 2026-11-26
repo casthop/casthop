@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Aperture, AudioLines, Check, Mic, MicOff, Video, VideoOff } from "lucide-react";
 import { Logo } from "../components/Logo";
+import { LanguageSwitcher, useI18n, type MessageKey } from "../i18n";
 import { getHealth, getStudio, mintToken } from "../lib/api";
 import { copyBlurPref, loadBlurPref, saveBlurPrefPair } from "../lib/blur-prefs";
 import { startCameraBlur, type CameraBlurHandle } from "../lib/camera-blur";
@@ -12,11 +13,33 @@ import { listDevices, openUserMedia, type DeviceSet } from "../lib/media";
 import { saveSession } from "../lib/session";
 import { LocalPreview } from "../components/VideoTile";
 
+function InvitedLabel({ template, title }: { template: string; title: string }) {
+  const at = title ? template.indexOf(title) : -1;
+  if (at < 0) return <>{template}</>;
+  return (
+    <>
+      {template.slice(0, at)}
+      <strong>{title}</strong>
+      {template.slice(at + title.length)}
+    </>
+  );
+}
+
+type NetStatus = "checking" | "good" | "down" | "unreachable";
+
+const NET_KEY: Record<NetStatus, MessageKey> = {
+  checking: "guestNetChecking",
+  good: "guestNetGood",
+  down: "guestNetDown",
+  unreachable: "guestNetUnreachable",
+};
+
 export function GuestJoin() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
-  const [title, setTitle] = useState("Weekly product update");
-  const [name, setName] = useState("Guest");
+  const { t } = useI18n();
+  const [title, setTitle] = useState("");
+  const [name, setName] = useState<string | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [devices, setDevices] = useState<DeviceSet>({ cameras: [], mics: [], speakers: [] });
   const [cameraId, setCameraId] = useState("");
@@ -29,13 +52,16 @@ export function GuestJoin() {
   const [level, setLevel] = useState(0);
   const [camOk, setCamOk] = useState(false);
   const [micOk, setMicOk] = useState(false);
-  const [net, setNet] = useState("Checking");
+  const [net, setNet] = useState<NetStatus>("checking");
   const [resLabel, setResLabel] = useState("—");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   // Canvas preview tracks have no deviceId; keep the real camera's.
   const rawCameraIdRef = useRef("");
   const rawMicIdRef = useRef("");
+
+  const nameValue = name ?? t("guestDefaultName");
+  const studioTitle = title || t("homeDefaultTitle");
 
   useEffect(() => {
     getStudio(id)
@@ -45,8 +71,8 @@ export function GuestJoin() {
       })
       .catch(() => undefined);
     getHealth()
-      .then((h) => setNet(h.livekit.ok ? "Good" : "LiveKit down"))
-      .catch(() => setNet("Unreachable"));
+      .then((h) => setNet(h.livekit.ok ? "good" : "down"))
+      .catch(() => setNet("unreachable"));
   }, [id, navigate]);
 
   useEffect(() => {
@@ -67,7 +93,7 @@ export function GuestJoin() {
     (async () => {
       media = await openUserMedia({ cameraId: cameraId || undefined, micId: micId || undefined });
       if (cancelled) {
-        media.getTracks().forEach((t) => t.stop());
+        media.getTracks().forEach((track) => track.stop());
         return;
       }
       let preview: MediaStream = media;
@@ -86,7 +112,7 @@ export function GuestJoin() {
       }
       if (cancelled) {
         blurHandle?.stop();
-        media.getTracks().forEach((t) => t.stop());
+        media.getTracks().forEach((track) => track.stop());
         return;
       }
       setStream(preview);
@@ -115,16 +141,16 @@ export function GuestJoin() {
       cancelled = true;
       blurHandle?.stop();
       stopMeter();
-      media?.getTracks().forEach((t) => t.stop());
+      media?.getTracks().forEach((track) => track.stop());
     };
   }, [cameraId, micId, blurOn, denoiseOn]);
 
   useEffect(() => {
-    stream?.getVideoTracks().forEach((t) => {
-      t.enabled = camOn;
+    stream?.getVideoTracks().forEach((track) => {
+      track.enabled = camOn;
     });
-    stream?.getAudioTracks().forEach((t) => {
-      t.enabled = micOn;
+    stream?.getAudioTracks().forEach((track) => {
+      track.enabled = micOn;
     });
   }, [camOn, micOn, stream]);
 
@@ -135,7 +161,7 @@ export function GuestJoin() {
     setBusy(true);
     setError("");
     try {
-      const token = await mintToken(id, { name: name.trim() || "Guest", role: "guest" });
+      const token = await mintToken(id, { name: nameValue.trim() || t("guestDefaultName"), role: "guest" });
       saveSession({
         studioId: id,
         identity: token.identity,
@@ -145,10 +171,10 @@ export function GuestJoin() {
         cameraId,
         micId,
       });
-      stream?.getTracks().forEach((t) => t.stop());
+      stream?.getTracks().forEach((track) => track.stop());
       navigate(`/studio/${id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not join");
+      setError(err instanceof Error ? err.message : t("guestJoinFailed"));
     } finally {
       setBusy(false);
     }
@@ -158,23 +184,26 @@ export function GuestJoin() {
     <div className="guest">
       <header className="guest-top">
         <Logo dark />
-        <div className="invited">
-          Invited to <strong>{title}</strong>
+        <div className="guest-top-end">
+          <div className="invited">
+            <InvitedLabel template={t("guestInvitedTo", { title: studioTitle })} title={studioTitle} />
+          </div>
+          <LanguageSwitcher tone="light" />
         </div>
       </header>
       <div className="guest-grid">
         <div>
           <div className="cam-frame">
-            <span className="cam-chip">Camera preview</span>
+            <span className="cam-chip">{t("guestCameraPreview")}</span>
             <LocalPreview stream={stream} />
             <div className="cam-tools">
-              <button type="button" aria-label={micOn ? "Mute microphone" : "Unmute microphone"} onClick={() => setMicOn((v) => !v)}>
+              <button type="button" aria-label={micOn ? t("guestMuteMic") : t("guestUnmuteMic")} onClick={() => setMicOn((v) => !v)}>
                 {micOn ? <Mic size={16} /> : <MicOff size={16} />}
               </button>
               <button
                 type="button"
                 className={denoiseOn ? "on" : undefined}
-                aria-label="Noise removal"
+                aria-label={t("guestNoiseRemoval")}
                 aria-pressed={denoiseOn}
                 onClick={() => {
                   const next = !denoiseOn;
@@ -184,13 +213,13 @@ export function GuestJoin() {
               >
                 <AudioLines size={16} />
               </button>
-              <button type="button" aria-label={camOn ? "Turn camera off" : "Turn camera on"} onClick={() => setCamOn((v) => !v)}>
+              <button type="button" aria-label={camOn ? t("guestCamOff") : t("guestCamOn")} onClick={() => setCamOn((v) => !v)}>
                 {camOn ? <Video size={16} /> : <VideoOff size={16} />}
               </button>
               <button
                 type="button"
                 className={blurOn ? "on" : undefined}
-                aria-label="Background blur"
+                aria-label={t("guestBlur")}
                 aria-pressed={blurOn}
                 onClick={() => {
                   const next = !blurOn;
@@ -208,31 +237,31 @@ export function GuestJoin() {
           </div>
           <div className="device-row">
             <label>
-              Camera
+              {t("guestCamera")}
               <select value={cameraId} onChange={(e) => setCameraId(e.target.value)}>
-                {(devices.cameras.length ? devices.cameras : [{ deviceId: "", label: "Built-in camera" }]).map((d) => (
+                {(devices.cameras.length ? devices.cameras : [{ deviceId: "", label: t("guestBuiltinCamera") }]).map((d) => (
                   <option key={d.deviceId} value={d.deviceId}>
-                    {d.label || "Built-in camera"}
+                    {d.label || t("guestBuiltinCamera")}
                   </option>
                 ))}
               </select>
             </label>
             <label>
-              Microphone
+              {t("guestMicrophone")}
               <select value={micId} onChange={(e) => setMicId(e.target.value)}>
-                {(devices.mics.length ? devices.mics : [{ deviceId: "", label: "Default microphone" }]).map((d) => (
+                {(devices.mics.length ? devices.mics : [{ deviceId: "", label: t("guestDefaultMic") }]).map((d) => (
                   <option key={d.deviceId} value={d.deviceId}>
-                    {d.label || "Default microphone"}
+                    {d.label || t("guestDefaultMic")}
                   </option>
                 ))}
               </select>
             </label>
             <label>
-              Speaker
+              {t("guestSpeaker")}
               <select value={speakerId} onChange={(e) => setSpeakerId(e.target.value)}>
-                {(devices.speakers.length ? devices.speakers : [{ deviceId: "", label: "Default output" }]).map((d) => (
+                {(devices.speakers.length ? devices.speakers : [{ deviceId: "", label: t("guestDefaultOutput") }]).map((d) => (
                   <option key={d.deviceId} value={d.deviceId}>
-                    {d.label || "Default output"}
+                    {d.label || t("guestDefaultOutput")}
                   </option>
                 ))}
               </select>
@@ -240,35 +269,35 @@ export function GuestJoin() {
           </div>
         </div>
         <form onSubmit={onJoin}>
-          <div className="badge-soft">Guest invite</div>
-          <h1>Join the studio</h1>
-          <p className="sub">No download or account needed. You’ll wait backstage until the host brings you on stage.</p>
+          <div className="badge-soft">{t("guestInviteBadge")}</div>
+          <h1>{t("guestJoinTitle")}</h1>
+          <p className="sub">{t("guestJoinSub")}</p>
           <label className="field">
-            Your name
-            <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} />
+            {t("guestYourName")}
+            <input value={nameValue} onChange={(e) => setName(e.target.value)} maxLength={40} />
           </label>
           <div className="checks">
             <div className="check">
               <Check className="markok" size={18} />
-              <span>Camera working</span>
-              <span className="val">{camOk ? resLabel : "No camera"}</span>
+              <span>{t("guestCamWorking")}</span>
+              <span className="val">{camOk ? resLabel : t("guestNoCamera")}</span>
             </div>
             <div className="check">
               <Check className="markok" size={18} />
-              <span>Microphone picking up audio</span>
-              <span className="val">{micOk ? "Test sound" : "No mic"}</span>
+              <span>{t("guestMicPickingUp")}</span>
+              <span className="val">{micOk ? t("guestTestSound") : t("guestNoMic")}</span>
             </div>
             <div className="check">
               <Check className="markok" size={18} />
-              <span>Connection check</span>
-              <span className="val">{net}</span>
+              <span>{t("guestConnection")}</span>
+              <span className="val">{t(NET_KEY[net])}</span>
             </div>
           </div>
           <button className="btn primary wide" type="submit" disabled={busy}>
-            {busy ? "Joining…" : "Join backstage"}
+            {busy ? t("guestJoining") : t("guestJoinBackstage")}
           </button>
           {error ? <p className="err">{error}</p> : null}
-          <p className="footnote">Runs in your browser · Works on desktop and mobile</p>
+          <p className="footnote">{t("guestFootnote")}</p>
         </form>
       </div>
     </div>

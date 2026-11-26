@@ -2,20 +2,27 @@
 import "@fontsource-variable/geist-mono";
 import "../styles/fonts.css";
 import "../styles/hero-variants.css";
+import Hreflang from "../components/Hreflang.astro";
+import { htmlLang, t, type Locale } from "../i18n";
+import { localeRedirectInline } from "../lib/locale-redirect";
 
-interface Props { title: string; description?: string; }
-const { title, description = "Open-source browser live studio. Guests join from a link, up to six on stage, and the composite goes live to several RTMP destinations with a recording kept." } = Astro.props;
+interface Props { locale: Locale; path?: string; }
+const { locale, path = "/" } = Astro.props;
+const title = t(locale, "metaTitle");
+const description = t(locale, "metaDescription");
 ---
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang={htmlLang(locale)} data-theme="dark" data-locale={locale}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
     <meta name="color-scheme" content="dark" />
+    <Hreflang locale={locale} path={path} />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="preload" href="/fonts/space-grotesk-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <script is:inline set:html={localeRedirectInline} />
     <script is:inline>
       (() => {
         const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -23,8 +30,6 @@ const { title, description = "Open-source browser live studio. Guests join from 
         const supports = (q, v) => {
           try { return v ? CSS.supports(q, v) : CSS.supports(q); } catch (e) { return false; }
         };
-        // Section reveals always use IntersectionObserver (play-once, 650ms ease-out).
-        // view() only scrubs and is missing in Safari, so it is not used for rows.
         document.documentElement.classList.add("js-io");
         const scrollTl = supports("animation-timeline: scroll(root)") || supports("animation-timeline", "scroll(root)");
         if (!scrollTl) document.documentElement.classList.add("js-scroll");
@@ -32,7 +37,7 @@ const { title, description = "Open-source browser live studio. Guests join from 
     </script>
   </head>
   <body class="hv">
-    <a class="hv-skip" href="#main">Skip to content</a>
+    <a class="hv-skip" href="#main">{t(locale, "skip")}</a>
     <slot />
   </body>
 </html>

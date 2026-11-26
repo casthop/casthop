@@ -1,15 +1,27 @@
 ---
 import ExtLink from "../ExtLink.astro";
+import LanguageSwitcher from "../LanguageSwitcher.astro";
 import { GITHUB } from "../../lib/site";
-import { features } from "./content";
+import { t, withLocale, type Locale } from "../../i18n";
+
+interface Props { locale: Locale; }
+const { locale } = Astro.props;
+const home = withLocale(locale, "/");
+const features = [
+  { n: "01", title: t(locale, "feature1Title"), body: t(locale, "feature1Body"), href: withLocale(locale, "/docs/destinations/"), label: t(locale, "feature1Link") },
+  { n: "02", title: t(locale, "feature2Title"), body: t(locale, "feature2Body"), href: withLocale(locale, "/docs/guests/"), label: t(locale, "feature2Link") },
+  { n: "03", title: t(locale, "feature3Title"), body: t(locale, "feature3Body"), href: withLocale(locale, "/docs/architecture/"), label: t(locale, "feature3Link") },
+  { n: "04", title: t(locale, "feature4Title"), body: t(locale, "feature4Body"), href: withLocale(locale, "/docs/destinations/"), label: t(locale, "feature4Link") },
+];
 ---
 <header class="hv-nav">
   <div class="hv-nav-in">
-    <a href="/" class="hv-logo" aria-label="Casthop home"><span class="hv-dot" aria-hidden="true"></span>Casthop</a>
-    <nav aria-label="Main" class="hv-nav-links">
-      <a href="/docs">Docs</a>
-      <ExtLink href={GITHUB}>GitHub</ExtLink>
-      <a class="hv-btn hv-btn-quiet" href="/docs/getting-started">Get started</a>
+    <a href={home} class="hv-logo" aria-label={t(locale, "brandHome")}><span class="hv-dot" aria-hidden="true"></span>Casthop</a>
+    <nav aria-label={t(locale, "navMain")} class="hv-nav-links">
+      <a href={withLocale(locale, "/docs/")}>{t(locale, "navDocs")}</a>
+      <ExtLink href={GITHUB}>{t(locale, "navGithub")}</ExtLink>
+      <LanguageSwitcher locale={locale} path="/" label={t(locale, "language")} />
+      <a class="hv-btn hv-btn-quiet" href={withLocale(locale, "/docs/getting-started/")}>{t(locale, "navGetStarted")}</a>
     </nav>
   </div>
 </header>
@@ -19,18 +31,18 @@ import { features } from "./content";
     <canvas id="hero-canvas" class="hv-canvas" aria-hidden="true"></canvas>
     <div class="hv-scrim" aria-hidden="true"></div>
     <div class="hv-wrap hv-hero-copy">
-      <p class="hv-eyebrow"><span class="hv-pip" aria-hidden="true"></span>Open source · AGPL-3.0</p>
-      <h1 class="hv-display">Go live from a browser tab, everywhere at once.</h1>
-      <p class="hv-lede">Casthop is a live studio you run yourself. Bring guests in from a link, put up to six on stage, and send one composite to YouTube, LinkedIn and X.</p>
+      <p class="hv-eyebrow"><span class="hv-pip" aria-hidden="true"></span>{t(locale, "heroEyebrow")}</p>
+      <h1 class="hv-display">{t(locale, "heroTitle")}</h1>
+      <p class="hv-lede">{t(locale, "heroLede")}</p>
       <div class="hv-cta">
-        <ExtLink href={GITHUB} class="hv-btn hv-btn-primary">Open the repo</ExtLink>
-        <a class="hv-link" href="/docs/getting-started">Read the docs <span aria-hidden="true">→</span></a>
+        <ExtLink href={GITHUB} class="hv-btn hv-btn-primary">{t(locale, "heroRepo")}</ExtLink>
+        <a class="hv-link" href={withLocale(locale, "/docs/getting-started/")}>{t(locale, "heroDocs")} <span aria-hidden="true">→</span></a>
       </div>
     </div>
     <div class="hv-shot-wrap">
       <div class="hv-shot-stage">
         <figure class="hv-shot">
-          <img src="/studio.png" width="1440" height="900" alt="The Casthop host studio: a dark booth with a two-person stage, backstage guest, and a white Go live button." fetchpriority="high" />
+          <img src="/studio.png" width="1440" height="900" alt={t(locale, "heroAlt")} fetchpriority="high" />
         </figure>
       </div>
     </div>
@@ -38,29 +50,29 @@ import { features } from "./content";
 
   <div class="hv-rest">
     <section class="hv-wrap hv-features" aria-labelledby="features-h">
-      <h2 id="features-h" class="hv-section-title hv-reveal">What it does today</h2>
+      <h2 id="features-h" class="hv-section-title hv-reveal">{t(locale, "featuresTitle")}</h2>
       {features.map((s) => (
         <article class="hv-feature hv-reveal">
           <p class="hv-feature-n">{s.n}</p>
           <div>
             <h3 class="hv-feature-t">{s.title}</h3>
             <p class="hv-feature-b">{s.body}</p>
-            <a class="hv-link" href={s.link.href}>{s.link.label} <span aria-hidden="true">→</span></a>
+            <a class="hv-link" href={s.href}>{s.label} <span aria-hidden="true">→</span></a>
           </div>
         </article>
       ))}
     </section>
 
     <section class="hv-wrap hv-oss hv-reveal" aria-labelledby="oss-h">
-      <p class="hv-eyebrow">Self-host</p>
-      <h2 id="oss-h" class="hv-display hv-display-sm">You run the media plane.</h2>
+      <p class="hv-eyebrow">{t(locale, "ossEyebrow")}</p>
+      <h2 id="oss-h" class="hv-display hv-display-sm">{t(locale, "ossTitle")}</h2>
       <div class="hv-oss-cols">
-        <p>LiveKit, Egress, Redis and an RTMP edge run in Docker on your machine or server. The control plane is a Cloudflare Worker with Durable Objects and D1. Stream keys stay in Durable Object storage and are never returned to guests.</p>
-        <p>The server is licensed AGPL-3.0-only, so hosted forks must share their changes. This is a working prototype: prove the core, measure it, then polish. Expect rough edges, and read the measurements in the repo rather than taking our word for it.</p>
+        <p>{t(locale, "ossP1")}</p>
+        <p>{t(locale, "ossP2")}</p>
       </div>
       <div class="hv-cta">
-        <ExtLink href={GITHUB} class="hv-btn hv-btn-outline">View on GitHub</ExtLink>
-        <a class="hv-link" href="/docs/self-hosting">Self-hosting docs <span aria-hidden="true">→</span></a>
+        <ExtLink href={GITHUB} class="hv-btn hv-btn-outline">{t(locale, "ossGithub")}</ExtLink>
+        <a class="hv-link" href={withLocale(locale, "/docs/self-hosting/")}>{t(locale, "ossDocs")} <span aria-hidden="true">→</span></a>
       </div>
     </section>
   </div>
@@ -69,21 +81,21 @@ import { features } from "./content";
 <footer class="hv-footer hv-reveal">
   <div class="hv-wrap hv-footer-in">
     <div>
-      <a href="/" class="hv-logo" aria-label="Casthop home"><span class="hv-dot" aria-hidden="true"></span>Casthop</a>
-      <p class="hv-muted hv-small">Open-source browser live studio.</p>
+      <a href={home} class="hv-logo" aria-label={t(locale, "brandHome")}><span class="hv-dot" aria-hidden="true"></span>Casthop</a>
+      <p class="hv-muted hv-small">{t(locale, "footerTagline")}</p>
     </div>
-    <nav aria-label="Docs" class="hv-footer-col">
-      <p class="hv-small hv-label">Docs</p>
-      <a href="/docs/getting-started">Getting started</a>
-      <a href="/docs/self-hosting">Self-hosting</a>
-      <a href="/docs/configuration">Configuration</a>
-      <a href="/docs/architecture">Architecture</a>
+    <nav aria-label={t(locale, "footerDocs")} class="hv-footer-col">
+      <p class="hv-small hv-label">{t(locale, "footerDocs")}</p>
+      <a href={withLocale(locale, "/docs/getting-started/")}>{t(locale, "footerGettingStarted")}</a>
+      <a href={withLocale(locale, "/docs/self-hosting/")}>{t(locale, "footerSelfHosting")}</a>
+      <a href={withLocale(locale, "/docs/configuration/")}>{t(locale, "footerConfiguration")}</a>
+      <a href={withLocale(locale, "/docs/architecture/")}>{t(locale, "footerArchitecture")}</a>
     </nav>
-    <nav aria-label="Project" class="hv-footer-col">
-      <p class="hv-small hv-label">Project</p>
-      <ExtLink href={GITHUB}>GitHub</ExtLink>
+    <nav aria-label={t(locale, "footerProject")} class="hv-footer-col">
+      <p class="hv-small hv-label">{t(locale, "footerProject")}</p>
+      <ExtLink href={GITHUB}>{t(locale, "navGithub")}</ExtLink>
       <ExtLink href={`${GITHUB}/blob/main/LICENSE`}>AGPL-3.0-only</ExtLink>
     </nav>
   </div>
-  <p class="hv-wrap hv-muted hv-small hv-footer-lic">Casthop is licensed under AGPL-3.0-only.</p>
+  <p class="hv-wrap hv-muted hv-small hv-footer-lic">{t(locale, "footerLicense")}</p>
 </footer>

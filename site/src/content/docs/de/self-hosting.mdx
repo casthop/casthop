@@ -1,0 +1,71 @@
+---
+title: Self-Hosting
+description: Betreibe die Media-Ebene selbst und deploye den Worker als Control Plane.
+group: Betrieb
+order: 3
+---
+
+Casthop hat zwei Hälften, die über die LiveKit-Twirp-API sprechen.
+
+- **Media-Ebene:** LiveKit, Egress, Redis und ein RTMP-Edge.
+- **Control Plane:** ein Cloudflare Worker mit Durable Objects und D1.
+
+Die [`docker-compose.yml`](https://github.com/casthop/casthop/blob/main/docker-compose.yml) im Repo ist die Media-Ebene für den lokalen Betrieb. Die Config-Dateien liegen in [`infra/`](https://github.com/casthop/casthop/tree/main/infra).
+
+## 1. Media-Ebene
+
+Betreibe LiveKit, Egress und Redis plus einen RTMP-Edge. Der Edge kann MediaMTX sein (was die Compose-Datei nutzt), nginx-rtmp oder ein echtes Ziel wie YouTube.
+
+## 2. Echte API-Keys
+
+Das Repo liefert das veröffentlichte `devkey`-Paar nur für den lokalen Gebrauch. Erzeuge echte Keys:
+
+```bash
+lk generate-keys
+```
+
+Ersetze die lokalen Defaults in `infra/livekit.yaml` und `infra/egress.yaml`.
+
+Der Worker antwortet mit 503, wenn der veröffentlichte `devkey` mit einer nicht-loopback LiveKit-URL genutzt wird. Das ist Absicht.
+
+## 3. Webhooks
+
+Zeig LiveKits `webhook.urls` auf:
+
+```
+https://<worker>/api/livekit/webhook
+```
+
+Die Webhooks sind signiert. So kommen Egress-Crashes und RTMP-Abbrüche im Studio an, damit es neu versucht. Die Live-Pille wartet auf echte Ausgabe (Bytes/Dauer oder ein kurzes RTMP-Settle), bevor sie Live zeigt.
+
+## 4. Den Worker deployen
+
+```bash
+wrangler deploy
+```
+
+Secrets gehören in Worker secrets, nie ins Git:
+
+```bash
+wrangler secret put LIVEKIT_API_SECRET
+wrangler secret put HOST_KEY_SECRET
+```
+
+Setze ein eigenes `HOST_KEY_SECRET`. Fehlt es, fallen Host-Keys auf das LiveKit-Secret zurück; ein Rotieren der LiveKit-Keys würde bestehende Studios aussperren.
+
+## 5. Öffentlicher Origin und Proxies
+
+- Setze `PUBLIC_ORIGIN` auf die öffentliche Site-URL. Sie steckt in Magic-Link-Mails, Co-Host-Einladungen und dem GitHub-Callback. Ist sie leer, wird der Loopback-Host genutzt; in Produktion setzen, damit ein gefälschter Host keine Links zu einem Angreifer erzeugt.
+- Hinter einem Reverse-Proxy setze `CASTHOP_TRUST_FORWARDED=1`, damit die Anmelde-Limits pro IP die echte Client-Adresse nutzen. Ohne das teilen sich alle einen `local`-Bucket. Cloudflare setzt `request.cf`, dort brauchst du es nicht. Nicht für `wrangler dev` einschalten.
+
+## 6. Anmeldung
+
+Anmeldung ist ein E-Mail-Magic-Link. Standardmäßig landet der Link in der Worker-Konsole. Setze `MAIL_WEBHOOK_URL`, um JSON `{ to, subject, text }` an deinen eigenen Mailer zu POSTen. GitHub OAuth ist optional. Siehe [Konfiguration](/docs/configuration).
+
+## 7. Ziele und Aufzeichnungen
+
+Zeig Ziel-URLs auf echten YouTube-, LinkedIn- und X-Ingest. Siehe [Ziele](/docs/destinations). Optional `casthop-post normalize` laufen lassen und fertige MP4s nach R2 kopieren, für Replay. R2 ist als Naht dafür gebunden. Aufzeichnungen bleiben vorerst auf dem Egress-Volume.
+
+## Was dieser Tree nicht abdeckt
+
+TURN für Gäste hinter striktem NAT und ein R2-Replay-Viewer sind nicht dabei. YouTube-Live-Chat-Ingest ist optional (Worker secrets); X- und LinkedIn-Kommentare sind nicht verdrahtet. Kameraunschärfe, Off-Thread-Canvas2D-Compose, Live-wenn-produzieren und Egress-Crash-Retry schon. Miss dein eigenes Setup, bevor du dich drauf verlässt. Env-Vars: [Konfiguration](/docs/configuration).

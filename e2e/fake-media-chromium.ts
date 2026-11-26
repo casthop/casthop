@@ -75,6 +75,7 @@ export function fakeMediaChromium(): BrowserProvider {
         executable,
         [
           "--headless=new",
+          "--lang=en-US",
           "--disable-gpu",
           "--no-sandbox",
           "--disable-dev-shm-usage",

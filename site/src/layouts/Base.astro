@@ -2,24 +2,36 @@
 import "@fontsource-variable/geist-mono";
 import "../styles/fonts.css";
 import "../styles/global.css";
+import Hreflang from "../components/Hreflang.astro";
+import { htmlLang, type Locale } from "../i18n";
+import { localeRedirectInline } from "../lib/locale-redirect";
 
-interface Props { title: string; description: string; theme: "dark" | "light"; }
-const { title, description, theme } = Astro.props;
+interface Props {
+  title: string;
+  description: string;
+  theme: "dark" | "light";
+  locale: Locale;
+  path: string;
+  skip: string;
+}
+const { title, description, theme, locale, path, skip } = Astro.props;
 ---
 <!doctype html>
-<html lang="en" data-theme={theme}>
+<html lang={htmlLang(locale)} data-theme={theme} data-locale={locale}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
     <meta name="color-scheme" content={theme} />
+    <Hreflang locale={locale} path={path} />
     <slot name="head" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="preload" href="/fonts/space-grotesk-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <script is:inline set:html={localeRedirectInline} />
   </head>
   <body>
-    <a class="skip" href="#main">Skip to content</a>
+    <a class="skip" href="#main">{skip}</a>
     <slot />
   </body>
 </html>

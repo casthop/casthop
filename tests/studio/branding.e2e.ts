@@ -10,7 +10,7 @@ describe("overlays and branding", { session: "host" }, () => {
     await screen.getByRole("button", "Lower third").click();
     await expect(screen.getByRole("heading", "Lower third")).toBeVisible();
     await screen.getByRole("textbox", "Lower third").fill("Office hours");
-    await screen.getByRole("textbox", "Lower third detail").fill("casthop.dev");
+    await screen.getByRole("textbox", "Lower third detail").fill("casthop.com");
     await screen.getByRole("button", "Save").click();
     await screen.getByRole("button", "Close panel").click();
     await expect(screen.getByRole("heading", "Lower third")).not.toBeVisible();
@@ -18,9 +18,9 @@ describe("overlays and branding", { session: "host" }, () => {
     await app.open(`/studio/${studio.id}`);
     await expect(screen.getByRole("button", "Lower third")).toBeVisible();
     await expect(screen.getByText("Office hours", { exact: false })).toBeVisible();
-    await expect(screen.getByText("casthop.dev", { exact: false })).toBeVisible();
+    await expect(screen.getByText("casthop.com", { exact: false })).toBeVisible();
     await screen.getByRole("button", "Lower third").click();
     await expect(screen.getByRole("textbox", "Lower third")).toHaveValue("Office hours");
-    await expect(screen.getByRole("textbox", "Lower third detail")).toHaveValue("casthop.dev");
+    await expect(screen.getByRole("textbox", "Lower third detail")).toHaveValue("casthop.com");
   });
 });

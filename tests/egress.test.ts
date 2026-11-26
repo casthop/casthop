@@ -1954,6 +1954,50 @@ test("portrait destinations are rejected when the Egress template is unset", asy
   assert.equal(saved.destinations.find((d) => d.id === "custom")?.enabled, false);
 });
 
+test("an already-enabled 9:16 dest does not block other destination saves when the template is unset", async () => {
+  listedParticipants = [{ identity: "host" }];
+  listedEgress = { items: [] };
+  const env = makeEnv();
+  const { id, cookie } = await createStudio(env);
+  const studio = await json<PublicStudio>(
+    await app.request(`https://casthop.test/api/studios/${id}`, { headers: { Cookie: cookie } }, env),
+  );
+  const enable = await app.request(
+    `https://casthop.test/api/studios/${id}/destinations`,
+    {
+      method: "POST",
+      headers: liveHeaders(cookie),
+      body: JSON.stringify({
+        destinations: studio.destinations.map((d) =>
+          d.id === "custom"
+            ? { ...d, url: "rtmp://ingest.example.com/live/tiktok-key", enabled: true, aspect: "portrait" }
+            : d,
+        ),
+      }),
+    },
+    env,
+  );
+  assert.equal(enable.status, 200, await enable.clone().text());
+  env.EGRESS_TEMPLATE_URL = "";
+  const after = await json<PublicStudio>(enable);
+  const editOther = await app.request(
+    `https://casthop.test/api/studios/${id}/destinations`,
+    {
+      method: "POST",
+      headers: liveHeaders(cookie),
+      body: JSON.stringify({
+        destinations: after.destinations.map((d) => (d.id === "youtube" ? { ...d, enabled: false } : d)),
+      }),
+    },
+    env,
+  );
+  assert.equal(editOther.status, 200, await editOther.clone().text());
+  const saved = await json<PublicStudio>(editOther);
+  assert.equal(saved.destinations.find((d) => d.id === "custom")?.aspect, "portrait");
+  assert.equal(saved.destinations.find((d) => d.id === "custom")?.enabled, true);
+  assert.equal(saved.destinations.find((d) => d.id === "youtube")?.enabled, false);
+});
+
 test("overlapping 9:16 starts share one compositor", async () => {
   listedParticipants = [{ identity: "host" }, { identity: "EG_abc" }];
   listedEgress = { items: [] };

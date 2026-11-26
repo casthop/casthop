@@ -27,7 +27,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 ### Fixed
 
-- 9:16 destinations need a custom Egress template; overlapping starts share one portrait compositor.
+- 9:16 destinations need a custom Egress template; overlapping starts share one portrait compositor. An already-enabled 9:16 row still saves if the template is later unset.
 - 9:16 start and crash retries follow the same recovery budget as 16:9. A compositor that never beats is timed out.
 - Studio tiles attach camera video when the track arrives after the first render.
 - Adding a guest to stage before they connect applies once they join LiveKit. Permission errors show in the studio.

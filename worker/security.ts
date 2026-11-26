@@ -205,7 +205,15 @@ export function sanitizeDestinations(
     }
     const urlChanged = url !== (prev?.url || "");
     const aspect: DestAspect = r.aspect === "portrait" || r.aspect === "landscape" ? r.aspect : destAspectOf(prev ?? {});
-    if (aspect === "portrait" && Boolean(r.enabled) && !opts.allowPortrait) return null;
+    // An already-enabled 9:16 row must still save so a later missing template cannot block other dest edits.
+    if (
+      aspect === "portrait" &&
+      Boolean(r.enabled) &&
+      !opts.allowPortrait &&
+      !(prev && destAspectOf(prev) === "portrait" && prev.enabled)
+    ) {
+      return null;
+    }
     const aspectChanged = aspect !== destAspectOf(prev ?? {});
     const status: DestStatus = urlChanged || aspectChanged ? "idle" : (prev?.status ?? "idle");
     out.push({

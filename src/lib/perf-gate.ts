@@ -44,6 +44,9 @@ export const WORKER_OUTPUT_FPS = 30;
 
 export const WORKER_FRAME_BUDGET_MS = 1000 / WORKER_OUTPUT_FPS;
 
+/** Local VideoFrame tax is ~2–3 ms. GHA headless Chrome 158 fast boxes measure ~5–6 ms. */
+export const WORKER_P50_VS_MAIN_FLOOR_MS = 8;
+
 export function regressionLimit(baseline: number, floor: number, pct = PCT): number {
   return Math.max(baseline * (1 + pct), baseline + floor);
 }
@@ -68,9 +71,9 @@ export function comparePerf(measured: PerfMeasured, baseline: PerfBaseline): { r
 export function compareWorkerToMain(worker: PerfMeasured, main: PerfMeasured): { rows: PerfRow[]; ok: boolean } {
   const expectedFrames = WORKER_OUTPUT_FPS * worker.seconds;
   const rows: PerfRow[] = [
-    // Typical VideoFrame cost is ~2–3 ms above the <video> path. p95 vs main is the
-    // 60 fps rAF tail on a different loop; GHA swings 0.8–1.6× with no code change.
-    row("p50 frame ms", worker.p50FrameMs, main.p50FrameMs, 4, true),
+    // Typical VideoFrame cost is ~2–3 ms above the <video> path locally, ~5–6 ms on
+    // GHA fast boxes. p95 vs main is the 60 fps rAF tail on a different loop.
+    row("p50 frame ms", worker.p50FrameMs, main.p50FrameMs, WORKER_P50_VS_MAIN_FLOOR_MS, true),
     cap("p95 30fps slot ms", worker.p95FrameMs, WORKER_FRAME_BUDGET_MS, true),
     row("long task total ms", worker.longTaskTotalMs, main.longTaskTotalMs, 50, true),
     band("worker frames", worker.frames, expectedFrames, 0, true),

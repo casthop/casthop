@@ -11,6 +11,7 @@ import {
   regressionLimit,
   WORKER_FRAME_BUDGET_MS,
   WORKER_OUTPUT_FPS,
+  WORKER_P50_VS_MAIN_FLOOR_MS,
 } from "../src/lib/perf-gate.ts";
 import { percentile } from "../src/lib/compose-support.ts";
 import { pickComposeThreadFrom } from "../src/lib/compose-backend.ts";
@@ -116,9 +117,19 @@ test("compareWorkerToMain passes GHA fast-main tails that still hold 30fps", () 
     seconds: 30,
   };
   const worker = { ...main, thread: "worker", frames: 902, p50FrameMs: 9.4, p95FrameMs: 13.64 };
+  assert.equal(WORKER_P50_VS_MAIN_FLOOR_MS, 8);
   assert.equal(compareWorkerToMain(worker, main).ok, true);
   assert.ok(WORKER_FRAME_BUDGET_MS > 33 && WORKER_FRAME_BUDGET_MS < 34);
-  assert.equal(compareWorkerToMain({ ...worker, p50FrameMs: 12 }, main).ok, false);
+  // Chrome 158 GHA: worker 12.1 vs main 6.3 and 11.9 vs 7, 910–911 frames, 0 drops.
+  assert.equal(compareWorkerToMain({ ...worker, frames: 910, p50FrameMs: 12.1, p95FrameMs: 13.6 }, main).ok, true);
+  assert.equal(
+    compareWorkerToMain(
+      { ...worker, frames: 911, p50FrameMs: 11.9, p95FrameMs: 13.2 },
+      { ...main, p50FrameMs: 7, p95FrameMs: 11.4, frames: 1796 },
+    ).ok,
+    true,
+  );
+  assert.equal(compareWorkerToMain({ ...worker, p50FrameMs: 16 }, main).ok, false);
   const flake = {
     ...main,
     p50FrameMs: 6.3,
@@ -126,7 +137,7 @@ test("compareWorkerToMain passes GHA fast-main tails that still hold 30fps", () 
     frames: 1793,
   };
   assert.equal(
-    compareWorkerToMain({ ...worker, frames: 910, p50FrameMs: 8.5, p95FrameMs: 9.5 }, flake).ok,
+    compareWorkerToMain({ ...worker, frames: 910, p50FrameMs: 12.1, p95FrameMs: 13.6 }, flake).ok,
     true,
   );
 });

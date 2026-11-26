@@ -21,9 +21,11 @@ Out of the box, the destinations are MediaMTX stand-ins for YouTube, LinkedIn an
 
 For production, replace these with real YouTube, LinkedIn and X ingest URLs. Casthop validates destinations: only `rtmp:` URLs are accepted from clients, and private-network (RFC 1918) targets are rejected.
 
-## Status and recovery
+## Status, Live, and recovery
 
-Each destination row shows its own RTMP status. If Egress or a stream drops, the studio retries with backoff. This relies on signed LiveKit webhooks, see [Self-hosting](/docs/self-hosting).
+Each destination row shows its own RTMP status (`connecting`, `live`, `retrying`, `failed`). The studio Live pill stays on Starting until Egress is producing: stream bytes or duration, or a short settle after RTMP `started_at`. It does not flip to Live just because the compositor process exists.
+
+If Egress or a stream drops, the studio retries with backoff. This relies on signed LiveKit webhooks, see [Self-hosting](/docs/self-hosting).
 
 ## Recordings
 
@@ -40,11 +42,13 @@ cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
 
 To check that a recording is not silent, run `bash scripts/check-silent-audio.sh data/recordings/<file>.mp4`.
 
-## Destination chat
+## Chat
 
-While live, Casthop can poll YouTube Live chat (`liveChatMessages.list`) with the owner’s API key or OAuth refresh token from Worker secrets. Hosts and co-hosts see those comments in the studio panel and can pin one onto the stream overlay. See [Configuration](/docs/configuration).
+People in the studio can send comments in the room. While the show is live, Casthop can also poll YouTube Live chat (`liveChatMessages.list`) and merge those comments into the same panel. Hosts and co-hosts can pin one comment onto the compositor overlay (Canvas2D lower-third stack). Polling uses the API’s `pollingIntervalMillis`. Unset credentials hide YouTube ingest; the studio does not error.
 
-X’s API requires a paid tier. LinkedIn live comments need a partner API. Neither is wired.
+Need Worker secrets: `YOUTUBE_API_KEY` plus `YOUTUBE_LIVE_CHAT_ID` or `YOUTUBE_VIDEO_ID`, or the OAuth refresh trio (`YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN`) which looks up the owner’s active broadcast. See [Configuration](/docs/configuration).
+
+X’s API requires a paid tier. LinkedIn live comments need a partner API. Neither is wired. There is no VOD / replay of destination chat; polling runs only while the studio is live. The YouTube page-token cursor stays in Durable Object storage and is never sent to guests or public GET / WebSocket state.
 
 ## Who sees what
 

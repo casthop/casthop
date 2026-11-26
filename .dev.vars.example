@@ -1,14 +1,25 @@
+# Worker secrets and vars for wrangler / bun run dev. Copy to .dev.vars (gitignored).
+# These local values are documented defaults, not production secrets.
+
+# LiveKit API key. Published local default; loopback-only.
 LIVEKIT_API_KEY=devkey
+# LiveKit API secret. Keep in Worker secrets. Never send to the browser.
 LIVEKIT_API_SECRET=casthop_dev_secret_not_for_production_use_32b
-# Separate HMAC for Worker→DO host keys. Falls back to LIVEKIT_API_SECRET if unset.
-# Set this in production so rotating LiveKit keys does not lock existing studios.
+# HMAC for Worker→Durable Object host keys. Falls back to LIVEKIT_API_SECRET if unset.
 # HOST_KEY_SECRET=
+# Allow the published devkey with a non-loopback LiveKit URL. Tests only.
 # CASTHOP_ALLOW_DEV_KEYS=1
+# Where the Worker reaches LiveKit HTTP.
 LIVEKIT_HTTP_URL=http://127.0.0.1:7880
+# LiveKit WebSocket URL browsers connect to.
 PUBLIC_LIVEKIT_URL=ws://127.0.0.1:7880
+# Default YouTube destination (local MediaMTX stand-in).
 RTMP_YOUTUBE=rtmp://127.0.0.1:1935/live/youtube
+# Default LinkedIn destination (local MediaMTX stand-in).
 RTMP_LINKEDIN=rtmp://127.0.0.1:1935/live/linkedin
+# Default X destination (local MediaMTX stand-in).
 RTMP_X=rtmp://127.0.0.1:1935/live/x
+# Compositor page Egress opens.
 EGRESS_TEMPLATE_URL=http://127.0.0.1:5173/egress-template
 
 # Optional GitHub OAuth. Leave unset to hide the GitHub button.
@@ -37,3 +48,15 @@ EGRESS_TEMPLATE_URL=http://127.0.0.1:5173/egress-template
 # Cloudflare sets request.cf, so this is not needed there. Do not enable for wrangler dev.
 # Behind a proxy, set this so per-IP sign-in limits apply to real clients; otherwise they share the local bucket.
 # CASTHOP_TRUST_FORWARDED=1
+
+# Optional timing overrides (milliseconds). Unset = code defaults. Used in tests.
+# Empty-studio grace before ending live. Default 45000.
+# CASTHOP_EMPTY_GRACE_MS=
+# Wait for compositor Chrome to join after StartRoomComposite. Default 15000.
+# CASTHOP_COMPOSITOR_GRACE_MS=
+# Give up restarting a dead compositor. Default 30000.
+# CASTHOP_RECOVERY_MS=
+# Compositor heartbeat is stale after this. Default 3000 (page beats every 1s).
+# CASTHOP_HEARTBEAT_MS=
+# Override RTMP retry backoff. Unset = 1s, 2s, 4s, 8s, 16s, 30s. Set 0 in tests.
+# CASTHOP_BACKOFF_MS=

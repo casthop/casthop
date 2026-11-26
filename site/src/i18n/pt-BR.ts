@@ -2,9 +2,9 @@ import type { SiteMessages } from "./en";
 
 const ptBR: SiteMessages = {
   skip: "Pular para o conteúdo",
-  brandHome: "Início Casthop",
+  brandHome: "Página inicial do Casthop",
   navMain: "Principal",
-  navDocs: "Documentação",
+  navDocs: "Docs",
   navGithub: "GitHub",
   navGetStarted: "Começar",
   navMenu: "Menu",
@@ -12,21 +12,21 @@ const ptBR: SiteMessages = {
 
   metaTitle: "Casthop — estúdio ao vivo open source no navegador",
   metaDescription:
-    "Estúdio ao vivo open source no navegador. Convidados entram por um link, até seis no palco, e o composto vai ao ar em vários destinos RTMP, com gravação.",
+    "Estúdio ao vivo open source no navegador. Convidados entram por um link, até seis no palco, e o vídeo final vai ao ar em vários destinos RTMP, com gravação.",
 
   heroEyebrow: "Open source · AGPL-3.0",
-  heroTitle: "Entre ao vivo pelo navegador, em todos os destinos de uma vez.",
+  heroTitle: "Transmita ao vivo pelo navegador, em todos os destinos de uma vez.",
   heroLede:
-    "Casthop é um estúdio ao vivo que você mesmo opera. Chame convidados por um link, coloque até seis no palco e envie um único composto para YouTube, LinkedIn e X.",
+    "Casthop é um estúdio ao vivo que você mesmo opera. Chame convidados por um link, coloque até seis no palco e envie um único vídeo final para YouTube, LinkedIn e X.",
   heroRepo: "Abrir o repositório",
   heroDocs: "Ler a documentação",
   heroAlt:
-    "O estúdio do apresentador no Casthop: uma cabine escura com palco para duas pessoas, um convidado nos bastidores e o botão branco Entrar ao vivo.",
+    "O estúdio do apresentador no Casthop: uma cabine escura com palco para duas pessoas, um convidado nos bastidores e o botão branco Transmitir ao vivo.",
 
   featuresTitle: "O que já funciona",
   feature1Title: "Uma transcodificação, vários destinos.",
   feature1Body:
-    "O Casthop manda o composto para YouTube, LinkedIn e X via RTMP ao mesmo tempo. O LiveKit Egress transcodifica uma vez e replica para cada URL, e a gravação fica junto.",
+    "O Casthop manda o vídeo final para YouTube, LinkedIn e X via RTMP ao mesmo tempo. O LiveKit Egress transcodifica uma vez e replica para cada URL, e a gravação fica junto.",
   feature1Link: "Como funcionam os destinos",
   feature2Title: "Convidados entram por um link.",
   feature2Body:
@@ -46,12 +46,12 @@ const ptBR: SiteMessages = {
   ossP1:
     "LiveKit, Egress, Redis e uma borda RTMP sobem no Docker, na sua máquina ou no servidor. O plano de controle é um Cloudflare Worker com Durable Objects e D1. As chaves de stream ficam no Durable Object e nunca voltam para convidados.",
   ossP2:
-    "O servidor é AGPL-3.0-only, então forks hospedados precisam abrir as mudanças. É um protótipo que funciona: prove o núcleo, meça, depois polir. Espere arestas, e leia as medições no repositório em vez de acreditar na gente.",
+    "O servidor é AGPL-3.0-only, então forks hospedados precisam abrir as mudanças. É um protótipo que funciona: provar o núcleo, medir, depois polir. Espere arestas, e leia as medições no repositório em vez de confiar na nossa palavra.",
   ossGithub: "Ver no GitHub",
   ossDocs: "Documentação de self-hosting",
 
   footerTagline: "Estúdio ao vivo open source no navegador.",
-  footerDocs: "Documentação",
+  footerDocs: "Docs",
   footerGettingStarted: "Primeiros passos",
   footerSelfHosting: "Self-hosting",
   footerConfiguration: "Configuração",
@@ -59,9 +59,9 @@ const ptBR: SiteMessages = {
   footerProject: "Projeto",
   footerLicense: "O Casthop é licenciado sob AGPL-3.0-only.",
 
-  docsChromeTitle: "Documentação Casthop",
+  docsChromeTitle: "Docs do Casthop",
   docsChromeDescription: "Documentação do Casthop.",
-  docsTitleSuffix: "Documentação Casthop",
+  docsTitleSuffix: "Docs do Casthop",
   docsNav: "Documentação",
   docsSections: "Seções",
   searchDocs: "Buscar na documentação",

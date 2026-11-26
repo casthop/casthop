@@ -1,7 +1,7 @@
 ---
 title: アーキテクチャ
 description: ブラウザ、LiveKit、Egress、Cloudflare Worker のつながり。
-group: 考え方
+group: コンセプト
 order: 6
 ---
 
@@ -56,7 +56,7 @@ Cloudflare Stream Live は Stream を有効にした Cloudflare アカウント�
 
 ## Live バッジ
 
-スタジオの表示が `live` になるのは、Egress が出力を出しているときだけです。ストリームのバイト数か尺、あるいは RTMP の `started_at` のあとの短い settle です（LiveKit は MediaMTX がストリームを持つ前に start を報告することがあります）。それまでは「開始中」です。コンポジターの Chrome が死ぬと、ハートビートが Live を外し、スタジオはバックオフ付きで再試行します。
+スタジオの表示が `live` になるのは、Egress が出力を出しているときだけです。ストリームのバイト数か尺、あるいは RTMP の `started_at` のあとの短い settle です（LiveKit は MediaMTX がストリームを持つ前に start を報告することがあります）。それまでは「開始中」です。コンポジターの Chrome が落ちると、ハートビートが途切れて Live が外れ、スタジオは間隔を空けながら再試行します。
 
 ## casthop-post
 

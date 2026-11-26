@@ -214,7 +214,7 @@ export async function serveReplayObject(env: Env, replay: ReplayRecord, file: st
   const headers = new Headers();
   obj.writeHttpMetadata(headers);
   if (!headers.has("Content-Type")) headers.set("Content-Type", hlsContentType(file));
-  headers.set("Cache-Control", replay.visibility === "public" ? "public, max-age=60" : "private, no-store");
+  headers.set("Cache-Control", replay.visibility === "public" ? "public, max-age=0, must-revalidate" : "private, no-store");
   headers.set("Vary", "Cookie");
   headers.set("X-Content-Type-Options", "nosniff");
   return new Response(obj.body, { headers });

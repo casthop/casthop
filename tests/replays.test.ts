@@ -259,7 +259,7 @@ test("public replay is playable by link; private stays host-only", async () => {
   assert.equal(pubBody.viewerCanEdit, false);
   const openHls = await app.request(`https://casthop.test${pub.playlistUrl}`, {}, env);
   assert.equal(openHls.status, 200);
-  assert.equal(openHls.headers.get("cache-control"), "public, max-age=60");
+  assert.equal(openHls.headers.get("cache-control"), "public, max-age=0, must-revalidate");
   assert.equal(openHls.headers.get("vary"), "Cookie");
 
   const outsiderPriv = await app.request(

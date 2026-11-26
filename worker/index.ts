@@ -362,6 +362,15 @@ function waitUntil(c: Context<AppEnv>, task: () => Promise<unknown>): void {
   }
 }
 
+/** Latest onStage from studio state, so a delayed retry cannot revive a later off. */
+async function storedStagePublish(env: Env, studioId: string, identity: string): Promise<boolean | null> {
+  const res = await studioStub(env, studioId).fetch(`https://studio/${studioId}`);
+  if (!res.ok) return null;
+  const state = (await res.json()) as PublicStudio;
+  const person = state.participants.find((p) => p.identity === identity);
+  return person ? person.onStage : null;
+}
+
 app.post("/api/studios/:id/stage", async (c) => {
   const id = c.req.param("id");
   const sess = await loadSession(c);
@@ -379,11 +388,12 @@ app.post("/api/studios/:id/stage", async (c) => {
         return c.json({ error: publishPermissionError(err) }, 502);
       }
       const identity = body.identity;
-      const on = Boolean(body.on);
       waitUntil(c, () =>
-        retryUpdateParticipantPublish(c.env, id, identity, on).catch((retryErr) => {
-          console.warn("updateParticipantPublish", retryErr);
-        }),
+        retryUpdateParticipantPublish(c.env, id, identity, () => storedStagePublish(c.env, id, identity)).catch(
+          (retryErr) => {
+            console.warn("updateParticipantPublish", retryErr);
+          },
+        ),
       );
     }
   }

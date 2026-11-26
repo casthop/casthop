@@ -5,7 +5,7 @@ group: Operar
 order: 5
 ---
 
-Um destino é uma URL RTMP. O Casthop manda o mesmo composto para todos os destinos de uma vez, com uma transcodificação no Egress.
+Um destino é uma URL RTMP. O Casthop manda o mesmo vídeo final para todos os destinos de uma vez, com uma transcodificação no Egress.
 
 ## Stand-ins locais
 
@@ -23,7 +23,7 @@ Em produção, troque por URLs de ingest reais do YouTube, LinkedIn e X. O Casth
 
 ## Status, Live e recuperação
 
-Cada linha de destino mostra o próprio status RTMP (`connecting`, `live`, `retrying`, `failed`). A pílula Live do estúdio fica em Iniciando até o Egress estar produzindo: bytes ou duração do stream, ou um settle curto depois do `started_at` do RTMP. Não vira Live só porque o processo do compositor existe.
+Cada linha de destino mostra o próprio status RTMP (`connecting`, `live`, `retrying`, `failed`). O indicador Ao vivo do estúdio fica em Iniciando até o Egress estar produzindo: bytes ou duração do stream, ou uma breve espera depois do `started_at` do RTMP. Ele não mostra Ao vivo só porque o processo do compositor existe.
 
 Se o Egress ou um fluxo cair, o estúdio tenta de novo com backoff. Isso depende de webhooks assinados do LiveKit; veja [Self-hosting](/docs/self-hosting).
 
@@ -31,7 +31,7 @@ Se o Egress ou um fluxo cair, o estúdio tenta de novo com backoff. Isso depende
 
 | Onde | O quê |
 |---|---|
-| `data/recordings/` | MP4 do Egress com o composto. |
+| `data/recordings/` | MP4 do Egress com o vídeo final. |
 | `data/rtmp/` | fMP4 do MediaMTX na borda RTMP local. |
 | `RECORDINGS` (R2) | Faixas WebM por pessoa quando Gravações separadas está ligado. O apresentador baixa no painel Gravações. |
 
@@ -45,11 +45,11 @@ Para conferir que uma gravação não está silenciosa, rode `bash scripts/check
 
 ## Chat
 
-Quem está no estúdio pode mandar comentários na sala. Com o programa ao vivo, o Casthop também pode pollar o chat ao vivo do YouTube (`liveChatMessages.list`) e juntar esses comentários no mesmo painel. Apresentadores e coapresentadores podem fixar um comentário no overlay do compositor (pilha de lower-third em Canvas2D). O polling usa o `pollingIntervalMillis` da API. Sem credenciais, o ingest do YouTube some; o estúdio não quebra.
+Quem está no estúdio pode mandar comentários na sala. Com o programa ao vivo, o Casthop também pode consultar o chat ao vivo do YouTube (`liveChatMessages.list`) e juntar esses comentários no mesmo painel. Apresentadores e coapresentadores podem fixar um comentário no overlay do compositor (pilha de lower third em Canvas2D). A consulta usa o `pollingIntervalMillis` da API. Sem credenciais, o ingest do YouTube some; o estúdio não quebra.
 
 Precisa de Worker secrets: `YOUTUBE_API_KEY` mais `YOUTUBE_LIVE_CHAT_ID` ou `YOUTUBE_VIDEO_ID`, ou o trio de refresh OAuth (`YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN`), que busca a transmissão ativa do dono. Veja [Configuração](/docs/configuration).
 
-A API do X pede plano pago. Comentários ao vivo do LinkedIn pedem API de parceiro. Nenhum dos dois está ligado. Não há VOD / replay do chat de destino; o polling só roda enquanto o estúdio está ao vivo. O cursor de page-token do YouTube fica no armazenamento do Durable Object e nunca vai para convidados nem para GET / estado WebSocket públicos.
+A API do X pede plano pago. Comentários ao vivo do LinkedIn pedem API de parceiro. Nenhum dos dois está ligado. Não há VOD / replay do chat de destino; a consulta só roda enquanto o estúdio está ao vivo. O cursor de page-token do YouTube fica no armazenamento do Durable Object e nunca vai para convidados nem para GET / estado WebSocket públicos.
 
 ## Quem vê o quê
 

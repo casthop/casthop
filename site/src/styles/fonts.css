@@ -94,7 +94,7 @@
   margin: 0;
   padding: 4px;
   list-style: none;
-  min-width: 10.5rem;
+  min-width: max-content;
   max-width: min(16rem, calc(100vw - 2rem));
   border-radius: 10px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
@@ -133,4 +133,5 @@
   .lang-switch-code { display: inline; }
   .nav-more { display: block; }
   .nav-more-panel { left: 0; right: auto; }
+  .dtop .lang-switch ul { right: 0; left: auto; }
 }

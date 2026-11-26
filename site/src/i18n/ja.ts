@@ -17,7 +17,7 @@ const ja: SiteMessages = {
   heroEyebrow: "オープンソース · AGPL-3.0",
   heroTitle: "ブラウザのタブから、どこへでも同時にライブ配信。",
   heroLede:
-    "Casthop は自分で運用するライブスタジオです。リンクでゲストを呼び、最大6人をステージに乗せ、1本の合成映像を YouTube、LinkedIn、X へ送ります。",
+    "Casthop は自分で運用するライブスタジオです。リンクでゲストを呼び、最大6人をステージに上げ、1本の合成映像を YouTube、LinkedIn、X へ送ります。",
   heroRepo: "リポジトリを開く",
   heroDocs: "ドキュメントを読む",
   heroAlt:
@@ -36,17 +36,17 @@ const ja: SiteMessages = {
   feature3Body:
     "カメラのぼかしは端末上で MediaPipe の Selfie Segmenter が処理します。モデルはぼかしをオンにしたときだけ、自分のオリジンから読み込みます。CDN は使いません。",
   feature3Link: "アーキテクチャ",
-  feature4Title: "配信は、落ちても自分で戻る。",
+  feature4Title: "配信は、止まっても自動で復旧する。",
   feature4Body:
-    "Egress やストリームが落ちると、スタジオはバックオフ付きで再試行します。配信先ごとに RTMP の状態が出るので、どれが止まったか分かります。",
+    "Egress やストリームが落ちると、スタジオは間隔を空けながら再試行します。配信先ごとに RTMP の状態が出るので、どれが止まったか分かります。",
   feature4Link: "配信先ごとの状態",
 
   ossEyebrow: "セルフホスト",
   ossTitle: "メディアプレーンは、あなたが動かす。",
   ossP1:
-    "LiveKit、Egress、Redis、RTMP エッジは Docker で、自分のマシンかサーバー上で動かします。コントロールプレーンは Durable Objects と D1 付きの Cloudflare Worker です。ストリームキーは Durable Object に留まり、ゲストには返りません。",
+    "LiveKit、Egress、Redis、RTMP エッジは Docker で、自分のマシンかサーバー上で動かします。コントロールプレーンは Durable Objects と D1 付きの Cloudflare Worker です。ストリームキーは Durable Object に留まり、ゲストには返されません。",
   ossP2:
-    "サーバーは AGPL-3.0-only なので、ホストするフォークは変更を公開する必要があります。動くプロトタイプです。核を確かめ、測ってから磨いてください。角は残っています。数字はリポジトリの計測を見てください。",
+    "サーバーは AGPL-3.0-only なので、ホストするフォークは変更を公開する必要があります。動くプロトタイプです。まず中核を確かめ、計測し、それから磨く段階なので、粗い部分が残っています。数字は、こちらの言葉ではなくリポジトリの計測結果で確かめてください。",
   ossGithub: "GitHub で見る",
   ossDocs: "セルフホストのドキュメント",
 
@@ -66,13 +66,13 @@ const ja: SiteMessages = {
   docsSections: "セクション",
   searchDocs: "ドキュメントを検索",
   searchHint: "Esc で閉じる · ↑ ↓ で移動 · Enter で開く",
-  searchEmpty: "該当なし。",
+  searchEmpty: "一致する結果がありません。",
   searchResults: "結果",
   onThisPage: "このページ内",
   previous: "前へ",
   next: "次へ",
   pagination: "ページ送り",
-  continueTo: "はじめに へ進む。",
+  continueTo: "「はじめに」へ進む。",
 };
 
 export default ja;

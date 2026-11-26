@@ -36,7 +36,7 @@ Aponte `webhook.urls` do LiveKit para:
 https://<worker>/api/livekit/webhook
 ```
 
-Os webhooks são assinados. É assim que crash do Egress e queda de RTMP chegam ao estúdio para ele tentar de novo. A pílula Live espera saída de verdade (bytes/duração ou um settle curto de RTMP) antes de mostrar Live.
+Os webhooks são assinados. É assim que crash do Egress e queda de RTMP chegam ao estúdio para ele tentar de novo. O indicador Ao vivo espera saída de verdade (bytes/duração ou uma breve espera do RTMP) antes de aparecer.
 
 ## 4. Publicar o Worker
 
@@ -55,7 +55,7 @@ Defina um `HOST_KEY_SECRET` dedicado. Sem ele, as host keys caem no segredo do L
 
 ## 5. Origem pública e proxies
 
-- Defina `PUBLIC_ORIGIN` com a URL pública do site. Entra no e-mail do magic link, nos convites de coapresentador e no callback do GitHub. Se ficar vazio, usa o Host de loopback; em produção, defina para um Host forjado não gerar links para um atacante.
+- Defina `PUBLIC_ORIGIN` com a URL pública do site. Entra no e-mail do magic link, nos convites de coapresentador e no callback do GitHub. Se ficar vazio, usa o Host de loopback; em produção, defina o valor para que um Host forjado não gere links para um atacante.
 - Atrás de um reverse proxy, defina `CASTHOP_TRUST_FORWARDED=1` para os limites de login por IP usarem o endereço real do cliente. Sem isso, todo mundo compartilha um bucket `local`. O Cloudflare seta `request.cf`, então você não precisa disso lá. Não ligue no `wrangler dev`.
 
 ## 6. Login
@@ -68,4 +68,4 @@ Aponte as URLs de destino para ingest de verdade do YouTube, LinkedIn e X. Veja 
 
 ## O que esta árvore não cobre
 
-TURN para convidados atrás de NAT restrito e um viewer de replay no R2 não estão no produto. Ingest de chat ao vivo do YouTube é opcional (Worker secrets); comentários do X e do LinkedIn não estão ligados. Desfoque de câmera, compose Canvas2D fora da thread, Live-quando-produzindo e retry de crash do Egress estão. Meça o seu setup antes de depender dele. Variáveis de ambiente: [Configuração](/docs/configuration).
+TURN para convidados atrás de NAT restrito e um viewer de replay no R2 não estão no produto. Ingest de chat ao vivo do YouTube é opcional (Worker secrets); comentários do X e do LinkedIn não estão ligados. Desfoque de câmera, composição Canvas2D fora da thread principal, Ao vivo só quando há saída e nova tentativa após queda do Egress estão incluídos. Meça o seu setup antes de depender dele. Variáveis de ambiente: [Configuração](/docs/configuration).

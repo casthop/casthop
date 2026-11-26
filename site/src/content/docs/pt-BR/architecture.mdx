@@ -52,11 +52,11 @@ O app é um Hono Worker com um Durable Object por estúdio (palco, layout, chat,
 
 ## Chat de destino
 
-Ao vivo, o Durable Object do estúdio polla `liveChatMessages.list` do YouTube se os Worker secrets estiverem definidos (`worker/chat-ingest.ts`). Os comentários entram na lista de chat da sala. Apresentadores podem fixar um no overlay Canvas2D. O cursor do poll (`liveChatId`, page token) fica de fora do estado público do estúdio. X e LinkedIn não são ingeridos.
+Ao vivo, o Durable Object do estúdio consulta `liveChatMessages.list` do YouTube se os Worker secrets estiverem definidos (`worker/chat-ingest.ts`). Os comentários entram na lista de chat da sala. Apresentadores podem fixar um no overlay Canvas2D. O cursor do poll (`liveChatId`, page token) fica de fora do estado público do estúdio. X e LinkedIn não são ingeridos.
 
-## Distintivo Live
+## Indicador Ao vivo
 
-A pílula do estúdio é `live` só quando o Egress está produzindo saída: bytes ou duração do stream, ou um settle curto depois do `started_at` do RTMP (o LiveKit pode reportar um start antes do MediaMTX ter o fluxo). Até lá a pílula fica em Iniciando. Se o Chrome do compositor morrer, o heartbeat tira o Live e o estúdio tenta de novo com backoff.
+O indicador do estúdio é `live` só quando o Egress está produzindo saída: bytes ou duração do stream, ou uma breve espera depois do `started_at` do RTMP (o LiveKit pode reportar o início antes de o MediaMTX ter o fluxo). Até lá o indicador fica em Iniciando. Se o Chrome do compositor morrer, o heartbeat tira o Ao vivo e o estúdio tenta de novo com backoff.
 
 ## casthop-post
 

@@ -25,7 +25,7 @@ order: 5
 
 各配信先行は、それぞれの RTMP 状態（`connecting`、`live`、`retrying`、`failed`）を出します。スタジオの Live 表示は、Egress が出力を出すまで「開始中」のままです。ストリームのバイト数か尺、あるいは RTMP の `started_at` のあとの短い settle です。コンポジタープロセスがあるだけでは Live になりません。
 
-Egress やストリームが落ちると、スタジオはバックオフ付きで再試行します。署名付き LiveKit webhook に依存します。[セルフホスト](/docs/self-hosting) を見てください。
+Egress やストリームが落ちると、スタジオは間隔を空けながら再試行します。署名付き LiveKit webhook に依存します。[セルフホスト](/docs/self-hosting) を見てください。
 
 ## 録画
 
@@ -45,7 +45,7 @@ cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
 
 ## チャット
 
-スタジオにいる人は、部屋にコメントを送れます。番組がライブ中、Casthop は YouTube ライブチャット（`liveChatMessages.list`）もポーリングし、同じパネルに混ぜます。ホストと共同ホストは、コメント 1 件をコンポジターのオーバーレイ（Canvas2D の lower-third スタック）にピンできます。ポーリングは API の `pollingIntervalMillis` に従います。資格情報が無いと YouTube の取り込みは隠れ、スタジオはエラーになりません。
+スタジオにいる人は、部屋にコメントを送れます。番組がライブ中、Casthop は YouTube ライブチャット（`liveChatMessages.list`）もポーリングし、同じパネルに混ぜます。ホストと共同ホストは、コメント 1 件をコンポジターのオーバーレイ（Canvas2D のテロップ表示）にピンできます。ポーリングは API の `pollingIntervalMillis` に従います。資格情報が無いと YouTube の取り込みは隠れ、スタジオはエラーになりません。
 
 必要な Worker secrets は、`YOUTUBE_API_KEY` に `YOUTUBE_LIVE_CHAT_ID` か `YOUTUBE_VIDEO_ID` を足すか、オーナーの進行中配信を探す OAuth リフレッシュ 3 点（`YOUTUBE_OAUTH_CLIENT_ID`、`YOUTUBE_OAUTH_CLIENT_SECRET`、`YOUTUBE_OAUTH_REFRESH_TOKEN`）です。[設定](/docs/configuration) を見てください。
 

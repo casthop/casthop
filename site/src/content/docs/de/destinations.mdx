@@ -23,7 +23,7 @@ Für Produktion diese durch echte YouTube-, LinkedIn- und X-Ingest-URLs ersetzen
 
 ## Status, Live und Recovery
 
-Jede Zielzeile zeigt den eigenen RTMP-Status (`connecting`, `live`, `retrying`, `failed`). Die Studio-Live-Pille bleibt auf Starten, bis Egress produziert: Stream-Bytes oder -Dauer, oder ein kurzes Settle nach RTMP-`started_at`. Sie wird nicht Live, nur weil der Compositor-Prozess existiert.
+Jede Zielzeile zeigt den eigenen RTMP-Status (`connecting`, `live`, `retrying`, `failed`). Die Live-Anzeige im Studio bleibt auf „Startet…“, bis Egress Ausgabe liefert: Stream-Bytes oder -Dauer, oder eine kurze Wartezeit nach RTMP-`started_at`. Sie springt nicht auf Live, nur weil der Compositor-Prozess existiert.
 
 Fällt Egress oder ein Stream aus, versucht das Studio es mit Backoff erneut. Das hängt an signierten LiveKit-Webhooks, siehe [Self-Hosting](/docs/self-hosting).
 
@@ -45,7 +45,7 @@ Um zu prüfen, dass eine Aufnahme nicht still ist: `bash scripts/check-silent-au
 
 ## Chat
 
-Leute im Studio können Kommentare in den Raum schicken. Solange die Show live ist, kann Casthop außerdem YouTube-Live-Chat abfragen (`liveChatMessages.list`) und diese Kommentare ins selbe Panel mischen. Hosts und Co-Hosts können einen Kommentar auf das Compositor-Overlay pinnen (Canvas2D-Lower-Third-Stack). Polling nutzt das `pollingIntervalMillis` der API. Ohne Credentials bleibt YouTube-Ingest versteckt; das Studio bricht nicht ab.
+Leute im Studio können Kommentare in den Raum schicken. Solange die Show live ist, kann Casthop außerdem YouTube-Live-Chat abfragen (`liveChatMessages.list`) und diese Kommentare ins selbe Panel mischen. Hosts und Co-Hosts können einen Kommentar auf das Compositor-Overlay pinnen (Canvas2D-Stapel aus Bauchbinden). Polling nutzt das `pollingIntervalMillis` der API. Ohne Credentials bleibt YouTube-Ingest versteckt; das Studio bricht nicht ab.
 
 Braucht Worker secrets: `YOUTUBE_API_KEY` plus `YOUTUBE_LIVE_CHAT_ID` oder `YOUTUBE_VIDEO_ID`, oder das OAuth-Refresh-Trio (`YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN`), das die aktive Sendung des Owners nachschlägt. Siehe [Konfiguration](/docs/configuration).
 

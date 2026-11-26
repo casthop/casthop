@@ -5,7 +5,7 @@ group: Operar
 order: 5
 ---
 
-Un destino es una URL RTMP. Casthop envía el mismo compuesto a todos los destinos a la vez, con una transcodificación en Egress.
+Un destino es una URL RTMP. Casthop envía la misma composición a todos los destinos a la vez, con una transcodificación en Egress.
 
 ## Sustitutos locales
 
@@ -31,7 +31,7 @@ Si cae Egress o un flujo, el estudio reintenta con backoff. Eso depende de webho
 
 | Dónde | Qué |
 |---|---|
-| `data/recordings/` | MP4 de Egress del compuesto. |
+| `data/recordings/` | MP4 de Egress de la composición. |
 | `data/rtmp/` | fMP4 de MediaMTX en el borde RTMP local. |
 | `RECORDINGS` (R2) | Pistas WebM por persona cuando Grabaciones por persona está activo. El anfitrión las descarga en el panel Grabaciones. |
 
@@ -45,9 +45,9 @@ Para comprobar que una grabación no está en silencio, ejecuta `bash scripts/ch
 
 ## Chat
 
-Quien está en el estudio puede enviar comentarios en la sala. Con el programa en vivo, Casthop también puede sondear el chat en vivo de YouTube (`liveChatMessages.list`) y mezclar esos comentarios en el mismo panel. Anfitriones y coanfitriones pueden fijar un comentario en el overlay del compositor (pila de lower-third en Canvas2D). El sondeo usa el `pollingIntervalMillis` de la API. Sin credenciales, el ingest de YouTube se oculta; el estudio no falla.
+Quien está en el estudio puede enviar comentarios en la sala. Con el programa en vivo, Casthop también puede sondear el chat en vivo de YouTube (`liveChatMessages.list`) y mezclar esos comentarios en el mismo panel. Anfitriones y coanfitriones pueden fijar un comentario en el overlay del compositor (pila de lower thirds en Canvas2D). El sondeo usa el `pollingIntervalMillis` de la API. Sin credenciales, el ingest de YouTube se oculta; el estudio no falla.
 
-Hacen falta Worker secrets: `YOUTUBE_API_KEY` más `YOUTUBE_LIVE_CHAT_ID` o `YOUTUBE_VIDEO_ID`, o el trío de refresh OAuth (`YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN`), que busca la emisión activa del dueño. Mira [Configuración](/docs/configuration).
+Hacen falta Worker secrets: `YOUTUBE_API_KEY` más `YOUTUBE_LIVE_CHAT_ID` o `YOUTUBE_VIDEO_ID`, o el trío de refresh OAuth (`YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN`), que busca la transmisión activa del dueño. Mira [Configuración](/docs/configuration).
 
 La API de X exige un plan de pago. Los comentarios en vivo de LinkedIn necesitan una API de partner. Ninguno está cableado. No hay VOD / replay del chat de destino; el sondeo solo corre mientras el estudio está en vivo. El cursor de page-token de YouTube se queda en el almacenamiento del Durable Object y nunca llega a invitados ni al GET / estado WebSocket públicos.
 

@@ -85,8 +85,8 @@ const ptBR: Messages = {
   liveNotLive: "Fora do ar",
   liveRetry: "Tentar de novo",
   liveEnd: "Encerrar transmissão",
-  liveGo: "Ir ao vivo",
-  liveGoOn: "Ir ao vivo em {count}",
+  liveGo: "Transmitir ao vivo",
+  liveGoOn: "Transmitir ao vivo em {count}",
   liveLead: "Transmita o palco para estes destinos.",
   gateTitle: "Entrar como convidado",
   gateBody:

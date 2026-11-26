@@ -15,13 +15,13 @@ const ptBR: SiteMessages = {
     "Estúdio ao vivo open source no navegador. Convidados entram por um link, até seis no palco, e o vídeo final vai ao ar em vários destinos RTMP, com gravação.",
 
   heroEyebrow: "Open source · AGPL-3.0",
-  heroTitle: "Vá ao vivo pelo navegador, em todos os destinos de uma vez.",
+  heroTitle: "Transmita ao vivo pelo navegador, em todos os destinos de uma vez.",
   heroLede:
     "Casthop é um estúdio ao vivo que você mesmo opera. Chame convidados por um link, coloque até seis no palco e envie um único vídeo final para YouTube, LinkedIn e X.",
   heroRepo: "Abrir o repositório",
   heroDocs: "Ler a documentação",
   heroAlt:
-    "O estúdio do apresentador no Casthop: uma cabine escura com palco para duas pessoas, um convidado nos bastidores e o botão branco Ir ao vivo.",
+    "O estúdio do apresentador no Casthop: uma cabine escura com palco para duas pessoas, um convidado nos bastidores e o botão branco Transmitir ao vivo.",
 
   featuresTitle: "O que já funciona",
   feature1Title: "Uma transcodificação, vários destinos.",

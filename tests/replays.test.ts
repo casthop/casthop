@@ -213,6 +213,7 @@ test("owner archives a private replay into mocked R2 and plays HLS", async () =>
   assert.equal(replay.playlistUrl, `/api/replays/${replay.id}/hls/index.m3u8`);
   assert.ok(replay.bytes > 0);
   assert.equal(replay.files, hlsFiles().length);
+  assert.equal((env.RECORDINGS as FakeR2).headCalls, 0);
 
   const listed = await json<{ studios: { id: string; replays: PublicReplay[] }[] }>(
     await app.request("https://casthop.test/api/studios", { headers: { Cookie: cookie } }, env),
@@ -339,6 +340,7 @@ test("PUT HLS files add to the stored byte and file totals", async () => {
   const created = await json<PublicReplay>(await postReplay(env, cookie, id, { title: "Cuts", files: hlsFiles() }));
   const r2 = env.RECORDINGS as FakeR2;
   const listsBefore = r2.listCalls;
+  const headsBefore = r2.headCalls;
   const first = await json<PublicReplay>(
     await app.request(`https://casthop.test/api/studios/${id}/replays/${created.id}/hls/seg1.m4s`, {
       method: "PUT",
@@ -348,6 +350,7 @@ test("PUT HLS files add to the stored byte and file totals", async () => {
   );
   assert.equal(first.bytes, created.bytes + 4);
   assert.equal(first.files, created.files + 1);
+  assert.equal(r2.headCalls, headsBefore + 1);
   const overwritten = await json<PublicReplay>(
     await app.request(`https://casthop.test/api/studios/${id}/replays/${created.id}/hls/seg1.m4s`, {
       method: "PUT",
@@ -357,6 +360,7 @@ test("PUT HLS files add to the stored byte and file totals", async () => {
   );
   assert.equal(overwritten.bytes, created.bytes + 5);
   assert.equal(overwritten.files, created.files + 1);
+  assert.equal(r2.headCalls, headsBefore + 2);
   const second = await json<PublicReplay>(
     await app.request(`https://casthop.test/api/studios/${id}/replays/${created.id}/hls/seg2.m4s`, {
       method: "PUT",
@@ -367,6 +371,7 @@ test("PUT HLS files add to the stored byte and file totals", async () => {
   assert.equal(second.bytes, created.bytes + 5 + 6);
   assert.equal(second.files, created.files + 2);
   assert.equal(r2.listCalls, listsBefore);
+  assert.equal(r2.headCalls, headsBefore + 3);
 });
 
 test("ingest and PUT reject oversized content-length before reading the body", async () => {

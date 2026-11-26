@@ -146,6 +146,13 @@ function latestReplayFiles(files: { name: string; bytes: Uint8Array }[]): { name
   return [...latest].map(([name, bytes]) => ({ name, bytes }));
 }
 
+export function replayUsageFromFiles(files: { name: string; bytes: Uint8Array }[]): { bytes: number; files: number } {
+  const latest = latestReplayFiles(files);
+  let bytes = 0;
+  for (const file of latest) bytes += file.bytes.byteLength;
+  return { bytes, files: latest.length };
+}
+
 export async function replayUsageDelta(
   env: Env,
   studioId: string,
@@ -162,14 +169,10 @@ export async function replayUsageDelta(
   return { bytes, files: added };
 }
 
-export async function replayWouldExceedQuota(
-  env: Env,
-  studioId: string,
-  replayId: string,
+export function replayWouldExceedQuota(
   current: { bytes: number; files: number },
-  files: { name: string; bytes: Uint8Array }[],
-): Promise<string | null> {
-  const extra = await replayUsageDelta(env, studioId, replayId, files);
+  extra: { bytes: number; files: number },
+): string | null {
   if (current.files + extra.files > MAX_REPLAY_OBJECTS) return "too many files";
   if (current.bytes + extra.bytes > MAX_REPLAY_BYTES) return "replay too large";
   return null;
@@ -185,12 +188,10 @@ export async function putReplayFiles(
   studioId: string,
   replayId: string,
   files: { name: string; bytes: Uint8Array }[],
-): Promise<{ bytes: number; files: number }> {
+): Promise<void> {
   if (files.length === 0 || files.length > MAX_FILES) {
     throw Object.assign(new Error("invalid files"), { status: 400 });
   }
-  let bytes = 0;
-  let added = 0;
   const playlist = files.find((f) => f.name === HLS_INDEX);
   if (playlist) {
     const err = playlistError(new TextDecoder().decode(playlist.bytes));
@@ -202,15 +203,10 @@ export async function putReplayFiles(
       throw Object.assign(new Error("invalid file size"), { status: 400 });
     }
     const key = replayObjectKey(studioId, replayId, file.name);
-    const prev = await env.RECORDINGS.head(key);
-    const prevSize = prev?.size ?? 0;
     await env.RECORDINGS.put(key, file.bytes, {
       httpMetadata: { contentType: hlsContentType(file.name) },
     });
-    bytes += file.bytes.byteLength - prevSize;
-    if (!prev) added += 1;
   }
-  return { bytes, files: added };
 }
 
 export async function serveReplayObject(env: Env, replay: ReplayRecord, file: string): Promise<Response> {

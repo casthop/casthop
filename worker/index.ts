@@ -87,6 +87,7 @@ import {
   putReplayFiles,
   replayUsageCapError,
   replayUsageDelta,
+  replayUsageFromFiles,
   replayWouldExceedQuota,
   serveReplayObject,
 } from "./replays";
@@ -296,9 +297,10 @@ app.post("/api/studios/:id/replays", async (c) => {
   if (existing >= MAX_REPLAYS_PER_STUDIO) return c.json({ error: "too many replays" }, 400);
   const replayId = newReplayId();
   try {
-    const quota = await replayWouldExceedQuota(c.env, id, replayId, { bytes: 0, files: 0 }, ingested.files);
+    const extra = replayUsageFromFiles(ingested.files);
+    const quota = replayWouldExceedQuota({ bytes: 0, files: 0 }, extra);
     if (quota) return c.json({ error: quota }, 400);
-    const written = await putReplayFiles(c.env, id, replayId, ingested.files);
+    await putReplayFiles(c.env, id, replayId, ingested.files);
     const row: ReplayRecord = {
       id: replayId,
       studioId: id,
@@ -306,8 +308,8 @@ app.post("/api/studios/:id/replays", async (c) => {
       visibility: ingested.visibility,
       durationMs: ingested.durationMs,
       createdAt: Date.now(),
-      bytes: written.bytes,
-      files: written.files,
+      bytes: extra.bytes,
+      files: extra.files,
     };
     await insertReplay(c.env.DB, row);
     return c.json(publicReplay(row, true));

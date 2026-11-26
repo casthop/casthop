@@ -94,8 +94,10 @@ class FakeR2ObjectBody extends FakeR2Object implements R2ObjectBody {
 export class FakeR2 implements R2Bucket {
   private readonly objects = new Map<string, Stored>();
   listCalls = 0;
+  headCalls = 0;
 
   async head(key: string): Promise<R2Object | null> {
+    this.headCalls += 1;
     const stored = this.objects.get(key);
     if (!stored) return null;
     return new FakeR2Object(key, stored.bytes, stored.uploaded, stored.httpMetadata);

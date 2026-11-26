@@ -22,7 +22,7 @@ sha2 = "0.10"
 getrandom = { version = "0.2", features = ["js"] }
 # Pins keep workers-rs 0.7 on rustc 1.83 (icu 2 / tokio 1.54 want a newer compiler).
 addr2line = "=0.24.2"
-backtrace = "=0.3.74"
+backtrace = "=0.3.77"
 idna = "=1.0.3"
 idna_adapter = "=1.1.0"
 js-sys = "=0.3.82"

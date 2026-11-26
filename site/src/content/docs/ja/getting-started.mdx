@@ -1,0 +1,68 @@
+---
+title: はじめに
+description: Docker で自分のマシン上に Casthop を起動し、ローカルの RTMP 代替先へライブ配信する。
+group: スタート
+order: 1
+---
+
+対応しているローカル構成は、Linux 上で Docker の host networking を使うやり方です。Docker がホストのネットワークを使うので、ブラウザ、LiveKit の ICE、Egress、RTMP がどれも `127.0.0.1` を見ます。
+
+## 始める前に
+
+- [Bun](https://bun.com) 1.4 以上（リポジトリは `packageManager` を Bun に固定しています）。npm は使わないでください。
+- Compose 付きの Docker。
+- Linux ホスト。Host networking は Linux 専用です。下の [Docker Desktop](#docker-desktop-macos-と-windows) を見てください。
+
+Rust の toolchain は不要です。事前ビルドの `src/wasm/casthop_media.wasm` が git に入っているので、開発サーバーはそのままで動きます。Rust の crate を変えたときだけ再ビルドしてください（rustc 1.100 以上と `wasm32-unknown-unknown` ターゲットが必要です）。
+
+## 起動する
+
+[Casthop リポジトリ](https://github.com/casthop/casthop) のルートで:
+
+```bash
+cp .env.example .env
+cp .dev.vars.example .dev.vars   # Worker secrets, gitignored
+mkdir -p data/recordings data/rtmp && chmod 777 data/recordings
+docker compose up -d
+bun install
+bun run dev
+```
+
+いま読んでいるサイトは `site/` の別パッケージです（`cd site && bun install && bun run dev`）。
+
+`docker compose up -d` は Redis、LiveKit、LiveKit Egress、MediaMTX を起動します。LiveKit、Redis、MediaMTX は `127.0.0.1` にバインドするので、公開されている `devkey` は LAN からは届きません。
+
+## 最初の配信
+
+1. [http://127.0.0.1:5173](http://127.0.0.1:5173) を開きます。
+2. メールアドレスを入れてマジックリンクを受け取ります。ローカルでは Worker がコンソールにリンクを出すので、`bun run dev` を動かしているターミナルからコピーしてください。
+3. スタジオを開きます。
+4. ゲストリンクをコピーして、参加してほしい人に送ります。[ゲスト](/docs/guests) を見てください。
+5. 人をステージに上げます。同時に最大 6 人です。
+6. **ライブ配信** を押し、ダイアログで配信先を選んで確定します。Live の表示は、Egress の出力が流れ始めるまで「開始中」のままです。レールの各配信先は、それぞれの RTMP 状態を出します。
+
+既定の配信先は、YouTube、LinkedIn、X 向けのローカル MediaMTX 代替です。視聴や本番インジェストへの切り替えは [配信先](/docs/destinations) を見てください。
+
+## 任意: GitHub でサインイン
+
+`.dev.vars` に `GITHUB_CLIENT_ID` と `GITHUB_CLIENT_SECRET` を設定します。空のままだと GitHub ボタンは出ません。メールのマジックリンクはどちらでも動きます。
+
+## 任意: YouTube ライブチャット
+
+スタジオがライブ中、Casthop は YouTube のコメントをスタジオのチャットパネルへ取り込めます。`.dev.vars` に `YOUTUBE_API_KEY` と、`YOUTUBE_LIVE_CHAT_ID` か `YOUTUBE_VIDEO_ID` を置くか、YouTube OAuth のリフレッシュトークンを使います。未設定なら配信先コメントは隠れ、スタジオはエラーになりません。[設定](/docs/configuration) と [配信先](/docs/destinations) を見てください。
+
+## カメラなし
+
+カメラが無いときは、生成した canvas と無音のオーディオトラックに落ちるので、`/dev/video0` の無い VM でも参加できます。Chrome は `--use-fake-device-for-media-stream` でも起動できます。
+
+## Docker Desktop (macOS と Windows)
+
+Host networking は Linux 専用です。Docker Desktop では `network_mode: host` を外し、`127.0.0.1:7880-7882`、`127.0.0.1:1935`、`127.0.0.1:8888`、`127.0.0.1:6379`、`127.0.0.1:9090` を公開し、LiveKit の `rtc.node_ip` を `host.docker.internal` に、Egress の `ws_url` と Redis をそのホストに向ける必要があります。同じマシン上のブラウザからの ICE は扱いが面倒です。いまサポートしているのは Linux です。
+
+## 動いているか確認する
+
+- ヘルス: [http://127.0.0.1:5173/api/health](http://127.0.0.1:5173/api/health)
+- レイテンシプローブ（開発時のみ）: [http://127.0.0.1:5173/internal/probe](http://127.0.0.1:5173/internal/probe)
+- パブリッシャー 2、4、6 人での負荷計測: `bun run measure`
+
+テスト、perf ゲート、PR の出し方は、リポジトリの [CONTRIBUTING.md](https://github.com/casthop/casthop/blob/main/CONTRIBUTING.md) です。

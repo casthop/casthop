@@ -1,0 +1,67 @@
+---
+title: Architecture
+description: Comment le navigateur, LiveKit, Egress et le Cloudflare Worker s’assemblent.
+group: Concepts
+order: 6
+---
+
+```
+Browser (host + guests)  TypeScript UI
+    │  WebRTC simulcast
+    │  Rust/WASM in AudioWorklet: RNNoise + VAD/meters
+    │  WASM layout; Canvas2D Worker + OffscreenCanvas (default)
+    │  optional: ?compose=wasm / webgpu / webgpu-ts
+    ▼
+LiveKit SFU (Go)  ─────────────────────────────────────────┐
+    │                                                      │
+    │  full-quality subscribe                              │
+    ▼                                                      ▼
+LiveKit Egress (custom /egress-template)             Durable Object
+    │  one transcode, N RTMP URLs                    (stage, layout,
+    ├──────────────┬──────────────┐                   chat, destinations)
+    ▼              ▼              ▼
+ MediaMTX       MediaMTX       MediaMTX              Cloudflare Worker
+ youtube        linkedin       x                     + D1 (studio index)
+    │              │              │                  + R2 seam (replays)
+    ▼              ▼              ▼                  Rust casthop-post
+ local RTMP    local RTMP     local RTMP             (inspect / remux)
+ + Egress MP4 at ./data/recordings
+```
+
+## Navigateur
+
+L’UI est en TypeScript. Les hot paths média sont du Rust compilé en WebAssembly dans `crates/casthop-media`, sans imports JS, donc c’est sûr dans un AudioWorklet.
+
+- **Audio :** la suppression de bruit RNNoise et VAD/meters tournent dans un AudioWorklet avant que le micro soit publié vers LiveKit. `?fx=js` ou `?fx=off` permet de comparer.
+- **Layout et composition :** WASM calcule le layout. Le compositeur live est Canvas2D sur un Worker dédié avec OffscreenCanvas quand WebCodecs est là (`?thread=main` force l’ancien chemin sur le thread principal). `?compose=wasm` est le blit CPU, `?compose=webgpu` le chemin GPU Rust, `?compose=webgpu-ts` le chemin GPU TypeScript. Canvas2D reste le défaut ; le GPU n’a pas gagné au bench.
+- **Flou caméra :** utilise le Selfie Segmenter de MediaPipe. `@mediapipe/tasks-vision` et son modèle ne se chargent que lorsque le flou est activé, depuis cette origine, sans CDN.
+
+Le job CI `perf` compare compositeur main vs worker dans Chrome (`PERF=1 bun run test:perf`). Chiffres : [`MEASUREMENTS.md`](https://github.com/casthop/casthop/blob/main/MEASUREMENTS.md).
+
+## LiveKit reste le SFU
+
+LiveKit (Go) est déjà le chemin rapide, donc Casthop ne le remplace pas. Les navigateurs publient en WebRTC simulcast, et Egress s’abonne en qualité maximale.
+
+## Pourquoi le fan-out Egress
+
+Cloudflare Stream Live demande un compte Cloudflare avec Stream activé, et le stockage Stream est prépayé. Ce prototype ne s’inscrit pas à des services payants. Egress transcode déjà une fois et peut émettre plusieurs URL RTMP depuis cet encode, c’est le chemin self-host. Un Casthop hébergé pourrait encore pousser un seul RTMP vers Stream plus tard si le calcul de livraison gagne. Voir [`MEASUREMENTS.md`](https://github.com/casthop/casthop/blob/main/MEASUREMENTS.md) dans le dépôt.
+
+## Plan de contrôle
+
+L’app est un Hono Worker avec un Durable Object par studio (scène, layout, chat, destinations) et D1 pour l’index des studios. R2 est bound comme jointure pour les replays, et les enregistrements restent sur le volume Egress pour l’instant. Les endpoints chauds du Worker restent en TypeScript ; un port workers-rs a été mesuré (`bun run bench:worker`) et n’a pas gagné en CPU, cold start ni taille de bundle.
+
+## Chat de destination
+
+En direct, le Durable Object du studio interroge `liveChatMessages.list` YouTube si les Worker secrets sont définis (`worker/chat-ingest.ts`). Les commentaires rejoignent la liste de chat de la salle. Les hôtes peuvent en épingler un sur l’overlay Canvas2D. Le curseur de poll (`liveChatId`, page token) est omis de l’état public du studio. X et LinkedIn ne sont pas ingérés.
+
+## Badge Live
+
+La pastille du studio est `live` seulement quand Egress produit une sortie : octets ou durée du flux, ou un court settle après le `started_at` RTMP (LiveKit peut signaler un start avant que MediaMTX ait le flux). Jusque-là la pastille reste sur Démarrage. Si le Chrome du compositeur meurt, le heartbeat retire Live et le studio réessaie avec backoff.
+
+## casthop-post
+
+`crates/casthop-post` inspecte et remuxe les enregistrements. Voir [Destinations](/docs/destinations).
+
+## Mesures
+
+Les chiffres du prototype sont dans `MEASUREMENTS.md` du dépôt. Allez les lire là plutôt qu’ici, ils changent avec le code.

@@ -1,0 +1,84 @@
+---
+title: Configuration
+description: Variables d’environnement pour docker compose et le Worker, avec leurs valeurs locales.
+group: Exploiter
+order: 4
+---
+
+Copiez `.env.example` vers `.env` pour docker compose, et `.dev.vars.example` vers `.dev.vars` pour le Worker. En production, définissez les valeurs du Worker comme Worker secrets ou vars. Les deux fichiers d’exemple listent chaque variable lue par l’app, avec un commentaire d’une ligne.
+
+<p class="note">La valeur <code>casthop_dev_secret_…</code> des fichiers d’exemple est un défaut local documenté. Elle est publique, donc pas pour la production. Générez vos propres clés avec <code>lk generate-keys</code>.</p>
+
+## LiveKit
+
+| Nom | Rôle | Valeur locale |
+|---|---|---|
+| `LIVEKIT_API_KEY` | Clé d’API LiveKit. | `devkey` |
+| `LIVEKIT_API_SECRET` | Secret d’API LiveKit. Gardez-le dans les Worker secrets et ne l’envoyez jamais au navigateur. | le défaut local documenté, pas pour la production |
+| `LIVEKIT_HTTP_URL` | Où le Worker joint LiveKit. | `http://127.0.0.1:7880` |
+| `PUBLIC_LIVEKIT_URL` | L’URL LiveKit à laquelle les navigateurs se connectent. | `ws://127.0.0.1:7880` |
+
+Le Worker répond 503 si `devkey` est utilisé avec une URL LiveKit qui n’est pas en loopback. `CASTHOP_ALLOW_DEV_KEYS=1` contourne ça et n’existe que pour les tests.
+
+## Egress
+
+| Nom | Rôle | Valeur locale |
+|---|---|---|
+| `EGRESS_OUTPUT_DIR` | Chemin dans le conteneur egress. Compose monte `./data/recordings` ici. Ce n’est pas une var du Worker. | `/out` |
+| `EGRESS_TEMPLATE_URL` | La page du compositeur qu’Egress ouvre. | `http://127.0.0.1:5173/egress-template` |
+
+## Destinations
+
+| Nom | Rôle | Valeur locale |
+|---|---|---|
+| `RTMP_YOUTUBE` | Destination YouTube par défaut. | `rtmp://127.0.0.1:1935/live/youtube` |
+| `RTMP_LINKEDIN` | Destination LinkedIn par défaut. | `rtmp://127.0.0.1:1935/live/linkedin` |
+| `RTMP_X` | Destination X par défaut. | `rtmp://127.0.0.1:1935/live/x` |
+
+Ce sont des substituts locaux MediaMTX. Remplacez-les par de vraies URL d’ingest quand vous les avez, et ne commitez pas de vraies clés de stream.
+
+## Worker
+
+| Nom | Rôle | Valeur locale |
+|---|---|---|
+| `HOST_KEY_SECRET` | HMAC séparé pour les host keys du Worker vers le Durable Object. Retombe sur `LIVEKIT_API_SECRET` s’il n’est pas défini. Définissez-le en production. | unset |
+| `PUBLIC_ORIGIN` | URL publique du site pour le mail du magic link, les invitations de co-hôte et GitHub OAuth. | unset (le Host loopback est utilisé) |
+| `CASTHOP_TRUST_FORWARDED` | Mettez `1` pour faire confiance à `CF-Connecting-IP` et `X-Forwarded-For` derrière un reverse proxy. | unset |
+| `CASTHOP_ALLOW_DEV_KEYS` | Autorise le couple de clés de dev publié avec un LiveKit hors loopback. Tests seulement. | unset |
+
+## Surcharger les délais
+
+Optionnel. Sans valeur, ce sont les défauts du code dans `worker/egress.ts`. Les tests en mettent certains à `0` ou à quelques millisecondes.
+
+| Nom | Rôle | Défaut |
+|---|---|---|
+| `CASTHOP_EMPTY_GRACE_MS` | Couper le direct après que le studio est resté vide aussi longtemps. | `45000` |
+| `CASTHOP_COMPOSITOR_GRACE_MS` | Attendre que le Chrome du compositeur rejoigne après StartRoomComposite. | `15000` |
+| `CASTHOP_RECOVERY_MS` | Abandonner le redémarrage d’un compositeur mort ; l’hôte peut Réessayer. | `30000` |
+| `CASTHOP_HEARTBEAT_MS` | Le beat du compositeur est périmé après ça (la page poste toutes les 1 s). | `3000` |
+| `CASTHOP_BACKOFF_MS` | Surcharger le backoff de retry RTMP. Unset = 1 s, 2 s, 4 s, 8 s, 16 s, 30 s. `0` pour les tests. | unset |
+
+## Connexion
+
+| Nom | Rôle | Valeur locale |
+|---|---|---|
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | GitHub OAuth optionnel. Sans valeur, le bouton GitHub est masqué. | unset |
+| `MAIL_WEBHOOK_URL` | Optionnel. Casthop POST du JSON `{ to, subject, text }`. Sans valeur, le magic link va dans la console du Worker. | unset |
+| `MAIL_WEBHOOK_TOKEN` | Jeton optionnel pour le webhook mail. | unset |
+
+## Chat en direct YouTube
+
+Les commentaires de l’émission YouTube apparaissent dans le panneau de chat du studio pendant que le show est en direct. L’hôte peut en épingler un sur l’overlay du compositeur. Sans identifiants, ça se masque ; le studio ne plante pas.
+
+| Nom | Rôle | Valeur locale |
+|---|---|---|
+| `YOUTUBE_API_KEY` | Clé YouTube Data API pour `liveChatMessages.list` public. | unset |
+| `YOUTUBE_LIVE_CHAT_ID` | Sauter la recherche et interroger ce live chat. | unset |
+| `YOUTUBE_VIDEO_ID` | Résoudre `activeLiveChatId` à partir d’une vidéo. | unset |
+| `YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN` | Trouver l’émission active du propriétaire (`liveBroadcasts.list?mine=true`). | unset |
+
+Il faut soit une API key plus un live chat ou un video id, soit le trio de refresh OAuth. Le polling utilise le `pollingIntervalMillis` de l’API. L’API de X demande un palier payant, et les commentaires LinkedIn une API partenaire ; ces destinations ne sont pas ingérées.
+
+## Clés de stream
+
+Les clés de stream ne sont pas des variables d’environnement. Elles vivent dans le stockage du Durable Object, jamais dans le dépôt. L’API publique ne renvoie qu’un suffixe masqué du type `rtmp://…/xxxx`, plus un flag `hasKey`.

@@ -1,0 +1,57 @@
+---
+title: Destinos
+description: Destinos RTMP, sustitutos locales, estado, grabaciones y quién ve las URLs completas.
+group: Operar
+order: 5
+---
+
+Un destino es una URL RTMP. Casthop envía el mismo compuesto a todos los destinos a la vez, con una transcodificación en Egress.
+
+## Sustitutos locales
+
+De serie, los destinos son sustitutos de MediaMTX para YouTube, LinkedIn y X:
+
+| Destino | Ingest | Ver |
+|---|---|---|
+| Sustituto de YouTube | `rtmp://127.0.0.1:1935/live/youtube` | `ffprobe rtmp://127.0.0.1:1935/live/youtube` |
+| Sustituto de LinkedIn | `rtmp://127.0.0.1:1935/live/linkedin` | lo mismo, `/live/linkedin` |
+| Sustituto de X | `rtmp://127.0.0.1:1935/live/x` | lo mismo, `/live/x` |
+
+## Destinos reales
+
+En producción, sustitúyelos por URLs de ingest reales de YouTube, LinkedIn y X. Casthop valida destinos: de los clientes solo se aceptan URLs `rtmp:`, y se rechazan destinos de red privada (RFC 1918).
+
+## Estado, Live y recuperación
+
+Cada fila de destino muestra su propio estado RTMP (`connecting`, `live`, `retrying`, `failed`). La pastilla Live del estudio se queda en Iniciando hasta que Egress esté produciendo: bytes o duración del stream, o un settle corto tras el `started_at` de RTMP. No pasa a Live solo porque exista el proceso del compositor.
+
+Si cae Egress o un flujo, el estudio reintenta con backoff. Eso depende de webhooks firmados de LiveKit; mira [Self-hosting](/docs/self-hosting).
+
+## Grabaciones
+
+| Dónde | Qué |
+|---|---|
+| `data/recordings/` | MP4 de Egress del compuesto. |
+| `data/rtmp/` | fMP4 de MediaMTX en el borde RTMP local. |
+
+Inspecciona una grabación con el helper de Rust:
+
+```bash
+cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
+```
+
+Para comprobar que una grabación no está en silencio, ejecuta `bash scripts/check-silent-audio.sh data/recordings/<file>.mp4`.
+
+## Chat
+
+Quien está en el estudio puede enviar comentarios en la sala. Con el programa en vivo, Casthop también puede sondear el chat en vivo de YouTube (`liveChatMessages.list`) y mezclar esos comentarios en el mismo panel. Anfitriones y coanfitriones pueden fijar un comentario en el overlay del compositor (pila de lower-third en Canvas2D). El sondeo usa el `pollingIntervalMillis` de la API. Sin credenciales, el ingest de YouTube se oculta; el estudio no falla.
+
+Hacen falta Worker secrets: `YOUTUBE_API_KEY` más `YOUTUBE_LIVE_CHAT_ID` o `YOUTUBE_VIDEO_ID`, o el trío de refresh OAuth (`YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN`), que busca la emisión activa del dueño. Mira [Configuración](/docs/configuration).
+
+La API de X exige un plan de pago. Los comentarios en vivo de LinkedIn necesitan una API de partner. Ninguno está cableado. No hay VOD / replay del chat de destino; el sondeo solo corre mientras el estudio está en vivo. El cursor de page-token de YouTube se queda en el almacenamiento del Durable Object y nunca llega a invitados ni al GET / estado WebSocket públicos.
+
+## Quién ve qué
+
+- **Dueños y coanfitriones** reciben las URLs de destino completas cuando están conectados (cookie de sesión).
+- **Invitados y peticiones públicas** solo reciben un sufijo enmascarado, y una flag `hasKey`. Aplica a `GET /api/studios/:id` y al frame `state` del WebSocket.
+- Las claves de stream se guardan en el almacenamiento del Durable Object, no en el repo.

@@ -1,0 +1,67 @@
+---
+title: アーキテクチャ
+description: ブラウザ、LiveKit、Egress、Cloudflare Worker のつながり。
+group: 考え方
+order: 6
+---
+
+```
+Browser (host + guests)  TypeScript UI
+    │  WebRTC simulcast
+    │  Rust/WASM in AudioWorklet: RNNoise + VAD/meters
+    │  WASM layout; Canvas2D Worker + OffscreenCanvas (default)
+    │  optional: ?compose=wasm / webgpu / webgpu-ts
+    ▼
+LiveKit SFU (Go)  ─────────────────────────────────────────┐
+    │                                                      │
+    │  full-quality subscribe                              │
+    ▼                                                      ▼
+LiveKit Egress (custom /egress-template)             Durable Object
+    │  one transcode, N RTMP URLs                    (stage, layout,
+    ├──────────────┬──────────────┐                   chat, destinations)
+    ▼              ▼              ▼
+ MediaMTX       MediaMTX       MediaMTX              Cloudflare Worker
+ youtube        linkedin       x                     + D1 (studio index)
+    │              │              │                  + R2 seam (replays)
+    ▼              ▼              ▼                  Rust casthop-post
+ local RTMP    local RTMP     local RTMP             (inspect / remux)
+ + Egress MP4 at ./data/recordings
+```
+
+## ブラウザ
+
+UI は TypeScript です。メディアのホットパスは `crates/casthop-media` の Rust を WebAssembly にしたもので、JS の import が無いので AudioWorklet でも安全です。
+
+- **音声:** RNNoise のノイズ抑制と VAD/メーターは、マイクを LiveKit に出す前に AudioWorklet で動きます。`?fx=js` か `?fx=off` で比較できます。
+- **レイアウトと合成:** WASM がレイアウトを計算します。ライブのコンポジターは、WebCodecs があるとき専用 Worker 上の Canvas2D と OffscreenCanvas です（`?thread=main` で古いメインスレッド経路に戻せます）。`?compose=wasm` は CPU blit、`?compose=webgpu` は Rust の GPU 経路、`?compose=webgpu-ts` は TypeScript の GPU 経路です。既定は Canvas2D のままです。ベンチでは GPU は勝ちませんでした。
+- **カメラのぼかし:** MediaPipe の Selfie Segmenter を使います。`@mediapipe/tasks-vision` とモデルは、ぼかしがオンのときだけ、このオリジンから読み込みます。CDN は使いません。
+
+CI の `perf` ジョブは、Chrome でコンポジターの main と worker を比べます（`PERF=1 bun run test:perf`）。数字は [`MEASUREMENTS.md`](https://github.com/casthop/casthop/blob/main/MEASUREMENTS.md) です。
+
+## LiveKit が SFU のまま
+
+LiveKit（Go）がすでに速い経路なので、Casthop は置き換えません。ブラウザは WebRTC のサイマルキャストで送り、Egress はフル品質で購読します。
+
+## なぜ Egress のファンアウトか
+
+Cloudflare Stream Live は Stream を有効にした Cloudflare アカウントが要り、Stream のストレージは前払いです。このプロトタイプは有料サービスに申し込みません。Egress はすでに 1 回トランスコードし、そのエンコードから複数の RTMP URL を出せます。それがセルフホストの経路です。ホストする Casthop でも、配信の計算が勝てば、あとから 1 本の RTMP を Stream に入れる余地はあります。リポジトリの [`MEASUREMENTS.md`](https://github.com/casthop/casthop/blob/main/MEASUREMENTS.md) を見てください。
+
+## コントロールプレーン
+
+アプリは Hono の Worker で、スタジオごとに Durable Object が 1 つ（ステージ、レイアウト、チャット、配信先）、スタジオ一覧は D1 です。R2 はリプレイのつなぎとして bound され、録画はいまのところ Egress のボリュームに残ります。熱い Worker エンドポイントは TypeScript のままです。workers-rs 移植は測りました（`bun run bench:worker`）が、CPU、コールドスタート、バンドルサイズでは勝てませんでした。
+
+## 配信先チャット
+
+ライブ中、Worker secrets があればスタジオの Durable Object が YouTube の `liveChatMessages.list` をポーリングします（`worker/chat-ingest.ts`）。コメントは部屋のチャット一覧に入ります。ホストは 1 件を Canvas2D オーバーレイにピンできます。ポーリングのカーソル（`liveChatId`、ページトークン）は公開スタジオ状態から省きます。X と LinkedIn は取り込みません。
+
+## Live バッジ
+
+スタジオの表示が `live` になるのは、Egress が出力を出しているときだけです。ストリームのバイト数か尺、あるいは RTMP の `started_at` のあとの短い settle です（LiveKit は MediaMTX がストリームを持つ前に start を報告することがあります）。それまでは「開始中」です。コンポジターの Chrome が死ぬと、ハートビートが Live を外し、スタジオはバックオフ付きで再試行します。
+
+## casthop-post
+
+`crates/casthop-post` は録画の検査とリマックスをします。[配信先](/docs/destinations) を見てください。
+
+## 計測
+
+プロトタイプの数字は、リポジトリの `MEASUREMENTS.md` にあります。コードと一緒に変わるので、ここではなくそちらを見てください。

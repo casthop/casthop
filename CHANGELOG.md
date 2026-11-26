@@ -21,6 +21,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 - Chrome compositor perf gate in CI (`PERF=1 bun run test:perf`).
 - Studio UI e2e flows and a Go Live → MediaMTX silent-audio release gate.
 - Astro marketing site and docs in `site/`.
+- Marketing site docs in pt-BR, es, fr, de, and ja.
 - `casthop-post` CLI to inspect / remux recordings.
 
 ### Fixed

@@ -8,7 +8,7 @@ const { locale, path, label } = Astro.props;
   <button
     type="button"
     class="lang-switch-btn"
-    aria-haspopup="listbox"
+    aria-haspopup="true"
     aria-expanded="false"
     aria-controls="lang-menu"
     aria-label={label}
@@ -18,10 +18,10 @@ const { locale, path, label } = Astro.props;
     <span class="lang-switch-name">🌐 {localeNativeName(locale)}</span>
     <span class="lang-switch-code">🌐 {localeShortCode(locale)}</span>
   </button>
-  <ul id="lang-menu" hidden role="listbox" aria-label={label} data-disclosure-panel>
+  <ul id="lang-menu" hidden aria-label={label} data-disclosure-panel>
     {LOCALES.map((id) => (
-      <li role="option" aria-selected={id === locale}>
-        <a href={withLocale(id, path)} hreflang={id} data-set-locale={id}>{localeNativeName(id)}</a>
+      <li>
+        <a href={withLocale(id, path)} hreflang={id} data-set-locale={id} aria-current={id === locale ? "true" : undefined}>{localeNativeName(id)}</a>
       </li>
     ))}
   </ul>

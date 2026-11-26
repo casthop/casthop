@@ -35,9 +35,25 @@ if (!(await ready())) {
   process.exit(1);
 }
 
+function localeFromPath(path: string): string {
+  const first = path.split("/").filter(Boolean)[0];
+  if (first === "pt-BR" || first === "es" || first === "fr" || first === "de" || first === "ja") return first;
+  return "en";
+}
+
 async function open(page: Page, path: string, width: number): Promise<void> {
   await page.setViewportSize({ width, height: 844 });
+  const locale = localeFromPath(path);
   await page.goto(`${site}${path}`, { waitUntil: "networkidle" });
+  const saved = await page.evaluate(() => {
+    try { return localStorage.getItem("casthop.locale"); } catch { return null; }
+  });
+  if (saved !== locale) {
+    await page.evaluate((id) => {
+      try { localStorage.setItem("casthop.locale", id); } catch { /* ignore */ }
+    }, locale);
+    await page.goto(`${site}${path}`, { waitUntil: "networkidle" });
+  }
   await page.evaluate(() => document.fonts.ready);
 }
 
@@ -114,7 +130,9 @@ try {
   const lang = page.locator("header [data-locale-switcher]");
   await lang.click();
   assert.equal(await lang.getAttribute("aria-expanded"), "true");
-  assert.ok(await page.getByRole("option", { name: "Português" }).isVisible());
+  const current = page.locator("#lang-menu a[aria-current='true']");
+  assert.ok(await current.isVisible());
+  assert.equal((await current.textContent())?.trim(), "Português");
   await page.keyboard.press("Escape");
   assert.equal(await lang.getAttribute("aria-expanded"), "false");
 

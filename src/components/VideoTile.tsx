@@ -1,18 +1,24 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Participant, TrackPublication } from "livekit-client";
-import { Track } from "livekit-client";
+import { ParticipantEvent, Track } from "livekit-client";
 
-function attachVideo(el: HTMLVideoElement | null, pub?: TrackPublication) {
-  if (!el) return;
-  const track = pub?.track;
-  if (track) {
-    track.attach(el);
-    return () => {
-      track.detach(el);
-    };
-  }
-  el.srcObject = null;
-  return;
+// Publications exist before the MediaStreamTrack is subscribed; listen so we attach then.
+const VIDEO_EVENTS = [
+  ParticipantEvent.TrackSubscribed,
+  ParticipantEvent.TrackUnsubscribed,
+  ParticipantEvent.TrackPublished,
+  ParticipantEvent.TrackUnpublished,
+  ParticipantEvent.LocalTrackPublished,
+  ParticipantEvent.LocalTrackUnpublished,
+  ParticipantEvent.TrackMuted,
+  ParticipantEvent.TrackUnmuted,
+] as const;
+
+function videoPublication(participant?: Participant): TrackPublication | undefined {
+  if (!participant) return undefined;
+  const cam = participant.getTrackPublication(Track.Source.Camera);
+  const screen = participant.getTrackPublication(Track.Source.ScreenShare);
+  return screen?.track ? screen : cam;
 }
 
 export function VideoTile({
@@ -31,25 +37,54 @@ export function VideoTile({
   booth?: boolean;
 }) {
   const ref = useRef<HTMLVideoElement>(null);
-  const cam = participant?.getTrackPublication(Track.Source.Camera);
-  const screen = participant?.getTrackPublication(Track.Source.ScreenShare);
-  const pub = screen?.track ? screen : cam;
+  const [tile, setTile] = useState({ hasVideo: false, micOff: false });
 
-  useEffect(() => attachVideo(ref.current, pub), [pub, pub?.trackSid]);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let attached: TrackPublication["track"];
 
-  const hasVideo = Boolean(pub?.track && !pub.isMuted);
-  const micOff = Boolean(participant && !participant.isMicrophoneEnabled);
+    const sync = () => {
+      const pub = videoPublication(participant);
+      const track = pub?.track;
+      if (attached !== track) {
+        attached?.detach(el);
+        attached = track;
+        if (track) track.attach(el);
+        else el.srcObject = null;
+      }
+      setTile({
+        hasVideo: Boolean(track && !pub?.isMuted),
+        micOff: Boolean(participant && !participant.isMicrophoneEnabled),
+      });
+    };
+
+    sync();
+    if (!participant) {
+      return () => {
+        attached?.detach(el);
+        el.srcObject = null;
+      };
+    }
+
+    for (const ev of VIDEO_EVENTS) participant.on(ev, sync);
+    return () => {
+      for (const ev of VIDEO_EVENTS) participant.off(ev, sync);
+      attached?.detach(el);
+      el.srcObject = null;
+    };
+  }, [participant]);
 
   return (
     <div className={["tile", tone, booth ? "booth" : ""].filter(Boolean).join(" ")}>
-      <video ref={ref} autoPlay playsInline muted={local || muted} />
-      {!hasVideo && booth ? (
+      <video ref={ref} autoPlay playsInline muted={local || muted} aria-label={label} />
+      {!tile.hasVideo && booth ? (
         <div className="person" aria-hidden="true">
           <div className="head" />
           <div className="body" />
         </div>
       ) : null}
-      {!hasVideo && !booth ? (
+      {!tile.hasVideo && !booth ? (
         <div className="silhouette" aria-hidden="true">
           <svg viewBox="0 0 80 80">
             <circle cx="40" cy="30" r="16" />
@@ -58,7 +93,7 @@ export function VideoTile({
         </div>
       ) : null}
       <span className={booth ? "name" : "tag"}>{label}</span>
-      {booth && micOff ? (
+      {booth && tile.micOff ? (
         <span className="muted" title="Microphone off">
           <svg className="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <path d="M12 19v3" />

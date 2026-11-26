@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { AppEnv, Env, PublicStudio } from "./types";
 import { MAX_ON_STAGE } from "./types";
 import { StudioDurableObject } from "./studio";
@@ -26,8 +26,11 @@ import {
   livekitHealth,
   GUEST_TOKEN_TTL_SEC,
   HOST_TOKEN_TTL_SEC,
+  isParticipantMissingError,
   mintParticipantToken,
+  publishPermissionError,
   removeParticipant,
+  retryUpdateParticipantPublish,
   updateParticipantPublish,
   verifyLivekitWebhook,
   verifyParticipantToken,
@@ -351,6 +354,14 @@ app.post("/api/studios/:id/token", async (c) => {
   });
 });
 
+function waitUntil(c: Context<AppEnv>, task: () => Promise<unknown>): void {
+  try {
+    c.executionCtx.waitUntil(task());
+  } catch {
+    /* app.request tests have no ExecutionContext */
+  }
+}
+
 app.post("/api/studios/:id/stage", async (c) => {
   const id = c.req.param("id");
   const sess = await loadSession(c);
@@ -363,7 +374,17 @@ app.post("/api/studios/:id/stage", async (c) => {
     try {
       await updateParticipantPublish(c.env, id, body.identity, Boolean(body.on));
     } catch (err) {
-      console.warn("updateParticipantPublish", err);
+      if (!isParticipantMissingError(err)) {
+        // Stage is already stored; tell the host so a real LiveKit failure is not silent.
+        return c.json({ error: publishPermissionError(err) }, 502);
+      }
+      const identity = body.identity;
+      const on = Boolean(body.on);
+      waitUntil(c, () =>
+        retryUpdateParticipantPublish(c.env, id, identity, on).catch((retryErr) => {
+          console.warn("updateParticipantPublish", retryErr);
+        }),
+      );
     }
   }
   return new Response(res.body, { status: res.status, headers: res.headers });

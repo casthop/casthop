@@ -5,7 +5,7 @@
 
 Casthop is an open-source live studio that runs in the browser. A host signs in, guests join from a link with no account, up to six people sit on stage, and one composite goes out to several RTMP destinations with a recording kept.
 
-![The Casthop host studio: a dark booth with the stage, a list of RTMP destinations, and a Go Live button.](docs/screenshots/studio.png)
+![The Casthop host studio: a dark booth with a two-person stage, backstage guest, and a white Go live button.](docs/screenshots/studio.png)
 
 ## What it does today
 

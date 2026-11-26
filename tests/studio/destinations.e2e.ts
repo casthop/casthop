@@ -5,6 +5,7 @@ import { test } from "./fixtures.ts";
 describe("destinations", { session: "host" }, () => {
   test("toggles YouTube off and on", async ({ app, screen, studio }) => {
     await app.open(`/studio/${studio.id}`);
+    await screen.getByRole("button", "Go live").click();
     await expect(screen.getByRole("button", "Disable YouTube")).toBeVisible();
 
     await screen.getByRole("button", "Disable YouTube").click();
@@ -16,13 +17,10 @@ describe("destinations", { session: "host" }, () => {
 
   test("adds a loopback Custom RTMP URL and enables it", async ({ app, screen, studio }) => {
     await app.open(`/studio/${studio.id}`);
-    await expect(screen.getByRole("button", "Settings")).toBeVisible();
-
-    await screen.getByRole("button", "Settings").click();
-    await expect(screen.getByRole("heading", "Settings")).toBeVisible();
+    await screen.getByRole("button", "Destinations").click();
+    await expect(screen.getByRole("heading", "Destinations")).toBeVisible();
     await screen.getByLabel("Custom RTMP RTMP URL").fill("rtmp://127.0.0.1:1935/live/custom");
     await screen.getByRole("button", "Save").click();
-    await expect(screen.getByRole("heading", "Settings")).not.toBeVisible();
 
     await screen.getByRole("button", "Enable Custom RTMP").click();
     await expect(screen.getByRole("button", "Disable Custom RTMP")).toBeVisible();

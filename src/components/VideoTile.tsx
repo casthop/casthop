@@ -20,11 +20,15 @@ export function VideoTile({
   label,
   local,
   muted,
+  tone,
+  booth,
 }: {
   participant?: Participant;
   label: string;
   local?: boolean;
   muted?: boolean;
+  tone?: "cam1" | "cam2" | "cam3";
+  booth?: boolean;
 }) {
   const ref = useRef<HTMLVideoElement>(null);
   const cam = participant?.getTrackPublication(Track.Source.Camera);
@@ -34,19 +38,37 @@ export function VideoTile({
   useEffect(() => attachVideo(ref.current, pub), [pub, pub?.trackSid]);
 
   const hasVideo = Boolean(pub?.track && !pub.isMuted);
+  const micOff = Boolean(participant && !participant.isMicrophoneEnabled);
 
   return (
-    <div className="tile">
+    <div className={["tile", tone, booth ? "booth" : ""].filter(Boolean).join(" ")}>
       <video ref={ref} autoPlay playsInline muted={local || muted} />
-      {!hasVideo && (
+      {!hasVideo && booth ? (
+        <div className="person" aria-hidden="true">
+          <div className="head" />
+          <div className="body" />
+        </div>
+      ) : null}
+      {!hasVideo && !booth ? (
         <div className="silhouette" aria-hidden="true">
           <svg viewBox="0 0 80 80">
             <circle cx="40" cy="30" r="16" />
             <ellipse cx="40" cy="72" rx="28" ry="22" />
           </svg>
         </div>
-      )}
-      <span className="tag">{label}</span>
+      ) : null}
+      <span className={booth ? "name" : "tag"}>{label}</span>
+      {booth && micOff ? (
+        <span className="muted" title="Microphone off">
+          <svg className="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <path d="M12 19v3" />
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+            <rect x="9" y="2" width="6" height="13" rx="3" />
+            <path d="m2 2 20 20" />
+          </svg>
+          <span className="sr-only">Microphone off</span>
+        </span>
+      ) : null}
     </div>
   );
 }

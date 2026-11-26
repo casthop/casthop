@@ -25,6 +25,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 ### Changed
 
+- Host studio UI matches the approved dark booth: Geist, a right icon rail, Go live in the top bar, and destination switches in the Go live dialog.
 - JS toolchain is Bun (not npm). Vite 8, TypeScript 7, React 19.
 - Live pill is `live` only when Egress output is flowing (bytes/duration, or a short settle after RTMP has had time to publish). Starting is shown until then.
 - Hot Worker `/api` stays TypeScript after a workers-rs JWT CPU bench did not win.

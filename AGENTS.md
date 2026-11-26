@@ -7,7 +7,7 @@ This file is the source of truth for coding agents. Nested `AGENTS.md` files add
 ## Layout
 
 - `src/` — React UI, AudioWorklets, WASM loader, OffscreenCanvas compose worker
-- `worker/` — Hono Worker, studio Durable Object, LiveKit tokens, Egress
+- `worker/` — Hono Worker, studio Durable Object, LiveKit tokens, Egress, YouTube chat ingest
 - `crates/casthop-media` — WASM media (C ABI, zero JS imports)
 - `crates/casthop-post` — inspect / remux recordings
 - `crates/casthop-hot` — workers-rs bench Worker (JWT CPU vs TS; not on the live path)
@@ -15,6 +15,7 @@ This file is the source of truth for coding agents. Nested `AGENTS.md` files add
 - `docs/screenshots/` — studio / guest / home captures used by the README and site
 - `tests/auth.test.ts` — owner / co-host / guest / signed-out / expired session matrix for every Worker route
 - `tests/egress.test.ts` — start/stop, crash retry, RTMP dest status, Live-when-producing, empty-studio cleanup
+- `tests/chat-ingest.test.ts` — YouTube live chat polling (mocked) and pin overlay auth
 - `tests/studio/*.e2e.ts` — studio UI flows (e2e / Playwright locators; no model)
 - `MEASUREMENTS.md` — recorded numbers; update on hot-path changes
 - `PRODUCT.md` — product intent
@@ -39,6 +40,7 @@ bun run typecheck           # tsc --noEmit (strict)
 bun run test                # bun test --max-concurrency=1
 bun test tests/auth.test.ts
 bun test tests/egress.test.ts
+bun test tests/chat-ingest.test.ts
 bun run check:wasm          # < 500 KiB, zero imports
 bun audit --audit-level=high
 cargo audit                  # needs rustc 1.88+ (CI audit job uses stable)
@@ -75,7 +77,7 @@ Rust: see `crates/AGENTS.md`. No `unwrap` / `expect` / `panic!` outside tests.
 ## Do not commit
 
 - Secrets, stream keys, full destination URLs with keys, `.env`, `.dev.vars`
-- `LIVEKIT_API_SECRET`, `HOST_KEY_SECRET`, `GITHUB_CLIENT_SECRET`, `MAIL_WEBHOOK_TOKEN` (Worker secrets only)
+- `LIVEKIT_API_SECRET`, `HOST_KEY_SECRET`, `GITHUB_CLIENT_SECRET`, `MAIL_WEBHOOK_TOKEN`, `YOUTUBE_API_KEY`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN` (Worker secrets only)
 - Recordings under `data/`
 - `node_modules`, `dist`, `.wrangler`, crate `target/` directories
 

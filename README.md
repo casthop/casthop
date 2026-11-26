@@ -17,7 +17,7 @@ In this tree:
 - **One encode, several RTMP destinations.** LiveKit Egress transcodes once and fans out. Default local stand-ins for YouTube, LinkedIn, and X; custom `rtmp:` URLs are allowed. Per-destination status, crash retry with backoff.
 - **Live waits for real output.** The studio pill stays on Starting until Egress is producing (stream bytes/duration, or a short settle after RTMP `started_at`). It is not Live just because the compositor process exists.
 - **Recording.** Egress writes an MP4 of the composite (`data/recordings/` locally).
-- **Studio chat.** People in the room can chat. Destination comment ingest (YouTube liveChat, LinkedIn, X) is not in this tree.
+- **Studio chat and YouTube Live chat.** People in the room can chat. While live, the Worker can poll YouTube `liveChatMessages.list` and show those comments in the studio panel. Hosts and co-hosts can pin one onto the compositor overlay. Needs Worker secrets (`YOUTUBE_API_KEY` plus a live chat or video id, or a YouTube OAuth refresh token). Unset, the feature stays hidden and the studio does not error. X and LinkedIn comment APIs are not wired.
 - **Co-hosts.** The owner can invite co-hosts by email.
 
 Media plane: LiveKit (SFU) + Egress + Redis + an RTMP edge. Control plane: Cloudflare Worker, Durable Objects, D1. Browser media hot paths are Rust compiled to WASM in `crates/casthop-media`. Details: [Architecture](site/src/content/docs/architecture.mdx).
@@ -35,7 +35,7 @@ bun install
 bun run dev
 ```
 
-Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Email yourself a magic link (the Worker prints it in the console), open a studio, copy the guest link, put people on stage, Go Live.
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Email yourself a magic link (the Worker prints it in the console), open a studio, copy the guest link, put people on stage, Go Live. Optional GitHub OAuth and YouTube Live chat are Worker secrets in `.dev.vars`; see [Configuration](site/src/content/docs/configuration.mdx).
 
 Default destinations are local MediaMTX stand-ins (`rtmp://127.0.0.1:1935/live/youtube`, `/live/linkedin`, `/live/x`). Health: [http://127.0.0.1:5173/api/health](http://127.0.0.1:5173/api/health).
 
@@ -65,4 +65,4 @@ See [SECURITY.md](SECURITY.md). Report vulnerabilities privately through [GitHub
 
 `crates/vendor/nnnoiseless` is [BSD-3-Clause](crates/vendor/nnnoiseless/COPYING) (Xiph RNNoise via [nnnoiseless](https://github.com/jneem/nnnoiseless)).
 
-Background blur vendors Google’s [MediaPipe Selfie Segmenter](https://github.com/google-ai-edge/mediapipe) landscape float16 model ([Apache-2.0](src/vendor/mediapipe/LICENSE)). `@mediapipe/tasks-vision` and its WASM runtime load only when blur is on, from this origin (no CDN).
+Background blur vendors Google’s [MediaPipe Selfie Segmenter](https://github.com/google-ai-edge/mediapipe) landscape float16 model ([Apache-2.0](src/vendor/mediapipe/LICENSE)). Compatible with this repo’s AGPL-3.0-only license; the model stays Apache-2.0. `@mediapipe/tasks-vision` and its WASM runtime load only when blur is on, from this origin (no CDN).

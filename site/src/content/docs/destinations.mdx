@@ -42,12 +42,16 @@ cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
 
 To check that a recording is not silent, run `bash scripts/check-silent-audio.sh data/recordings/<file>.mp4`.
 
+## Chat
+
+People in the studio can send comments in the room. While the show is live, Casthop can also poll YouTube Live chat (`liveChatMessages.list`) and merge those comments into the same panel. Hosts and co-hosts can pin one comment onto the compositor overlay (Canvas2D lower-third stack). Polling uses the API’s `pollingIntervalMillis`. Unset credentials hide YouTube ingest; the studio does not error.
+
+Need Worker secrets: `YOUTUBE_API_KEY` plus `YOUTUBE_LIVE_CHAT_ID` or `YOUTUBE_VIDEO_ID`, or the OAuth refresh trio (`YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN`) which looks up the owner’s active broadcast. See [Configuration](/docs/configuration).
+
+X’s API requires a paid tier. LinkedIn live comments need a partner API. Neither is wired. There is no VOD / replay of destination chat; polling runs only while the studio is live. The YouTube page-token cursor stays in Durable Object storage and is never sent to guests or public GET / WebSocket state.
+
 ## Who sees what
 
 - **Owners and co-hosts** receive full destination URLs when signed in (session cookie).
 - **Guests and public requests** get a masked suffix only, and a `hasKey` flag. This applies to `GET /api/studios/:id` and the WebSocket `state` frame.
 - Stream keys are stored in Durable Object storage, not in the repo.
-
-## Chat
-
-Studio chat (people in the room) works. Destination comment ingest — YouTube liveChat, LinkedIn, X — is not shipped. The chat panel placeholder says so.

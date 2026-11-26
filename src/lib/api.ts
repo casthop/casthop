@@ -70,7 +70,13 @@ export function sendEgressBeat(id: string, token: string, egressId: string) {
 }
 
 export function getConfig() {
-  return api<{ livekitUrl: string; maxOnStage: number; github: boolean; signedIn: boolean }>("/api/config");
+  return api<{
+    livekitUrl: string;
+    maxOnStage: number;
+    github: boolean;
+    signedIn: boolean;
+    destinationChat: { youtube: boolean };
+  }>("/api/config");
 }
 
 export function getHealth() {
@@ -135,6 +141,13 @@ export function sendChat(
   return api<PublicStudio>(`/api/studios/${id}/chat`, {
     method: "POST",
     body: JSON.stringify(body),
+  });
+}
+
+export function pinChat(id: string, chatId: string | null) {
+  return api<PublicStudio>(`/api/studios/${id}/pin`, {
+    method: "POST",
+    body: JSON.stringify({ chatId }),
   });
 }
 

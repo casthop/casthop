@@ -50,6 +50,10 @@ Cloudflare Stream Live needs a Cloudflare account with Stream enabled, and Strea
 
 The app is a Hono Worker with one Durable Object per studio (stage, layout, chat, destinations) and D1 for the studio index. R2 is bound as a seam for replays, and recordings stay on the Egress volume for now. Hot Worker endpoints stay TypeScript; a workers-rs port was measured (`bun run bench:worker`) and did not win on CPU, cold start, or bundle size.
 
+## Destination chat
+
+While live, the studio Durable Object polls YouTube `liveChatMessages.list` if Worker secrets are set (`worker/chat-ingest.ts`). Comments join the in-room chat list. Hosts can pin one onto the Canvas2D overlay. The poll cursor (`liveChatId`, page token) is omitted from public studio state. X and LinkedIn are not ingested.
+
 ## Live badge
 
 The studio pill is `live` only when Egress is producing output: stream bytes or duration, or a short settle after RTMP `started_at` (LiveKit can report a start before MediaMTX has the stream). Until then the pill stays on Starting. If the compositor Chrome dies, the heartbeat drops Live and the studio retries with backoff.

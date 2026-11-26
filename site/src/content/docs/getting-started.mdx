@@ -47,6 +47,10 @@ By default the destinations are local MediaMTX stand-ins for YouTube, LinkedIn a
 
 Set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `.dev.vars`. Leave them unset and the GitHub button is hidden. Email magic link works either way.
 
+## Optional: YouTube Live chat
+
+While the studio is live, Casthop can poll YouTube comments into the studio chat panel. Set `YOUTUBE_API_KEY` plus `YOUTUBE_LIVE_CHAT_ID` or `YOUTUBE_VIDEO_ID` in `.dev.vars`, or a YouTube OAuth refresh token. Unset, destination comments stay hidden and the studio does not error. See [Configuration](/docs/configuration) and [Destinations](/docs/destinations).
+
 ## Without cameras
 
 If there is no camera, the app falls back to a generated canvas and a silent audio track, so a VM without `/dev/video0` can still join. Chrome can also be launched with `--use-fake-device-for-media-stream`.

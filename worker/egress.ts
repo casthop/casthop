@@ -626,6 +626,7 @@ export function normalizeStudio(state: StudioState): StudioState {
     abandonedEgressIds: state.abandonedEgressIds ?? [],
     egressHeartbeatAt: state.egressHeartbeatAt ?? null,
     emptySince: state.emptySince ?? null,
+    pinnedChat: state.pinnedChat ?? null,
     destinations: state.destinations.map((d) => ({
       ...d,
       status: d.status ?? (state.live && d.enabled ? "live" : "idle"),

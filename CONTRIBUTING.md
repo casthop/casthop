@@ -34,6 +34,7 @@ bun run typecheck           # tsc --noEmit (strict); this is the TS lint gate
 bun run test                # bun test --max-concurrency=1
 bun test tests/auth.test.ts
 bun test tests/egress.test.ts
+bun test tests/chat-ingest.test.ts
 
 cargo test -p casthop-media -p casthop-post
 cargo fmt -p casthop-media -p casthop-post -- --check

@@ -311,9 +311,10 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
       init: {},
       expect: { owner: 200, cohost: 200, guest: 200, signedOut: 200, expired: 200, outsider: 200 },
       check: (_who, body) => {
-        const cfg = body as { github: boolean; maxOnStage: number };
+        const cfg = body as { github: boolean; maxOnStage: number; destinationChat: { youtube: boolean } };
         assert.equal(cfg.github, false);
         assert.equal(cfg.maxOnStage, 6);
+        assert.equal(cfg.destinationChat.youtube, false);
       },
     },
     {
@@ -440,6 +441,12 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
       name: "POST chat unauthenticated",
       path: `/api/studios/${id}/chat`,
       init: { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "pwned" }) },
+      expect: { owner: 200, cohost: 200, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
+    },
+    {
+      name: "POST pin",
+      path: `/api/studios/${id}/pin`,
+      init: { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chatId: null }) },
       expect: { owner: 200, cohost: 200, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
     },
     {

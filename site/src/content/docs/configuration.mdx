@@ -66,6 +66,19 @@ Optional. Unset means the code defaults in `worker/egress.ts`. Tests set some of
 | `MAIL_WEBHOOK_URL` | Optional. Casthop POSTs JSON `{ to, subject, text }`. Unset logs the magic link to the Worker console. | unset |
 | `MAIL_WEBHOOK_TOKEN` | Optional token for the mail webhook. | unset |
 
+## YouTube Live chat
+
+Comments from the YouTube broadcast appear in the studio chat panel while the show is live. The host can pin one onto the compositor overlay. Unset credentials hide this; the studio does not error.
+
+| Name | Purpose | Local default |
+|---|---|---|
+| `YOUTUBE_API_KEY` | YouTube Data API key for public `liveChatMessages.list`. | unset |
+| `YOUTUBE_LIVE_CHAT_ID` | Skip lookup and poll this live chat. | unset |
+| `YOUTUBE_VIDEO_ID` | Resolve `activeLiveChatId` from a video. | unset |
+| `YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN` | Find the owner’s active broadcast (`liveBroadcasts.list?mine=true`). | unset |
+
+Need either an API key plus a live chat or video id, or the OAuth refresh trio. Polling uses the API’s `pollingIntervalMillis`. X’s API needs a paid tier, and LinkedIn comments need a partner API; those destinations are not ingested.
+
 ## Stream keys
 
 Stream keys are not environment variables. They live in Durable Object storage, never in the repo. The public API only returns a masked suffix such as `rtmp://…/xxxx`, plus a `hasKey` flag.

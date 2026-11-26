@@ -82,7 +82,6 @@ import {
   MAX_INGEST_BYTES,
   MAX_REPLAYS_PER_STUDIO,
   newReplayId,
-  parseVisibility,
   publicReplay,
   putReplayFiles,
   replayUsageCapError,
@@ -331,8 +330,10 @@ app.patch("/api/studios/:id/replays/:rid", async (c) => {
   const replay = await replayById(c.env.DB, rid);
   if (!replay || replay.studioId !== id) return c.json({ error: "not found" }, 404);
   const body = ((await c.req.json().catch(() => ({}))) ?? {}) as { visibility?: unknown };
-  const visibility = parseVisibility(body.visibility, replay.visibility);
-  if (!visibility || body.visibility === undefined) return c.json({ error: "visibility must be private or public" }, 400);
+  if (body.visibility !== "private" && body.visibility !== "public") {
+    return c.json({ error: "visibility must be private or public" }, 400);
+  }
+  const visibility = body.visibility;
   if (visibility !== replay.visibility) await updateReplayVisibility(c.env.DB, rid, visibility);
   return c.json(publicReplay({ ...replay, visibility }, true));
 });

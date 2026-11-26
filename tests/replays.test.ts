@@ -474,6 +474,23 @@ test("PATCH null JSON does not 500", async () => {
     env,
   );
   assert.equal(patched.status, 400);
+
+  for (const visibility of ["", null]) {
+    const rejected = await app.request(
+      `https://casthop.test/api/studios/${id}/replays/${created.id}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Cookie: cookie },
+        body: JSON.stringify({ visibility }),
+      },
+      env,
+    );
+    assert.equal(rejected.status, 400);
+  }
+  const stillPrivate = await json<PublicReplay>(
+    await app.request(`https://casthop.test/api/replays/${created.id}`, { headers: { Cookie: cookie } }, env),
+  );
+  assert.equal(stillPrivate.visibility, "private");
 });
 
 test("PUT rejects a replay over the byte or object cap", async () => {

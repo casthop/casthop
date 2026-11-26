@@ -1,6 +1,7 @@
 ---
 import ExtLink from "../ExtLink.astro";
 import LanguageSwitcher from "../LanguageSwitcher.astro";
+import NavMore from "../NavMore.astro";
 import { GITHUB } from "../../lib/site";
 import { t, withLocale, type Locale } from "../../i18n";
 
@@ -18,10 +19,14 @@ const features = [
   <div class="hv-nav-in">
     <a href={home} class="hv-logo" aria-label={t(locale, "brandHome")}><span class="hv-dot" aria-hidden="true"></span>Casthop</a>
     <nav aria-label={t(locale, "navMain")} class="hv-nav-links">
-      <a href={withLocale(locale, "/docs/")}>{t(locale, "navDocs")}</a>
-      <ExtLink href={GITHUB}>{t(locale, "navGithub")}</ExtLink>
+      <a class="hv-nav-sec" href={withLocale(locale, "/docs/")}>{t(locale, "navDocs")}</a>
+      <ExtLink class="hv-nav-sec" href={GITHUB}>{t(locale, "navGithub")}</ExtLink>
+      <NavMore label={t(locale, "navMenu")} id="site-nav-more">
+        <a href={withLocale(locale, "/docs/")}>{t(locale, "navDocs")}</a>
+        <ExtLink href={GITHUB}>{t(locale, "navGithub")}</ExtLink>
+      </NavMore>
       <LanguageSwitcher locale={locale} path="/" label={t(locale, "language")} />
-      <a class="hv-btn hv-btn-quiet" href={withLocale(locale, "/docs/getting-started/")}>{t(locale, "navGetStarted")}</a>
+      <a class="hv-btn hv-btn-quiet hv-nav-cta" href={withLocale(locale, "/docs/getting-started/")}>{t(locale, "navGetStarted")}</a>
     </nav>
   </div>
 </header>

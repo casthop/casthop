@@ -5,6 +5,7 @@ export const en = {
   navDocs: "Docs",
   navGithub: "GitHub",
   navGetStarted: "Get started",
+  navMenu: "Menu",
   language: "Language",
 
   metaTitle: "Casthop — open-source browser live studio",

@@ -16,6 +16,7 @@
     "test:e2e": "bun scripts/e2e-live.mjs",
     "test:perf": "bun scripts/perf-compose.mjs",
     "test:e2e-ui": "E2E_TELEMETRY_DISABLED=1 bunx --bun e2e run --strict-cache",
+    "test:e2e-site": "bun tests/site/header.e2e.ts",
     "check:wasm": "bun scripts/check-wasm-budget.mjs",
     "build:wasm": "bash scripts/build-wasm.sh",
     "bench:wasm": "bun scripts/bench-wasm.mjs",

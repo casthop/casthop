@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
+import react, { reactCompilerPreset } from "@vitejs/plugin-react";
+import babel from "@rolldown/plugin-babel";
 import { cloudflare } from "@cloudflare/vite-plugin";
 
 function copyMediapipeWasm() {
@@ -9,13 +10,17 @@ function copyMediapipeWasm() {
 
 copyMediapipeWasm();
 
+const skipReact = [/\/node_modules\//, /\/workers\//, /\/worklets\//];
+
 export default defineConfig({
   plugins: [
     react({
-      exclude: [/\/node_modules\//, /\/workers\//, /\/worklets\//],
-      babel: {
-        plugins: [["babel-plugin-react-compiler", { target: "19" }]],
-      },
+      exclude: skipReact,
+    }),
+    // plugin-react 6 dropped the inline babel option; keep the compiler on Babel.
+    babel({
+      exclude: [...skipReact, /\0rolldown\/runtime\.js/],
+      presets: [reactCompilerPreset({ target: "19" })],
     }),
     cloudflare(),
   ],

@@ -28,7 +28,7 @@ cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
 
 ## casthop-hot
 
-Separate Cargo workspace (not a root member). workers-rs 0.6.7 + `worker-build` 0.1.12 on rustc 1.83; worker 0.9 wants a newer compiler. Comparison harness only — live `/api` stays on the Hono Worker. JWT claims match `worker/livekit.ts`. CI `cargo audit` does not scan this lockfile: the rustc 1.83 pin pulls idna 0.5 / ruzstd 0.7 / url 2.5.2, and this Worker is never deployed.
+Separate Cargo workspace (not a root member). workers-rs 0.7.0 + `worker-build` 0.1.12 on rustc 1.83; worker 0.9 wants a newer compiler. Comparison harness only — live `/api` stays on the Hono Worker. JWT claims match `worker/livekit.ts`. CI `cargo audit` does not scan this lockfile: the rustc 1.83 pin pulls idna 0.5 / ruzstd 0.7 / url 2.5.2, and this Worker is never deployed.
 
 ```bash
 cargo test --manifest-path crates/casthop-hot/Cargo.toml

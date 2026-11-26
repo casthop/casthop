@@ -34,6 +34,8 @@ const ptBR: Messages = {
   homeYourStudios: "Seus estúdios",
   roleOwner: "Dono",
   roleCohost: "Coapresentador",
+  replayPublic: "Público",
+  replayPrivate: "Privado",
   memberLine: "{name} · {role}",
   pendingLine: "{email} · pendente",
 

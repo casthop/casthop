@@ -1,6 +1,15 @@
-import type { LayoutId, PublicDestination, PublicStudio, StudioMember, StudioRecord, ViewerRole } from "../../worker/types";
+import type {
+  LayoutId,
+  PublicDestination,
+  PublicReplay,
+  PublicStudio,
+  ReplayVisibility,
+  StudioMember,
+  StudioRecord,
+  ViewerRole,
+} from "../../worker/types";
 
-export type { PublicStudio, PublicDestination, StudioMember, StudioRecord, ViewerRole };
+export type { PublicReplay, PublicStudio, PublicDestination, ReplayVisibility, StudioMember, StudioRecord, ViewerRole };
 
 export type StudioView = PublicStudio & { viewerRole: ViewerRole };
 
@@ -166,4 +175,15 @@ export function inviteCohost(id: string, email: string) {
 
 export function removeCohost(id: string, accountId: string) {
   return api<{ ok: true }>(`/api/studios/${id}/cohosts/${accountId}`, { method: "DELETE" });
+}
+
+export function setReplayVisibility(studioId: string, replayId: string, visibility: ReplayVisibility) {
+  return api<PublicReplay>(`/api/studios/${studioId}/replays/${replayId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ visibility }),
+  });
+}
+
+export function getReplay(replayId: string) {
+  return api<PublicReplay>(`/api/replays/${replayId}`);
 }

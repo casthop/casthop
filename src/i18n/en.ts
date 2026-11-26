@@ -32,6 +32,8 @@ export const en = {
   homeYourStudios: "Your studios",
   roleOwner: "Owner",
   roleCohost: "Co-host",
+  replayPublic: "Public",
+  replayPrivate: "Private",
   memberLine: "{name} · {role}",
   pendingLine: "{email} · pending",
 

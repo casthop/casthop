@@ -1,4 +1,4 @@
-import { Q, SCHEMA } from "../worker/db.ts";
+import { LIST_REPLAYS_PER_STUDIO, Q, SCHEMA } from "../worker/db.ts";
 
 type Row = Record<string, unknown>;
 
@@ -24,6 +24,7 @@ export class FakeD1 implements D1Database {
       "studio_members",
       "studio_invites",
       "rate_limits",
+      "replays",
     ]) {
       this.tables.set(name, []);
     }
@@ -265,6 +266,79 @@ export class FakeD1 implements D1Database {
         this.rows("studio_invites").filter((r) => !(r.studio_id === binds[0] && r.email === binds[1])),
       );
       return { results: [], changes: 1 };
+    }
+    if (q === norm(Q.insertReplay)) {
+      const [id, studio_id, title, visibility, duration_ms, created_at, bytes, files] = binds;
+      this.rows("replays").push({
+        id,
+        studio_id,
+        title,
+        visibility,
+        duration_ms,
+        created_at,
+        bytes,
+        files: files ?? 0,
+      });
+      return { results: [], changes: 1 };
+    }
+    if (q === norm(Q.replayById)) {
+      return { results: this.rows("replays").filter((r) => r.id === binds[0]).map(clone), changes: 0 };
+    }
+    if (q === norm(Q.listReplaysByStudio)) {
+      const results = this.rows("replays")
+        .filter((r) => r.studio_id === binds[0])
+        .map(clone)
+        .sort((a, b) => Number(b.created_at) - Number(a.created_at));
+      return { results, changes: 0 };
+    }
+    if (q === norm(Q.listReplaysForAccount)) {
+      const studioIds = new Set(
+        this.rows("studio_members").filter((m) => m.account_id === binds[0]).map((m) => m.studio_id),
+      );
+      const grouped = new Map<string, Row[]>();
+      const sorted = this.rows("replays")
+        .filter((r) => studioIds.has(r.studio_id))
+        .sort((a, b) => {
+          const studios = String(a.studio_id).localeCompare(String(b.studio_id));
+          if (studios !== 0) return studios;
+          return Number(b.created_at) - Number(a.created_at);
+        });
+      for (const row of sorted) {
+        const list = grouped.get(String(row.studio_id)) ?? [];
+        if (list.length >= LIST_REPLAYS_PER_STUDIO) continue;
+        list.push(clone(row));
+        grouped.set(String(row.studio_id), list);
+      }
+      return { results: [...grouped.values()].flat(), changes: 0 };
+    }
+    if (q === norm(Q.updateReplayVisibility)) {
+      const [visibility, id] = binds;
+      for (const r of this.rows("replays")) {
+        if (r.id === id) r.visibility = visibility;
+      }
+      return { results: [], changes: 1 };
+    }
+    if (q === norm(Q.countReplaysByStudio)) {
+      const n = this.rows("replays").filter((r) => r.studio_id === binds[0]).length;
+      return { results: [{ n }], changes: 0 };
+    }
+    if (q === norm(Q.addReplayUsage)) {
+      const [bytesDelta, filesDelta, id] = binds;
+      const row = this.rows("replays").find((r) => r.id === id);
+      if (!row) return { results: [], changes: 0 };
+      row.bytes = Math.max(0, Number(row.bytes) + Number(bytesDelta));
+      row.files = Math.max(0, Number(row.files ?? 0) + Number(filesDelta));
+      return { results: [{ bytes: row.bytes, files: row.files }], changes: 1 };
+    }
+    if (q === norm(Q.addReplayUsageIfUnderCap)) {
+      const [bytesDelta, filesDelta, id, bytesCheck, maxBytes, filesCheck, maxFiles] = binds;
+      const row = this.rows("replays").find((r) => r.id === id);
+      if (!row) return { results: [], changes: 0 };
+      if (Number(row.bytes) + Number(bytesCheck) > Number(maxBytes)) return { results: [], changes: 0 };
+      if (Number(row.files ?? 0) + Number(filesCheck) > Number(maxFiles)) return { results: [], changes: 0 };
+      row.bytes = Math.max(0, Number(row.bytes) + Number(bytesDelta));
+      row.files = Math.max(0, Number(row.files ?? 0) + Number(filesDelta));
+      return { results: [{ bytes: row.bytes, files: row.files }], changes: 1 };
     }
     if (q === norm(Q.bumpRate)) {
       const [key, nowBind, , windowBind] = binds;

@@ -34,6 +34,8 @@ const es: Messages = {
   homeYourStudios: "Tus estudios",
   roleOwner: "Propietario",
   roleCohost: "Copresentador",
+  replayPublic: "Público",
+  replayPrivate: "Privado",
   memberLine: "{name} · {role}",
   pendingLine: "{email} · pendiente",
 

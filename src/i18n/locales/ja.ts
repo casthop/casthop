@@ -34,6 +34,8 @@ const ja: Messages = {
   homeYourStudios: "あなたのスタジオ",
   roleOwner: "オーナー",
   roleCohost: "共同ホスト",
+  replayPublic: "公開",
+  replayPrivate: "非公開",
   memberLine: "{name} · {role}",
   pendingLine: "{email} · 招待中",
 

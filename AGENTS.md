@@ -13,6 +13,7 @@ This file is the source of truth. Nested `AGENTS.md` files add tree-specific rul
 - `crates/casthop-hot` — workers-rs bench Worker (JWT CPU vs TS; not on the live path)
 - `tests/auth.test.ts` — owner / co-host / guest / signed-out / expired session matrix for every Worker route
 - `tests/egress.test.ts` — start/stop, crash retry, RTMP dest status, empty-studio cleanup
+- `tests/chat-ingest.test.ts` — YouTube live chat polling (mocked) and pin overlay auth
 - `tests/studio/*.e2e.ts` — studio UI flows (e2e / Playwright locators; no model)
 - `MEASUREMENTS.md` — recorded numbers; update on hot-path changes
 - `PRODUCT.md` — product intent

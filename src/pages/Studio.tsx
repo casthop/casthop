@@ -13,10 +13,12 @@ import { Aperture, Mic, MicOff, MonitorUp, UserPlus, Video, VideoOff } from "luc
 import { Logo } from "../components/Logo";
 import { VideoTile } from "../components/VideoTile";
 import {
+  getConfig,
   getStudio,
   inviteCohost,
   listCohosts,
   mintToken,
+  pinChat,
   sendChat,
   setDestinations,
   setLayout,
@@ -101,6 +103,7 @@ export function Studio() {
   const blurHandleRef = useRef<CameraBlurHandle | null>(null);
   const [error, setError] = useState("");
   const [chatDraft, setChatDraft] = useState("");
+  const [youtubeChat, setYoutubeChat] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -117,6 +120,12 @@ export function Studio() {
     const saved = loadSession(id);
     setBlurOn(loadBlurPref(saved?.cameraId ?? ""));
   }, [id]);
+
+  useEffect(() => {
+    void getConfig()
+      .then((cfg) => setYoutubeChat(cfg.destinationChat.youtube))
+      .catch(() => setYoutubeChat(false));
+  }, []);
 
   useEffect(() => {
     let closed = false;
@@ -482,6 +491,16 @@ export function Studio() {
     }
   }
 
+  async function onPin(chatId: string | null) {
+    if (!isHost) return;
+    try {
+      const saved = await pinChat(id, chatId);
+      setStudio((prev) => mergeStudio(prev, saved, prev?.viewerRole ?? "guest"));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Pin failed");
+    }
+  }
+
   async function copyInvite() {
     const url = `${location.origin}/join/${id}`;
     await navigator.clipboard.writeText(url);
@@ -573,6 +592,12 @@ export function Studio() {
               )}
               {stagePeople.length === 0 ? <VideoTile label="Empty stage" /> : null}
             </div>
+            {studio.pinnedChat ? (
+              <div className="pinned-comment" role="status" aria-label={`Pinned comment from ${studio.pinnedChat.name}`}>
+                <span className="who">{studio.pinnedChat.name}</span>
+                {studio.pinnedChat.text}
+              </div>
+            ) : null}
             <div className="lower-third">
               {studio.bannerTitle}
               <span>· {studio.bannerSubtitle}</span>
@@ -725,30 +750,38 @@ export function Studio() {
           <div className="chat">
             <div className="side-head">
               <h3>Live chat</h3>
-              <small style={{ color: "var(--faint)" }}>Studio + destinations</small>
+              {isHost && youtubeChat ? <small>Studio + YouTube</small> : null}
             </div>
-            {studio.chat.length === 0 ? (
-              <p>
-                <span className="src">YT</span>
-                <span className="who">Viewer A</span>
-                Destination comments land here once webhooks are wired. Studio chat works now.
-              </p>
-            ) : null}
+            {studio.chat.length === 0 ? <p>No comments yet.</p> : null}
             {studio.chat.map((m) => (
-              <p key={m.id}>
-                <span className="src">{m.source === "studio" ? "IN" : m.source.slice(0, 2).toUpperCase()}</span>
+              <p key={m.id} className={studio.pinnedChat?.id === m.id ? "pinned" : undefined}>
+                <span className="src">{chatSourceLabel(m.source)}</span>
                 <span className="who">{m.name}</span>
-                {m.text}
+                <span className="chat-text">{m.text}</span>
+                {isHost ? (
+                  <button
+                    type="button"
+                    className="chat-pin"
+                    aria-label={studio.pinnedChat?.id === m.id ? "Unpin comment" : "Pin this comment"}
+                    onClick={() => void onPin(studio.pinnedChat?.id === m.id ? null : m.id)}
+                  >
+                    {studio.pinnedChat?.id === m.id ? "Unpin" : "Pin"}
+                  </button>
+                ) : null}
               </p>
             ))}
           </div>
-          <form onSubmit={onChat}>
+          <form className="chat-form" onSubmit={onChat}>
             <input
               className="reply"
+              aria-label="Studio chat"
               value={chatDraft}
               onChange={(e) => setChatDraft(e.target.value)}
-              placeholder="Reply to all destinations…"
+              placeholder="Message the studio…"
             />
+            <button type="submit" className="chat-send" aria-label="Send chat">
+              Send
+            </button>
           </form>
         </aside>
       </div>
@@ -904,6 +937,14 @@ function SettingsPanel({
       </div>
     </div>
   );
+}
+
+function chatSourceLabel(source: string): string {
+  if (source === "studio") return "IN";
+  if (source === "youtube") return "YT";
+  if (source === "linkedin") return "in";
+  if (source === "x") return "X";
+  return source.slice(0, 2).toUpperCase();
 }
 
 function programClass(layout: LayoutId, n: number): string {

@@ -1,3 +1,4 @@
+import { DEST_CHAT_BACKOFF_MS, destChatProviders, type YoutubeTokenCache } from "./chat-ingest";
 import { defaultDestinations, MAX_ON_STAGE, type Env, type LayoutId, type StudioState } from "./types";
 import {
   asIdentity,
@@ -73,6 +74,7 @@ export class StudioDurableObject {
   env: Env;
   private chatHits = new Map<string, { n: number; t: number }>();
   private mintHits = { n: 0, t: 0 };
+  private youtubeToken: YoutubeTokenCache | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     this.ctx = ctx;
@@ -118,6 +120,7 @@ export class StudioDurableObject {
         destinations: defaultDestinations(this.env),
         participants: [],
         chat: [],
+        pinnedChat: null,
         createdAt: now,
       };
       await this.putState(state);
@@ -328,9 +331,24 @@ export class StudioDurableObject {
     }
 
     if (action === "watch") {
-      await this.watch(state);
+      await this.watchAndChat(state);
       const latest = (await this.getState()) ?? state;
       return json(publicState(latest, { includeUrls: false }));
+    }
+
+    if (action === "pin") {
+      if (!isHost) return json({ error: "host key required" }, 403);
+      if (body.chatId === null || body.chatId === "") {
+        state.pinnedChat = null;
+        await this.putState(state);
+        return json(publicState(state, { includeUrls: true }));
+      }
+      const chatId = typeof body.chatId === "string" ? body.chatId.slice(0, 80) : "";
+      const msg = state.chat.find((m) => m.id === chatId);
+      if (!msg) return json({ error: "comment not found" }, 404);
+      state.pinnedChat = { id: msg.id, name: msg.name, text: msg.text, source: msg.source };
+      await this.putState(state);
+      return json(publicState(state, { includeUrls: true }));
     }
 
     if (action === "chat") {
@@ -358,7 +376,7 @@ export class StudioDurableObject {
   async alarm(): Promise<void> {
     const state = await this.getState();
     if (!state) return;
-    await this.watch(state);
+    await this.watchAndChat(state);
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
@@ -566,6 +584,7 @@ export class StudioDurableObject {
     latest.egressRetryAt = null;
     latest.egressRecoveringSince = null;
     latest.egressHeartbeatAt = null;
+    latest.destChat = undefined;
     setDestStatuses(latest.destinations, reason === "stopped" ? "stopped" : "idle", null);
     if (reason === "stopped") {
       for (const d of latest.destinations) {
@@ -594,6 +613,58 @@ export class StudioDurableObject {
     else await this.watch(state);
     const latest = (await this.getState()) ?? state;
     return json(publicState(latest, { includeUrls: false }));
+  }
+
+  private async watchAndChat(state: StudioState): Promise<void> {
+    await this.watch(state);
+    const latest = await this.getState();
+    if (latest) await this.pollDestChat(latest);
+  }
+
+  private async pollDestChat(state: StudioState): Promise<void> {
+    const youtube = destChatProviders.find((p) => p.id === "youtube");
+    if (!youtube?.configured(this.env)) return;
+    if (!state.wantLive) {
+      if (state.destChat?.youtube) {
+        state.destChat = undefined;
+        await this.putState(state);
+      }
+      return;
+    }
+    const now = Date.now();
+    const cursor = state.destChat?.youtube;
+    if (cursor && cursor.nextPollAt > now) {
+      await this.scheduleWatch(cursor.nextPollAt);
+      return;
+    }
+    try {
+      const { page, liveChatId, cache } = await youtube.poll(this.env, cursor ?? {}, this.youtubeToken);
+      this.youtubeToken = cache;
+      if (!page || !liveChatId) {
+        const nextPollAt = now + DEST_CHAT_BACKOFF_MS;
+        state.destChat = { youtube: { liveChatId: liveChatId || cursor?.liveChatId, pageToken: cursor?.pageToken, nextPollAt } };
+        await this.putState(state);
+        await this.scheduleWatch(nextPollAt);
+        return;
+      }
+      const seen = new Set(state.chat.map((m) => m.id));
+      for (const msg of page.comments) {
+        if (seen.has(msg.id)) continue;
+        state.chat.push(msg);
+        seen.add(msg.id);
+      }
+      state.chat = state.chat.slice(-100);
+      const nextPollAt = now + page.pollAfterMs;
+      state.destChat = { youtube: { liveChatId, pageToken: page.pageToken, nextPollAt } };
+      await this.putState(state);
+      await this.scheduleWatch(nextPollAt);
+    } catch (err) {
+      console.warn("youtube chat poll", err);
+      const nextPollAt = now + DEST_CHAT_BACKOFF_MS;
+      state.destChat = { youtube: { liveChatId: cursor?.liveChatId, pageToken: cursor?.pageToken, nextPollAt } };
+      await this.putState(state);
+      await this.scheduleWatch(nextPollAt);
+    }
   }
 
   private async watch(state: StudioState): Promise<void> {

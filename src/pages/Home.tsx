@@ -27,7 +27,13 @@ export function Home() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const cfg = await getConfig().catch(() => ({ github: false, signedIn: false, livekitUrl: "", maxOnStage: 6 }));
+      const cfg = await getConfig().catch(() => ({
+        github: false,
+        signedIn: false,
+        livekitUrl: "",
+        maxOnStage: 6,
+        destinationChat: { youtube: false },
+      }));
       if (cancelled) return;
       setGithub(cfg.github);
       if (!cfg.signedIn) {

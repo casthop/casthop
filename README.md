@@ -49,7 +49,7 @@ bun install
 bun run dev
 ```
 
-Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Email yourself a magic link (the Worker prints it in the console), open a studio, copy the guest link, put people on stage, Go Live. Destination rows show per-RTMP status; if Egress or a stream drops, the studio retries with backoff. Optional GitHub OAuth: set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `.dev.vars`.
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Email yourself a magic link (the Worker prints it in the console), open a studio, copy the guest link, put people on stage, Go Live. Destination rows show per-RTMP status; if Egress or a stream drops, the studio retries with backoff. Optional GitHub OAuth: set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `.dev.vars`. Optional YouTube Live chat: set `YOUTUBE_API_KEY` plus `YOUTUBE_LIVE_CHAT_ID` or `YOUTUBE_VIDEO_ID`, or a YouTube OAuth refresh token (`YOUTUBE_OAUTH_CLIENT_ID` / `YOUTUBE_OAUTH_CLIENT_SECRET` / `YOUTUBE_OAUTH_REFRESH_TOKEN`). Unset, destination comments stay hidden and the studio does not error. X’s API needs a paid tier, and LinkedIn comments need a partner API; neither is wired.
 
 Rebuild the WASM module (needs rustc 1.83+ and the `wasm32-unknown-unknown` target):
 
@@ -145,7 +145,7 @@ Done in this prototype: custom compositor page with WASM layout, RNNoise in an A
 
 1. Camera background blur ships. WebGPU compositor is in `casthop-media` behind `?compose=webgpu`; Canvas2D stays the live default (see MEASUREMENTS.md).
 2. ~~workers-rs for hot `/api` endpoints~~ — measured; keep TypeScript ([MEASUREMENTS.md](MEASUREMENTS.md) §8).
-3. Destination chat ingest (YouTube liveChat, LinkedIn, X).
+3. ~~Destination chat ingest (YouTube liveChat, LinkedIn, X).~~ YouTube Live chat polling. X’s API is paid and LinkedIn’s comment API is partner-only, so those are not shipped.
 4. R2 replay viewer; HLS from R2 instead of Stream for public VODs.
 5. ~~Auth (email) and studio list~~ — accounts, magic link, optional GitHub, owner/co-host sessions.
 6. TURN for guests behind strict NAT.

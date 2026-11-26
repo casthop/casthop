@@ -1,4 +1,4 @@
-import { composeFrame, pickComposeBackend, pickComposeThread, spawnComposeWorker, type ComposeBackend } from "./compositor";
+import { composeFrame, pickComposeBackend, pickComposeThread, spawnComposeWorker, type ComposeBackend, type ComposePin } from "./compositor";
 import type { ComposeWorkerIn, ComposeWorkerOut } from "./compose-messages";
 import { FRAME_SAMPLE_CAP, pushSample, supportsOffscreenCompose, supportsTrackGenerator, usedSamples } from "./compose-support";
 import { OUT_H, OUT_W } from "./draw-canvas";
@@ -18,7 +18,7 @@ export type ProgramCompose = {
   outputTrack: MediaStreamTrack | null;
   addSource: (id: string, source: MediaStreamTrack | HTMLVideoElement) => void;
   removeSource: (id: string) => void;
-  setMeta: (mode: LayoutMode, title: string, subtitle: string) => void;
+  setMeta: (mode: LayoutMode, title: string, subtitle: string, pin?: ComposePin | null) => void;
   snapshot: () => Promise<ComposeStats>;
   stop: () => void;
 };
@@ -126,8 +126,8 @@ async function startWorker(opts: {
       processors.delete(id);
       post(worker, { type: "remove", id });
     },
-    setMeta: (mode, title, subtitle) => {
-      post(worker, { type: "meta", mode, title, subtitle });
+    setMeta: (mode, title, subtitle, pin) => {
+      post(worker, { type: "meta", mode, title, subtitle, pin: pin ?? null });
     },
     snapshot: () =>
       new Promise((resolve, reject) => {
@@ -164,6 +164,7 @@ function startMain(opts: {
   let mode = opts.mode;
   let title = opts.title;
   let subtitle = opts.subtitle;
+  let pin: ComposePin | null = null;
   let backend = opts.backend;
   let raf = 0;
   let busy = false;
@@ -196,6 +197,7 @@ function startMain(opts: {
       mode,
       title,
       subtitle,
+      pin,
       canvas: opts.canvas,
     })
       .then((result) => {
@@ -242,10 +244,11 @@ function startMain(opts: {
         video.remove();
       }
     },
-    setMeta: (nextMode, nextTitle, nextSubtitle) => {
+    setMeta: (nextMode, nextTitle, nextSubtitle, nextPin) => {
       mode = nextMode;
       title = nextTitle;
       subtitle = nextSubtitle;
+      pin = nextPin ?? null;
     },
     snapshot: async () => ({
       thread: "main",

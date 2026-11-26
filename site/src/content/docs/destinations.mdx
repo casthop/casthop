@@ -40,6 +40,12 @@ cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
 
 To check that a recording is not silent, run `bash scripts/check-silent-audio.sh data/recordings/<file>.mp4`.
 
+## Destination chat
+
+While live, Casthop can poll YouTube Live chat (`liveChatMessages.list`) with the owner’s API key or OAuth refresh token from Worker secrets. Hosts and co-hosts see those comments in the studio panel and can pin one onto the stream overlay. See [Configuration](/docs/configuration).
+
+X’s API requires a paid tier. LinkedIn live comments need a partner API. Neither is wired.
+
 ## Who sees what
 
 - **Owners and co-hosts** receive full destination URLs when signed in (session cookie).

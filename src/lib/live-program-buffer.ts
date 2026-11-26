@@ -1,7 +1,7 @@
 const SEGMENT_MS = 4_000;
 const MAX_BUFFER_MS = 64_000;
 
-type LiveSeg = { name: string; duration: number };
+export type LiveSeg ={ name: string; duration: number };
 
 function recorderMime(): string {
   const types = ["video/webm;codecs=vp8,opus", "video/webm", "video/mp4"];
@@ -23,7 +23,7 @@ function programStream(canvas: HTMLCanvasElement, audios: HTMLMediaElement[]): M
   return stream;
 }
 
-function playlistFor(segs: LiveSeg[]): string {
+export function playlistFor(segs: LiveSeg[], init: string): string {
   let target = 4;
   for (const seg of segs) {
     const ceil = Math.ceil(seg.duration);
@@ -35,6 +35,7 @@ function playlistFor(segs: LiveSeg[]): string {
     `#EXT-X-TARGETDURATION:${target}`,
     "#EXT-X-PLAYLIST-TYPE:EVENT",
     "#EXT-X-INDEPENDENT-SEGMENTS",
+    `#EXT-X-MAP:URI="${init}"`,
   ];
   for (const seg of segs) {
     lines.push(`#EXTINF:${seg.duration.toFixed(1)},`, seg.name);
@@ -42,9 +43,9 @@ function playlistFor(segs: LiveSeg[]): string {
   return `${lines.join("\n")}\n`;
 }
 
-async function putLiveFile(studioId: string, token: string, name: string, body: Blob | string, contentType: string): Promise<void> {
+export async function putLiveFile(studioId: string, token: string, name: string, body: Blob | string, contentType: string): Promise<void> {
   const payload = typeof body === "string" ? new Blob([body], { type: contentType }) : body;
-  await fetch(`/api/studios/${studioId}/live-hls/${name}`, {
+  const res = await fetch(`/api/studios/${studioId}/live-hls/${name}`, {
     method: "PUT",
     credentials: "omit",
     headers: {
@@ -54,34 +55,8 @@ async function putLiveFile(studioId: string, token: string, name: string, body: 
     },
     body: payload,
   });
-}
-
-function recordWindow(stream: MediaStream, mime: string, ms: number): Promise<Blob | null> {
-  return new Promise((resolve) => {
-    let rec: MediaRecorder;
-    try {
-      rec = new MediaRecorder(stream, { mimeType: mime });
-    } catch {
-      resolve(null);
-      return;
-    }
-    const chunks: Blob[] = [];
-    rec.ondataavailable = (event) => {
-      if (event.data.size) chunks.push(event.data);
-    };
-    rec.onerror = () => resolve(null);
-    rec.onstop = () => {
-      resolve(chunks.length ? new Blob(chunks, { type: mime }) : null);
-    };
-    rec.start();
-    window.setTimeout(() => {
-      try {
-        if (rec.state !== "inactive") rec.stop();
-      } catch {
-        resolve(null);
-      }
-    }, ms);
-  });
+  // fetch does not throw on 4xx/5xx
+  if (!res.ok) throw new Error(`live-hls PUT ${name} failed: ${res.status}`);
 }
 
 function addElementAudio(stream: MediaStream, el: HTMLMediaElement): void {
@@ -105,37 +80,62 @@ export function startLiveProgramBuffer(opts: {
   let seq = 0;
   const segs: LiveSeg[] = [];
   const ext = extFor(mime);
+  const initName = `init.${ext}`;
+  const contentType = `video/${ext}`;
+  let initBlob: Blob | null = null;
+  let initStored = false;
 
-  const tick = async () => {
-    while (!stopped) {
-      const blob = await recordWindow(stream, mime, SEGMENT_MS);
-      if (stopped) return;
-      if (!blob || blob.size === 0) {
-        await new Promise((r) => window.setTimeout(r, SEGMENT_MS));
-        continue;
+  const store = async (blob: Blob) => {
+    if (stopped) return;
+    // One continuous recording: its first chunk holds the container header.
+    // Playlist and clips start with it; later chunks only play after it.
+    if (!initBlob) {
+      initBlob = blob;
+      return;
+    }
+    const name = `seg${String(seq).padStart(3, "0")}.${ext}`;
+    seq += 1;
+    segs.push({ name, duration: SEGMENT_MS / 1000 });
+    let acc = segs.reduce((sum, seg) => sum + seg.duration, 0);
+    while (acc > MAX_BUFFER_MS / 1000 && segs.length > 1) {
+      const dropped = segs.shift();
+      acc -= dropped?.duration ?? 0;
+    }
+    try {
+      if (!initStored) {
+        await putLiveFile(opts.studioId, opts.token, initName, initBlob, contentType);
+        initStored = true;
       }
-      const name = `seg${String(seq).padStart(3, "0")}.${ext}`;
-      seq += 1;
-      segs.push({ name, duration: SEGMENT_MS / 1000 });
-      let acc = segs.reduce((sum, seg) => sum + seg.duration, 0);
-      while (acc > MAX_BUFFER_MS / 1000 && segs.length > 1) {
-        const dropped = segs.shift();
-        acc -= dropped?.duration ?? 0;
-      }
-      try {
-        await putLiveFile(opts.studioId, opts.token, name, blob, blob.type || `video/${ext}`);
-        if (stopped) return;
-        await putLiveFile(opts.studioId, opts.token, "index.m3u8", playlistFor(segs), "application/vnd.apple.mpegurl");
-      } catch {
-        /* next window retries */
-      }
+      await putLiveFile(opts.studioId, opts.token, name, blob, contentType);
+    } catch {
+      // never list a segment that was not stored
+      const at = segs.findIndex((seg) => seg.name === name);
+      if (at >= 0) segs.splice(at, 1);
+      return;
+    }
+    if (stopped) return;
+    try {
+      await putLiveFile(opts.studioId, opts.token, "index.m3u8", playlistFor(segs, initName), "application/vnd.apple.mpegurl");
+    } catch {
+      /* next chunk retries */
     }
   };
 
-  void tick();
+  let rec: MediaRecorder;
+  try {
+    rec = new MediaRecorder(stream, { mimeType: mime });
+  } catch {
+    return { stop: () => undefined, addAudio: () => undefined };
+  }
+  let queue: Promise<void> = Promise.resolve();
+  rec.ondataavailable = (event) => {
+    if (event.data.size) queue = queue.then(() => store(event.data));
+  };
+  rec.start(SEGMENT_MS);
   return {
     stop: () => {
       stopped = true;
+      if (rec.state !== "inactive") rec.stop();
       for (const track of stream.getTracks()) track.stop();
     },
     addAudio: (el: HTMLMediaElement) => addElementAudio(stream, el),

@@ -24,6 +24,7 @@ function objectMeta(row: Stored): R2Object {
 }
 
 export class FakeR2 {
+  failNextPut = false;
   private objects = new Map<string, Stored>();
 
   async head(key: string): Promise<R2Object | null> {
@@ -47,6 +48,10 @@ export class FakeR2 {
   }
 
   async put(key: string, value: R2PutValue): Promise<R2Object> {
+    if (this.failNextPut) {
+      this.failNextPut = false;
+      throw new Error("r2 put failed");
+    }
     const bytes = asBytes(await resolvePut(value));
     const row = { key, bytes };
     this.objects.set(key, row);

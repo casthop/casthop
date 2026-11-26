@@ -43,6 +43,23 @@ export async function startIsoTrack(
   return { id: data.track.id };
 }
 
+export const ISO_UPLOAD_MAX_FAILS = 8;
+
+export class IsoHttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "IsoHttpError";
+  }
+}
+
+export function isoUploadRetryable(err: unknown): boolean {
+  if (!(err instanceof IsoHttpError)) return true;
+  return err.status === 408 || err.status === 429 || err.status >= 500;
+}
+
 export async function uploadIsoChunk(
   studioId: string,
   trackId: string,
@@ -63,7 +80,7 @@ export async function uploadIsoChunk(
   });
   if (!res.ok) {
     const data = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(data.error || `${res.status} upload`);
+    throw new IsoHttpError(res.status, data.error || `${res.status} upload`);
   }
 }
 
@@ -83,6 +100,7 @@ class ChunkUploader {
   private index = 0;
   private fail = 0;
   private closed = false;
+  private abandoned = false;
   private pump: Promise<void> = Promise.resolve();
 
   constructor(
@@ -92,13 +110,13 @@ class ChunkUploader {
   ) {}
 
   enqueue(blob: Blob): void {
-    if (this.closed || blob.size < 1) return;
+    if (this.closed || this.abandoned || blob.size < 1) return;
     this.queue.push(blob);
     this.pump = this.pump.then(() => this.flush());
   }
 
   private async flush(): Promise<void> {
-    while (this.queue.length) {
+    while (this.queue.length && !this.abandoned) {
       const blob = this.queue[0];
       if (!blob) break;
       try {
@@ -106,8 +124,13 @@ class ChunkUploader {
         this.queue.shift();
         this.index += 1;
         this.fail = 0;
-      } catch {
+      } catch (err) {
         this.fail += 1;
+        if (!isoUploadRetryable(err) || this.fail >= ISO_UPLOAD_MAX_FAILS) {
+          this.queue.length = 0;
+          this.abandoned = true;
+          return;
+        }
         await sleep(Math.min(8000, 400 * 2 ** Math.min(this.fail, 4)));
       }
     }
@@ -117,7 +140,11 @@ class ChunkUploader {
     this.closed = true;
     await this.pump;
     await this.flush();
-    await completeIsoTrack(this.studioId, this.trackId, this.auth);
+    try {
+      await completeIsoTrack(this.studioId, this.trackId, this.auth);
+    } catch {
+      /* stop even if complete is gone */
+    }
   }
 }
 

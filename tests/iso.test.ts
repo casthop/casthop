@@ -4,6 +4,7 @@ import { app, StudioDurableObject } from "../worker/index.ts";
 import {
   chunkKeysFromList,
   concatChunkStream,
+  deleteIsoTrackObjects,
   downloadChunkKeys,
   downloadName,
   isoChunkKey,
@@ -16,7 +17,7 @@ import {
   mixedFilename,
   parseChunkIndex,
 } from "../worker/iso.ts";
-import { pickRecorderMime } from "../src/lib/iso-recorder.ts";
+import { IsoHttpError, isoUploadRetryable, pickRecorderMime } from "../src/lib/iso-recorder.ts";
 import { DEV_API_KEY, DEV_API_SECRET, HOST_IDENTITY, SESSION_COOKIE, publicState } from "../worker/security.ts";
 import type { Env, IsoTrack, PublicStudio, RecordingList } from "../worker/types.ts";
 import { FakeD1 } from "./fake-d1.ts";
@@ -182,12 +183,33 @@ test("isoTracksForStart caps the live session and drops oldest history", () => {
   assert.equal(isoTracksForStart(mine, "host", "now"), null);
 
   const old = Array.from({ length: ISO_TRACKS_MAX }, (_, i) => stub(`old${i}`, "prev", "g", i));
-  const kept = isoTracksForStart(old, "host", "now");
-  assert.equal(kept?.length, ISO_TRACKS_MAX - 1);
-  assert.equal(kept?.[0]?.id, "old1");
+  const plan = isoTracksForStart(old, "host", "now");
+  assert.equal(plan?.kept.length, ISO_TRACKS_MAX - 1);
+  assert.equal(plan?.kept[0]?.id, "old1");
+  assert.deepEqual(plan?.dropped, ["old0"]);
 
   const sessionFull = Array.from({ length: ISO_TRACKS_MAX }, (_, i) => stub(`s${i}`, "now", `g-${i}`, i));
   assert.equal(isoTracksForStart(sessionFull, "host", "now"), null);
+});
+
+test("deleteIsoTrackObjects removes numbered chunks", async () => {
+  const r2 = new FakeR2();
+  const bucket = r2 as unknown as R2Bucket;
+  await bucket.put(isoChunkKey("stu", "old", 0), new TextEncoder().encode("AA"));
+  await bucket.put(isoChunkKey("stu", "keep", 0), new TextEncoder().encode("BB"));
+  await deleteIsoTrackObjects(bucket, "stu", "old");
+  assert.equal(await bucket.get(isoChunkKey("stu", "old", 0)), null);
+  assert.ok(await bucket.get(isoChunkKey("stu", "keep", 0)));
+});
+
+test("isoUploadRetryable retries transient statuses only", () => {
+  assert.equal(isoUploadRetryable(new Error("network")), true);
+  assert.equal(isoUploadRetryable(new IsoHttpError(502, "upload failed")), true);
+  assert.equal(isoUploadRetryable(new IsoHttpError(429, "too many uploads")), true);
+  assert.equal(isoUploadRetryable(new IsoHttpError(408, "timeout")), true);
+  assert.equal(isoUploadRetryable(new IsoHttpError(404, "track not found")), false);
+  assert.equal(isoUploadRetryable(new IsoHttpError(409, "track complete")), false);
+  assert.equal(isoUploadRetryable(new IsoHttpError(413, "chunk too large")), false);
 });
 
 test("R2 chunk keys sort and concat in order", async () => {
@@ -342,6 +364,18 @@ test("host can enable ISO, each person uploads chunks, host downloads concat", a
     env,
   );
   assert.equal(skip.status, 400);
+
+  env._r2.failNextPut = true;
+  const lostPut = await app.request(
+    `https://casthop.test/api/studios/${id}/iso/${hostTrack.track.id}/chunks/0`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/octet-stream", Cookie: cookie },
+      body: new TextEncoder().encode("AAAA"),
+    },
+    env,
+  );
+  assert.equal(lostPut.status, 502);
 
   await putChunk(env, id, hostTrack.track.id, 0, "AAAA", cookie);
   await putChunk(env, id, hostTrack.track.id, 1, "BBBB", cookie);

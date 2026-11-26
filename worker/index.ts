@@ -578,7 +578,11 @@ app.put("/api/studios/:id/iso/:trackId/chunks/:index", async (c) => {
     bytes: buf.byteLength,
   });
   if (!res.ok) return new Response(res.body, { status: res.status, headers: res.headers });
-  await c.env.RECORDINGS.put(isoChunkKey(id, trackId, index), buf);
+  try {
+    await c.env.RECORDINGS.put(isoChunkKey(id, trackId, index), buf);
+  } catch {
+    return c.json({ error: "upload failed" }, 502);
+  }
   return new Response(res.body, { status: res.status, headers: res.headers });
 });
 

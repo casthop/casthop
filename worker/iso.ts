@@ -10,22 +10,23 @@ export const ISO_TRACKS_PER_IDENTITY = 4;
 /** Per live session, and the max listed history after dropping the oldest. */
 export const ISO_TRACKS_MAX = 100;
 
+export type IsoStartPlan = { kept: IsoTrack[]; dropped: string[] };
+
 /** Null if this start should 429. Otherwise the list to append to, with old history trimmed. */
-export function isoTracksForStart(tracks: IsoTrack[], identity: string, sessionId: string): IsoTrack[] | null {
+export function isoTracksForStart(tracks: IsoTrack[], identity: string, sessionId: string): IsoStartPlan | null {
   const mine = tracks.filter((row) => row.identity === identity && row.sessionId === sessionId);
   const sessionCount = tracks.filter((row) => row.sessionId === sessionId).length;
   if (mine.length >= ISO_TRACKS_PER_IDENTITY || sessionCount >= ISO_TRACKS_MAX) return null;
-  if (tracks.length < ISO_TRACKS_MAX) return tracks;
+  if (tracks.length < ISO_TRACKS_MAX) return { kept: tracks, dropped: [] };
   const overflow = tracks.length - ISO_TRACKS_MAX + 1;
-  const drop = new Set(
-    tracks
-      .filter((row) => row.sessionId !== sessionId)
-      .sort((a, b) => a.startedAt - b.startedAt)
-      .slice(0, overflow)
-      .map((row) => row.id),
-  );
-  if (drop.size < overflow) return null;
-  return tracks.filter((row) => !drop.has(row.id));
+  const drop = tracks
+    .filter((row) => row.sessionId !== sessionId)
+    .sort((a, b) => a.startedAt - b.startedAt)
+    .slice(0, overflow)
+    .map((row) => row.id);
+  if (drop.length < overflow) return null;
+  const dropSet = new Set(drop);
+  return { kept: tracks.filter((row) => !dropSet.has(row.id)), dropped: drop };
 }
 
 export function isoPrefix(studioId: string, trackId: string): string {
@@ -92,6 +93,11 @@ export async function listIsoChunkKeys(bucket: R2Bucket, studioId: string, track
     cursor = page.truncated ? page.cursor : undefined;
   } while (cursor);
   return keys;
+}
+
+export async function deleteIsoTrackObjects(bucket: R2Bucket, studioId: string, trackId: string): Promise<void> {
+  const keys = await listIsoChunkKeys(bucket, studioId, trackId);
+  if (keys.length) await bucket.delete(keys);
 }
 
 export function concatChunkStream(bucket: R2Bucket, keys: string[]): ReadableStream<Uint8Array> {

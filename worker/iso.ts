@@ -7,7 +7,26 @@ export const ISO_CHUNK_WINDOW_MS = 60_000;
 export const ISO_CHUNK_MAX = 180;
 /** Camera + screen, plus a remount, per person per live. */
 export const ISO_TRACKS_PER_IDENTITY = 4;
+/** Per live session, and the max listed history after dropping the oldest. */
 export const ISO_TRACKS_MAX = 100;
+
+/** Null if this start should 429. Otherwise the list to append to, with old history trimmed. */
+export function isoTracksForStart(tracks: IsoTrack[], identity: string, sessionId: string): IsoTrack[] | null {
+  const mine = tracks.filter((row) => row.identity === identity && row.sessionId === sessionId);
+  const sessionCount = tracks.filter((row) => row.sessionId === sessionId).length;
+  if (mine.length >= ISO_TRACKS_PER_IDENTITY || sessionCount >= ISO_TRACKS_MAX) return null;
+  if (tracks.length < ISO_TRACKS_MAX) return tracks;
+  const overflow = tracks.length - ISO_TRACKS_MAX + 1;
+  const drop = new Set(
+    tracks
+      .filter((row) => row.sessionId !== sessionId)
+      .sort((a, b) => a.startedAt - b.startedAt)
+      .slice(0, overflow)
+      .map((row) => row.id),
+  );
+  if (drop.size < overflow) return null;
+  return tracks.filter((row) => !drop.has(row.id));
+}
 
 export function isoPrefix(studioId: string, trackId: string): string {
   return `iso/${studioId}/${trackId}/`;

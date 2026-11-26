@@ -9,6 +9,8 @@ import {
   isoChunkKey,
   isoMimeOk,
   isoPrefix,
+  isoTracksForStart,
+  ISO_TRACKS_MAX,
   ISO_TRACKS_PER_IDENTITY,
   listIsoChunkKeys,
   mixedFilename,
@@ -160,6 +162,32 @@ test("parseChunkIndex and mime helpers", () => {
     chunks: 1,
     complete: false,
   }), "Ada_Lovelace_-camera.webm");
+});
+
+test("isoTracksForStart caps the live session and drops oldest history", () => {
+  const stub = (id: string, sessionId: string, identity: string, startedAt: number): IsoTrack => ({
+    id,
+    sessionId,
+    identity,
+    name: "n",
+    kind: "camera",
+    mimeType: "video/webm",
+    startedAt,
+    endedAt: null,
+    bytes: 0,
+    chunks: 0,
+    complete: true,
+  });
+  const mine = Array.from({ length: ISO_TRACKS_PER_IDENTITY }, (_, i) => stub(`m${i}`, "now", "host", i));
+  assert.equal(isoTracksForStart(mine, "host", "now"), null);
+
+  const old = Array.from({ length: ISO_TRACKS_MAX }, (_, i) => stub(`old${i}`, "prev", "g", i));
+  const kept = isoTracksForStart(old, "host", "now");
+  assert.equal(kept?.length, ISO_TRACKS_MAX - 1);
+  assert.equal(kept?.[0]?.id, "old1");
+
+  const sessionFull = Array.from({ length: ISO_TRACKS_MAX }, (_, i) => stub(`s${i}`, "now", `g-${i}`, i));
+  assert.equal(isoTracksForStart(sessionFull, "host", "now"), null);
 });
 
 test("R2 chunk keys sort and concat in order", async () => {

@@ -1,14 +1,6 @@
 import { DEST_CHAT_BACKOFF_MS, destChatProviders, type YoutubeTokenCache } from "./chat-ingest";
 import { defaultDestinations, MAX_ON_STAGE, type Env, type IsoTrack, type LayoutId, type StudioState } from "./types";
-import {
-  ISO_CHUNK_MAX_BYTES,
-  ISO_TRACKS_MAX,
-  ISO_TRACKS_PER_IDENTITY,
-  isoKindOk,
-  isoMimeOk,
-  mixedFilename,
-  parseChunkIndex,
-} from "./iso";
+import { ISO_CHUNK_MAX_BYTES, isoKindOk, isoMimeOk, isoTracksForStart, mixedFilename, parseChunkIndex } from "./iso";
 import {
   asIdentity,
   asName,
@@ -310,11 +302,8 @@ export class StudioDurableObject {
       const mimeType = typeof body.mimeType === "string" ? body.mimeType.trim().slice(0, 80) : "";
       if (!isoMimeOk(mimeType)) return json({ error: "mimeType required" }, 400);
       const startedAt = typeof body.startedAt === "number" && Number.isFinite(body.startedAt) ? body.startedAt : Date.now();
-      const tracks = state.isoTracks ?? [];
-      const mine = tracks.filter((row) => row.identity === person.identity && row.sessionId === state.isoSessionId);
-      if (mine.length >= ISO_TRACKS_PER_IDENTITY || tracks.length >= ISO_TRACKS_MAX) {
-        return json({ error: "too many tracks" }, 429);
-      }
+      const kept = isoTracksForStart(state.isoTracks ?? [], person.identity, state.isoSessionId);
+      if (!kept) return json({ error: "too many tracks" }, 429);
       const track: IsoTrack = {
         id: randomId(8).toLowerCase(),
         sessionId: state.isoSessionId,
@@ -328,7 +317,7 @@ export class StudioDurableObject {
         chunks: 0,
         complete: false,
       };
-      state.isoTracks = [...tracks, track];
+      state.isoTracks = [...kept, track];
       await this.putState(state);
       return json({ track });
     }

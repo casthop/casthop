@@ -68,9 +68,9 @@ export function comparePerf(measured: PerfMeasured, baseline: PerfBaseline): { r
 export function compareWorkerToMain(worker: PerfMeasured, main: PerfMeasured): { rows: PerfRow[]; ok: boolean } {
   const expectedFrames = WORKER_OUTPUT_FPS * worker.seconds;
   const rows: PerfRow[] = [
-    // Typical VideoFrame cost is ~2–3 ms above the <video> path. p95 vs main is the
-    // 60 fps rAF tail on a different loop; GHA swings 0.8–1.6× with no code change.
-    row("p50 frame ms", worker.p50FrameMs, main.p50FrameMs, 4, true),
+    // Typical VideoFrame cost is ~2–3 ms above the <video> path. Fast GHA boxes have
+    // hit ~4.3 ms with no code change. p95 vs main is a different loop (30 vs 60 fps).
+    row("p50 frame ms", worker.p50FrameMs, main.p50FrameMs, 5, true),
     cap("p95 30fps slot ms", worker.p95FrameMs, WORKER_FRAME_BUDGET_MS, true),
     row("long task total ms", worker.longTaskTotalMs, main.longTaskTotalMs, 50, true),
     band("worker frames", worker.frames, expectedFrames, 0, true),

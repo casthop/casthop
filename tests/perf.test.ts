@@ -118,7 +118,8 @@ test("compareWorkerToMain passes GHA fast-main tails that still hold 30fps", () 
   const worker = { ...main, thread: "worker", frames: 902, p50FrameMs: 9.4, p95FrameMs: 13.64 };
   assert.equal(compareWorkerToMain(worker, main).ok, true);
   assert.ok(WORKER_FRAME_BUDGET_MS > 33 && WORKER_FRAME_BUDGET_MS < 34);
-  assert.equal(compareWorkerToMain({ ...worker, p50FrameMs: 12 }, main).ok, false);
+  assert.equal(compareWorkerToMain({ ...worker, p50FrameMs: 11.9, frames: 911 }, { ...main, p50FrameMs: 7.6, frames: 1795 }).ok, true);
+  assert.equal(compareWorkerToMain({ ...worker, p50FrameMs: 13 }, main).ok, false);
   const flake = {
     ...main,
     p50FrameMs: 6.3,

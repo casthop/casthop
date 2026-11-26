@@ -159,6 +159,48 @@ export async function updateParticipantPublish(env: Env, room: string, identity:
   );
 }
 
+export function isParticipantMissingError(err: unknown): boolean {
+  const text = err instanceof Error ? err.message : String(err);
+  return /participant does not exist|participant not found|not (?:present|found) in (?:the )?room/i.test(text);
+}
+
+export function publishPermissionError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  return publicError(raw) ?? "could not update stage permissions";
+}
+
+/** Delayed retries after the first UpdateParticipant miss, while the guest is still joining LiveKit. */
+export const PUBLISH_RETRY_DELAYS_MS = [300, 600, 1200, 2500, 5000];
+
+export type StagePublish = boolean | (() => boolean | Promise<boolean | null>);
+
+async function resolveStagePublish(value: StagePublish): Promise<boolean | null> {
+  return typeof value === "function" ? value() : value;
+}
+
+export async function retryUpdateParticipantPublish(
+  env: Env,
+  room: string,
+  identity: string,
+  canPublish: StagePublish,
+  opts?: { delaysMs?: number[]; sleep?: (ms: number) => Promise<void> },
+): Promise<void> {
+  const delays = opts?.delaysMs ?? PUBLISH_RETRY_DELAYS_MS;
+  const sleep = opts?.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  for (const ms of delays) {
+    await sleep(ms);
+    const on = await resolveStagePublish(canPublish);
+    if (on === null) return;
+    try {
+      await updateParticipantPublish(env, room, identity, on);
+      return;
+    } catch (err) {
+      if (!isParticipantMissingError(err)) throw err;
+    }
+  }
+  throw new Error("participant does not exist");
+}
+
 export async function removeParticipant(env: Env, room: string, identity: string): Promise<void> {
   await twirp(env, "/twirp/livekit.RoomService/RemoveParticipant", { room, identity });
 }

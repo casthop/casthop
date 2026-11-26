@@ -2,47 +2,77 @@
 import Base from "./Base.astro";
 import Logo from "../components/Logo.astro";
 import ExtLink from "../components/ExtLink.astro";
+import LanguageSwitcher from "../components/LanguageSwitcher.astro";
+import NavMore from "../components/NavMore.astro";
 import { GITHUB } from "../lib/site";
-import { sortedDocs, groupDocs, plainText, type Doc } from "../lib/docs";
+import { docsFor, groupDocs, parseDocId, plainText, type Doc } from "../lib/docs";
+import { t, withLocale, type Locale } from "../i18n";
 
-interface Props { doc: Doc; headings: { depth: number; slug: string; text: string }[]; }
-const { doc, headings } = Astro.props;
-const docs = await sortedDocs();
+interface Props {
+  doc: Doc;
+  headings: { depth: number; slug: string; text: string }[];
+  locale: Locale;
+}
+const { doc, headings, locale } = Astro.props;
+const { slug } = parseDocId(doc.id);
+const path = `/docs/${slug}/`;
+const docs = await docsFor(locale);
 const groups = groupDocs(docs);
 const index = docs.map((d) => ({
   title: d.data.title,
   group: d.data.group,
-  url: `/docs/${d.id}`,
+  url: withLocale(locale, `/docs/${parseDocId(d.id).slug}/`),
   text: plainText(d.body ?? ""),
 }));
-const i = docs.findIndex((d) => d.id === doc.id);
+const i = docs.findIndex((d) => parseDocId(d.id).slug === slug);
 const prev = docs[i - 1];
 const next = docs[i + 1];
 const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
 ---
-<Base title={`${doc.data.title} — Casthop docs`} description={doc.data.description} theme="light">
+<Base
+  title={`${doc.data.title} — ${t(locale, "docsTitleSuffix")}`}
+  description={doc.data.description}
+  theme="light"
+  locale={locale}
+  path={path}
+  skip={t(locale, "skip")}
+>
   <header class="dtop">
     <div class="dtop-in">
-      <a href="/" class="nav-logo" aria-label="Casthop home"><Logo /></a>
-      <nav class="tabs" aria-label="Sections">
-        <a href="/docs" aria-current="page">Documentation</a>
-        <ExtLink href={GITHUB}>GitHub</ExtLink>
+      <a href={withLocale(locale, "/")} class="nav-logo" aria-label={t(locale, "brandHome")}><Logo /></a>
+      <nav class="tabs" aria-label={t(locale, "docsSections")}>
+        <a href={withLocale(locale, "/docs/")} aria-current="page">{t(locale, "docsNav")}</a>
+        <ExtLink href={GITHUB}>{t(locale, "navGithub")}</ExtLink>
       </nav>
-      <button type="button" class="search-btn" id="search-open" aria-label="Search docs" aria-keyshortcuts="Control+K Meta+K">
-        <span>Search docs</span><kbd>Ctrl K</kbd>
+      <NavMore label={t(locale, "navMenu")} id="docs-nav-more">
+        <a href={withLocale(locale, "/docs/")}>{t(locale, "docsNav")}</a>
+        <ExtLink href={GITHUB}>{t(locale, "navGithub")}</ExtLink>
+      </NavMore>
+      <button type="button" class="search-btn" id="search-open" aria-label={t(locale, "searchDocs")} aria-keyshortcuts="Control+K Meta+K">
+        <svg class="search-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5" />
+          <path d="M10.5 10.5 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+        </svg>
+        <span class="search-label">{t(locale, "searchDocs")}</span><kbd>Ctrl K</kbd>
       </button>
+      <LanguageSwitcher locale={locale} path={path} label={t(locale, "language")} />
     </div>
   </header>
 
   <div class="dshell">
-    <aside class="dside" aria-label="Documentation">
+    <aside class="dside" aria-label={t(locale, "docsNav")}>
       <nav class="dnav">
         {groups.map((g) => (
           <div class="dgroup">
             <p class="dgroup-t">{g.group}</p>
             <ul>
               {g.items.map((d) => (
-                <li><a href={`/docs/${d.id}`} aria-current={d.id === doc.id ? "page" : undefined}>{d.data.title}</a></li>
+                <li>
+                  <a
+                    href={withLocale(locale, `/docs/${parseDocId(d.id).slug}/`)}
+                    aria-current={parseDocId(d.id).slug === slug ? "page" : undefined}
+                  >{d.data.title}</a>
+                </li>
               ))}
             </ul>
           </div>
@@ -57,16 +87,24 @@ const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
         <p class="dlede">{doc.data.description}</p>
         <slot />
       </article>
-      <nav class="pager" aria-label="Pagination">
-        {prev ? <a href={`/docs/${prev.id}`}><span class="small muted">Previous</span>{prev.data.title}</a> : <span />}
-        {next ? <a class="pager-next" href={`/docs/${next.id}`}><span class="small muted">Next</span>{next.data.title}</a> : <span />}
+      <nav class="pager" aria-label={t(locale, "pagination")}>
+        {prev ? (
+          <a href={withLocale(locale, `/docs/${parseDocId(prev.id).slug}/`)}>
+            <span class="small muted">{t(locale, "previous")}</span>{prev.data.title}
+          </a>
+        ) : <span />}
+        {next ? (
+          <a class="pager-next" href={withLocale(locale, `/docs/${parseDocId(next.id).slug}/`)}>
+            <span class="small muted">{t(locale, "next")}</span>{next.data.title}
+          </a>
+        ) : <span />}
       </nav>
     </main>
 
-    <aside class="dtoc" aria-label="On this page">
+    <aside class="dtoc" aria-label={t(locale, "onThisPage")}>
       {toc.length > 0 && (
         <>
-          <p class="dgroup-t">On this page</p>
+          <p class="dgroup-t">{t(locale, "onThisPage")}</p>
           <ul>
             {toc.map((h) => <li class={h.depth === 3 ? "sub" : ""}><a href={`#${h.slug}`}>{h.text}</a></li>)}
           </ul>
@@ -75,11 +113,11 @@ const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
     </aside>
   </div>
 
-  <dialog id="search" class="search" aria-label="Search docs">
+  <dialog id="search" class="search" aria-label={t(locale, "searchDocs")} data-empty={t(locale, "searchEmpty")}>
     <form method="dialog" class="search-form">
-      <input id="search-q" type="search" placeholder="Search docs" autocomplete="off" aria-label="Search docs" />
-      <ul id="search-results" role="listbox" aria-label="Results"></ul>
-      <p class="small muted search-hint">Esc to close · ↑ ↓ to move · Enter to open</p>
+      <input id="search-q" type="search" placeholder={t(locale, "searchDocs")} autocomplete="off" aria-label={t(locale, "searchDocs")} />
+      <ul id="search-results" role="listbox" aria-label={t(locale, "searchResults")}></ul>
+      <p class="small muted search-hint">{t(locale, "searchHint")}</p>
     </form>
   </dialog>
   <script type="application/json" id="search-index" set:html={JSON.stringify(index).replace(/</g, "\\u003c")} />

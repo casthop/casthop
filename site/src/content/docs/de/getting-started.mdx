@@ -1,0 +1,68 @@
+---
+title: Erste Schritte
+description: Starte Casthop lokal mit Docker und geh live auf lokale RTMP-Platzhalter.
+group: Start
+order: 1
+---
+
+Linux mit Docker-Host-Networking ist der unterstützte lokale Weg. Docker nutzt Host-Networking, damit Browser, LiveKit-ICE, Egress und RTMP alle `127.0.0.1` sehen.
+
+## Bevor du startest
+
+- [Bun](https://bun.com) 1.4+ (das Repo pinnt `packageManager` auf Bun). Kein npm.
+- Docker mit Compose.
+- Ein Linux-Host. Host-Networking gibt es nur unter Linux, siehe [Docker Desktop](#docker-desktop-macos-und-windows) weiter unten.
+
+Du brauchst keine Rust-Toolchain. Das vorgebaute `src/wasm/casthop_media.wasm` liegt im Git, der Dev-Server läuft also ohne Rust. Bau es nur neu, wenn du die Crate änderst (rustc 1.100+ und Target `wasm32-unknown-unknown`).
+
+## Starten
+
+Im Root des [Casthop-Repos](https://github.com/casthop/casthop):
+
+```bash
+cp .env.example .env
+cp .dev.vars.example .dev.vars   # Worker secrets, gitignored
+mkdir -p data/recordings data/rtmp && chmod 777 data/recordings
+docker compose up -d
+bun install
+bun run dev
+```
+
+Die Seite, die du gerade liest, ist ein eigenes Paket unter `site/` (`cd site && bun install && bun run dev`).
+
+`docker compose up -d` startet Redis, LiveKit, LiveKit Egress und MediaMTX. LiveKit, Redis und MediaMTX binden `127.0.0.1`, der veröffentlichte `devkey` ist also nicht aus deinem LAN erreichbar.
+
+## Dein erster Stream
+
+1. Öffne [http://127.0.0.1:5173](http://127.0.0.1:5173).
+2. Gib deine E-Mail ein, um einen Magic-Link zu bekommen. Lokal druckt der Worker den Link in die Konsole; kopiere ihn aus dem Terminal, in dem `bun run dev` läuft.
+3. Öffne ein Studio.
+4. Kopiere den Gastlink und schick ihn an alle, die dazukommen sollen. Siehe [Gäste](/docs/guests).
+5. Hol die Leute auf die Bühne. Bis zu sechs.
+6. Drück **Live gehen**, wähl Ziele im Dialog und bestätige. Die Live-Pille bleibt auf Starten, bis Egress Ausgabe liefert. Jedes Ziel in der Leiste zeigt den eigenen RTMP-Status.
+
+Standard sind lokale MediaMTX-Platzhalter für YouTube, LinkedIn und X. Siehe [Ziele](/docs/destinations), um sie anzusehen und auf echten Ingest zu zeigen.
+
+## Optional: GitHub-Anmeldung
+
+Setze `GITHUB_CLIENT_ID` und `GITHUB_CLIENT_SECRET` in `.dev.vars`. Bleiben sie leer, ist der GitHub-Button unsichtbar. Der Magic-Link per E-Mail funktioniert in beiden Fällen.
+
+## Optional: YouTube-Live-Chat
+
+Solange das Studio live ist, kann Casthop YouTube-Kommentare ins Studio-Chatpanel ziehen. Setze `YOUTUBE_API_KEY` plus `YOUTUBE_LIVE_CHAT_ID` oder `YOUTUBE_VIDEO_ID` in `.dev.vars`, oder einen YouTube-OAuth-Refresh-Token. Ohne das bleiben Ziel-Kommentare versteckt und das Studio bricht nicht ab. Siehe [Konfiguration](/docs/configuration) und [Ziele](/docs/destinations).
+
+## Ohne Kameras
+
+Gibt es keine Kamera, fällt die App auf ein generiertes Canvas und eine stille Audiospur zurück, eine VM ohne `/dev/video0` kann also trotzdem beitreten. Chrome lässt sich auch mit `--use-fake-device-for-media-stream` starten.
+
+## Docker Desktop (macOS und Windows)
+
+Host-Networking gibt es nur unter Linux. Unter Docker Desktop musst du `network_mode: host` entfernen, `127.0.0.1:7880-7882`, `127.0.0.1:1935`, `127.0.0.1:8888`, `127.0.0.1:6379` und `127.0.0.1:9090` veröffentlichen, LiveKits `rtc.node_ip` auf `host.docker.internal` setzen und Egress-`ws_url` sowie Redis auf diesen Host zeigen. ICE von einem Browser auf derselben Maschine ist fummelig. Linux ist vorerst der unterstützte Weg.
+
+## Prüfen, dass es läuft
+
+- Health: [http://127.0.0.1:5173/api/health](http://127.0.0.1:5173/api/health)
+- Latenz-Probe (nur Dev): [http://127.0.0.1:5173/internal/probe](http://127.0.0.1:5173/internal/probe)
+- Lastmessung mit 2, 4 und 6 Publishern: `bun run measure`
+
+Tests, das Perf-Gate und wie du einen PR öffnest: [CONTRIBUTING.md](https://github.com/casthop/casthop/blob/main/CONTRIBUTING.md) im Repo.

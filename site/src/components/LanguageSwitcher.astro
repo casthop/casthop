@@ -1,0 +1,43 @@
+---
+import { LOCALES, localeNativeName, localeShortCode, withLocale, type Locale } from "../i18n";
+
+interface Props { locale: Locale; path: string; label: string; }
+const { locale, path, label } = Astro.props;
+---
+<div class="lang-switch" data-disclosure-root>
+  <button
+    type="button"
+    class="lang-switch-btn"
+    aria-haspopup="true"
+    aria-expanded="false"
+    aria-controls="lang-menu"
+    aria-label={label}
+    data-disclosure
+    data-locale-switcher
+  >
+    <span class="lang-switch-name">🌐 {localeNativeName(locale)}</span>
+    <span class="lang-switch-code">🌐 {localeShortCode(locale)}</span>
+  </button>
+  <ul id="lang-menu" hidden aria-label={label} data-disclosure-panel>
+    {LOCALES.map((id) => (
+      <li>
+        <a href={withLocale(id, path)} hreflang={id} data-set-locale={id} aria-current={id === locale ? "true" : undefined}>{localeNativeName(id)}</a>
+      </li>
+    ))}
+  </ul>
+</div>
+<script>
+  import { bindDisclosures } from "../lib/disclosure";
+  bindDisclosures();
+  const KEY = "casthop.locale";
+  for (const root of document.querySelectorAll(".lang-switch")) {
+    if (!(root instanceof HTMLElement) || root.dataset.localeBound === "1") continue;
+    root.dataset.localeBound = "1";
+    root.querySelectorAll("a[data-set-locale]").forEach((a) => {
+      a.addEventListener("click", () => {
+        const id = a.getAttribute("data-set-locale");
+        if (id) try { localStorage.setItem(KEY, id); } catch { /* ignore */ }
+      });
+    });
+  }
+</script>

@@ -1,5 +1,0 @@
-# Cloudflare Pages project for the marketing site + docs.
-# Do not reuse the "casthop" Worker name — that is the waitlist app.
-name = "casthop-site"
-compatibility_date = "2026-11-25"
-pages_build_output_dir = "./dist"

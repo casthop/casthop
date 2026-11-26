@@ -1,0 +1,57 @@
+---
+title: Ziele
+description: RTMP-Ziele, lokale Platzhalter, Status, Aufzeichnungen und wer volle URLs sieht.
+group: Betrieb
+order: 5
+---
+
+Ein Ziel ist eine RTMP-URL. Casthop schickt dasselbe Composite an alle Ziele gleichzeitig, mit einem Transcode in Egress.
+
+## Lokale Platzhalter
+
+Von Haus aus sind die Ziele MediaMTX-Platzhalter für YouTube, LinkedIn und X:
+
+| Ziel | Ingest | Ansehen |
+|---|---|---|
+| YouTube-Platzhalter | `rtmp://127.0.0.1:1935/live/youtube` | `ffprobe rtmp://127.0.0.1:1935/live/youtube` |
+| LinkedIn-Platzhalter | `rtmp://127.0.0.1:1935/live/linkedin` | dasselbe, `/live/linkedin` |
+| X-Platzhalter | `rtmp://127.0.0.1:1935/live/x` | dasselbe, `/live/x` |
+
+## Echte Ziele
+
+Für Produktion diese durch echte YouTube-, LinkedIn- und X-Ingest-URLs ersetzen. Casthop prüft Ziele: von Clients werden nur `rtmp:`-URLs akzeptiert, private Netze (RFC 1918) werden abgelehnt.
+
+## Status, Live und Recovery
+
+Jede Zielzeile zeigt den eigenen RTMP-Status (`connecting`, `live`, `retrying`, `failed`). Die Studio-Live-Pille bleibt auf Starten, bis Egress produziert: Stream-Bytes oder -Dauer, oder ein kurzes Settle nach RTMP-`started_at`. Sie wird nicht Live, nur weil der Compositor-Prozess existiert.
+
+Fällt Egress oder ein Stream aus, versucht das Studio es mit Backoff erneut. Das hängt an signierten LiveKit-Webhooks, siehe [Self-Hosting](/docs/self-hosting).
+
+## Aufzeichnungen
+
+| Wo | Was |
+|---|---|
+| `data/recordings/` | Egress-MP4 des Composites. |
+| `data/rtmp/` | MediaMTX-fMP4 vom lokalen RTMP-Edge. |
+
+Eine Aufnahme mit dem Rust-Helper inspizieren:
+
+```bash
+cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
+```
+
+Um zu prüfen, dass eine Aufnahme nicht still ist: `bash scripts/check-silent-audio.sh data/recordings/<file>.mp4`.
+
+## Chat
+
+Leute im Studio können Kommentare in den Raum schicken. Solange die Show live ist, kann Casthop außerdem YouTube-Live-Chat abfragen (`liveChatMessages.list`) und diese Kommentare ins selbe Panel mischen. Hosts und Co-Hosts können einen Kommentar auf das Compositor-Overlay pinnen (Canvas2D-Lower-Third-Stack). Polling nutzt das `pollingIntervalMillis` der API. Ohne Credentials bleibt YouTube-Ingest versteckt; das Studio bricht nicht ab.
+
+Braucht Worker secrets: `YOUTUBE_API_KEY` plus `YOUTUBE_LIVE_CHAT_ID` oder `YOUTUBE_VIDEO_ID`, oder das OAuth-Refresh-Trio (`YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN`), das die aktive Sendung des Owners nachschlägt. Siehe [Konfiguration](/docs/configuration).
+
+Die X-API braucht eine bezahlte Stufe. LinkedIn-Live-Kommentare brauchen eine Partner-API. Beides ist nicht verdrahtet. Es gibt kein VOD / Replay des Ziel-Chats; Polling läuft nur, solange das Studio live ist. Der YouTube-Page-Token-Cursor bleibt im Durable-Object-Speicher und geht nie an Gäste oder öffentlichen GET- / WebSocket-State.
+
+## Wer sieht was
+
+- **Eigentümer und Co-Hosts** bekommen volle Ziel-URLs, wenn sie angemeldet sind (Session-Cookie).
+- **Gäste und öffentliche Requests** bekommen nur ein maskiertes Suffix und ein `hasKey`-Flag. Das gilt für `GET /api/studios/:id` und den WebSocket-`state`-Frame.
+- Stream-Keys liegen im Durable-Object-Speicher, nicht im Repo.

@@ -23,7 +23,7 @@ You do not need a Rust toolchain to run the UI. Prebuilt `src/wasm/casthop_media
 
 Docs site: `cd site && bun install && bun run dev`.
 
-Env vars: [.env.example](.env.example), [.dev.vars.example](.dev.vars.example), and [Configuration](site/src/content/docs/configuration.mdx).
+Env vars: [.env.example](.env.example), [.dev.vars.example](.dev.vars.example), and [Configuration](site/src/content/docs/en/configuration.mdx).
 
 ## Tests
 

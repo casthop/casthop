@@ -23,6 +23,8 @@ let githubEmails: { email: string; primary?: boolean; verified?: boolean }[] = [
 let githubUserEmail: string | null = null;
 let githubUserId = 99;
 let githubFetchThrows = false;
+let updateParticipantStatus = 200;
+let updateParticipantError = "participant does not exist";
 
 function jwtPayload(token: string): { sub: string; name: string; exp: number; video: Record<string, unknown> } {
   const payload = token.split(".")[1];
@@ -189,6 +191,10 @@ before(() => {
       const parsed = raw ? (JSON.parse(raw) as { identity?: string }) : {};
       livekitRemoved.push(parsed.identity ?? "");
       return new Response("{}", { status: 200 });
+    }
+    if (url.includes("UpdateParticipant")) {
+      if (updateParticipantStatus === 200) return new Response("{}", { status: 200 });
+      return new Response(updateParticipantError, { status: updateParticipantStatus });
     }
     if (url.includes("/twirp/livekit.")) {
       return new Response("{}", { status: 200 });
@@ -779,6 +785,78 @@ test("H1: guests cannot pick identity, impersonate host, or steal another guest"
     ),
   );
   assert.equal(onStage.canPublish, true);
+});
+
+test("staging a guest who is not in LiveKit yet still records onStage", async () => {
+  updateParticipantStatus = 404;
+  updateParticipantError = "participant does not exist";
+  try {
+    const env = makeEnv();
+    const cookie = await signIn(env, "stage-missing@example.com");
+    const { id } = await createStudio(env, cookie);
+    const guest = await json<{ identity: string }>(
+      await app.request(
+        `https://casthop.test/api/studios/${id}/token`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "Ada", role: "guest" }),
+        },
+        env,
+      ),
+    );
+    const res = await app.request(
+      `https://casthop.test/api/studios/${id}/stage`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: cookie },
+        body: JSON.stringify({ identity: guest.identity, on: true }),
+      },
+      env,
+    );
+    assert.equal(res.status, 200, await res.clone().text());
+    const state = await json<PublicStudio>(res);
+    const person = state.participants.find((p) => p.identity === guest.identity);
+    assert.equal(person?.onStage, true);
+  } finally {
+    updateParticipantStatus = 200;
+  }
+});
+
+test("staging surfaces LiveKit permission errors that are not a missing participant", async () => {
+  updateParticipantStatus = 500;
+  updateParticipantError = "internal error";
+  try {
+    const env = makeEnv();
+    const cookie = await signIn(env, "stage-fail@example.com");
+    const { id } = await createStudio(env, cookie);
+    const guest = await json<{ identity: string }>(
+      await app.request(
+        `https://casthop.test/api/studios/${id}/token`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "Ada", role: "guest" }),
+        },
+        env,
+      ),
+    );
+    const res = await app.request(
+      `https://casthop.test/api/studios/${id}/stage`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: cookie },
+        body: JSON.stringify({ identity: guest.identity, on: true }),
+      },
+      env,
+    );
+    assert.equal(res.status, 200, await res.clone().text());
+    const body = await json<PublicStudio & { warning?: string }>(res);
+    assert.match(body.warning ?? "", /internal error/i);
+    assert.equal(body.participants.find((p) => p.identity === guest.identity)?.onStage, true);
+  } finally {
+    updateParticipantStatus = 200;
+  }
 });
 
 test("C2: live without an owner or co-host session does not start or stop Egress", async () => {

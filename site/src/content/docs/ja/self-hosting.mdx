@@ -1,0 +1,71 @@
+---
+title: セルフホスト
+description: メディアプレーンは自分で動かし、Worker をコントロールプレーンとしてデプロイする。
+group: 運用
+order: 3
+---
+
+Casthop は、LiveKit の Twirp API でやり取りする二つの半面でできています。
+
+- **メディアプレーン:** LiveKit、Egress、Redis、RTMP エッジ。
+- **コントロールプレーン:** Durable Objects と D1 付きの Cloudflare Worker。
+
+リポジトリの [`docker-compose.yml`](https://github.com/casthop/casthop/blob/main/docker-compose.yml) が、ローカル用のメディアプレーンです。設定ファイルは [`infra/`](https://github.com/casthop/casthop/tree/main/infra) にあります。
+
+## 1. メディアプレーン
+
+LiveKit、Egress、Redis に加えて、RTMP エッジを動かします。エッジは MediaMTX（compose が使うもの）、nginx-rtmp、あるいは YouTube のような本番の配信先でも構いません。
+
+## 2. 本番の API キー
+
+リポジトリに入っている公開 `devkey` ペアは、ローカル専用です。本番用のキーを作ってください:
+
+```bash
+lk generate-keys
+```
+
+`infra/livekit.yaml` と `infra/egress.yaml` のローカル既定値を差し替えます。
+
+公開 `devkey` をループバック以外の LiveKit URL と組み合わせると、Worker は 503 を返します。意図した動きです。
+
+## 3. Webhooks
+
+LiveKit の `webhook.urls` を次に向けます:
+
+```
+https://<worker>/api/livekit/webhook
+```
+
+Webhook は署名付きです。Egress のクラッシュや RTMP の切断がスタジオに届き、再試行できます。Live 表示は、本当の出力（バイト数 / 尺、または短い RTMP の settle）を待ってから Live になります。
+
+## 4. Worker をデプロイする
+
+```bash
+wrangler deploy
+```
+
+秘密情報は Worker secrets に置き、git には入れないでください:
+
+```bash
+wrangler secret put LIVEKIT_API_SECRET
+wrangler secret put HOST_KEY_SECRET
+```
+
+専用の `HOST_KEY_SECRET` を設定してください。未設定だとホストキーは LiveKit のシークレットに落ちるので、LiveKit キーを回すと既存スタジオから締め出されます。
+
+## 5. 公開オリジンとプロキシ
+
+- `PUBLIC_ORIGIN` に公開サイトの URL を置きます。マジックリンクのメール、共同ホストの招待、GitHub のコールバックに使います。未設定だとループバックの Host が使われるので、本番では必ず設定し、偽装 Host が攻撃者向けのリンクを作れないようにします。
+- リバースプロキシの後ろでは `CASTHOP_TRUST_FORWARDED=1` を付け、IP ごとのサインイン制限が本当のクライアントアドレスを見るようにします。無いと全員が一つの `local` バケットを共有します。Cloudflare は `request.cf` を付けるので、そちらでは不要です。`wrangler dev` では有効にしないでください。
+
+## 6. サインイン
+
+サインインはメールのマジックリンクです。既定ではリンクは Worker のコンソールに出ます。自分のメーラーへ JSON `{ to, subject, text }` を POST するには `MAIL_WEBHOOK_URL` を設定します。GitHub OAuth は任意です。[設定](/docs/configuration) を見てください。
+
+## 7. 配信先と録画
+
+配信先 URL を、本番の YouTube、LinkedIn、X インジェストへ向けます。[配信先](/docs/destinations) を見てください。任意で `casthop-post normalize` を走らせ、できた MP4 をリプレイ用に R2 へコピーできます。R2 はそのつなぎとして bound されています。録画はいまのところ Egress のボリュームに残ります。
+
+## このツリーが扱わないこと
+
+厳しい NAT の向こうのゲスト向け TURN と、R2 のリプレイビューアは未出荷です。YouTube ライブチャットの取り込みは任意（Worker secrets）で、X と LinkedIn のコメントはつながっていません。カメラのぼかし、別スレッドの Canvas2D compose、出力が出てからの Live、Egress クラッシュ時の再試行は入っています。頼る前に、自分の構成を測ってください。環境変数は [設定](/docs/configuration) です。

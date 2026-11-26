@@ -1,0 +1,68 @@
+---
+title: Premiers pas
+description: Lancez Casthop sur votre machine avec Docker, puis passez en direct vers les destinations RTMP locales.
+group: Démarrer
+order: 1
+---
+
+Linux avec Docker en host networking est le chemin local pris en charge. Docker utilise le réseau de l’hôte pour que le navigateur, l’ICE LiveKit, Egress et RTMP voient tous `127.0.0.1`.
+
+## Avant de commencer
+
+- [Bun](https://bun.com) 1.4+ (le dépôt fixe `packageManager` sur Bun). N’utilisez pas npm.
+- Docker avec Compose.
+- Un hôte Linux. Le host networking n’existe que sous Linux ; voir [Docker Desktop](#docker-desktop-macos-et-windows) plus bas.
+
+Pas besoin d’une toolchain Rust. Le `src/wasm/casthop_media.wasm` précompilé est dans le git, donc le serveur de développement démarre sans Rust. Recompilez-le seulement si vous changez le crate (il faut rustc 1.100+ et la cible `wasm32-unknown-unknown`).
+
+## Le lancer
+
+À la racine du [dépôt Casthop](https://github.com/casthop/casthop) :
+
+```bash
+cp .env.example .env
+cp .dev.vars.example .dev.vars   # Worker secrets, gitignored
+mkdir -p data/recordings data/rtmp && chmod 777 data/recordings
+docker compose up -d
+bun install
+bun run dev
+```
+
+Le site que vous lisez est un paquet à part dans `site/` (`cd site && bun install && bun run dev`).
+
+`docker compose up -d` démarre Redis, LiveKit, LiveKit Egress et MediaMTX. LiveKit, Redis et MediaMTX écoutent sur `127.0.0.1`, donc le `devkey` publié n’est pas joignable depuis votre LAN.
+
+## Votre première émission
+
+1. Ouvrez [http://127.0.0.1:5173](http://127.0.0.1:5173).
+2. Entrez votre e-mail pour recevoir un magic link. En local, le Worker imprime le lien dans sa console ; copiez-le depuis le terminal où tourne `bun run dev`.
+3. Ouvrez un studio.
+4. Copiez le lien invité et envoyez-le à ceux qui doivent rejoindre. Voir [Invités](/docs/guests).
+5. Faites monter les gens sur scène. Jusqu’à six.
+6. Appuyez sur **Passer en direct**, choisissez les destinations dans la boîte de dialogue, et confirmez. La pastille Live reste sur Démarrage tant qu’Egress ne produit pas de sortie. Chaque destination du panneau affiche son propre statut RTMP.
+
+Par défaut, les destinations sont des substituts locaux MediaMTX pour YouTube, LinkedIn et X. Voir [Destinations](/docs/destinations) pour les regarder et pointer vers un ingest réel.
+
+## Optionnel : connexion GitHub
+
+Définissez `GITHUB_CLIENT_ID` et `GITHUB_CLIENT_SECRET` dans `.dev.vars`. Laissez-les vides et le bouton GitHub est masqué. Le magic link par e-mail marche dans les deux cas.
+
+## Optionnel : chat en direct YouTube
+
+Pendant que le studio est en direct, Casthop peut ramener les commentaires YouTube dans le panneau de chat. Définissez `YOUTUBE_API_KEY` plus `YOUTUBE_LIVE_CHAT_ID` ou `YOUTUBE_VIDEO_ID` dans `.dev.vars`, ou un refresh token OAuth YouTube. Sans ça, les commentaires de destination restent masqués et le studio ne plante pas. Voir [Configuration](/docs/configuration) et [Destinations](/docs/destinations).
+
+## Sans caméra
+
+S’il n’y a pas de caméra, l’app bascule sur un canvas généré et une piste audio silencieuse, donc une VM sans `/dev/video0` peut quand même rejoindre. Chrome peut aussi démarrer avec `--use-fake-device-for-media-stream`.
+
+## Docker Desktop (macOS et Windows)
+
+Le host networking n’existe que sous Linux. Sur Docker Desktop, il faut retirer `network_mode: host`, publier `127.0.0.1:7880-7882`, `127.0.0.1:1935`, `127.0.0.1:8888`, `127.0.0.1:6379` et `127.0.0.1:9090`, pointer `rtc.node_ip` de LiveKit vers `host.docker.internal`, et le `ws_url` d’Egress ainsi que Redis vers cet hôte. L’ICE depuis un navigateur sur la même machine est délicat. Linux est le chemin pris en charge pour l’instant.
+
+## Vérifier que ça marche
+
+- Santé : [http://127.0.0.1:5173/api/health](http://127.0.0.1:5173/api/health)
+- Probe de latence (dev seulement) : [http://127.0.0.1:5173/internal/probe](http://127.0.0.1:5173/internal/probe)
+- Mesure de charge avec 2, 4 et 6 publishers : `bun run measure`
+
+Les tests, le gate perf, et comment ouvrir une PR : [CONTRIBUTING.md](https://github.com/casthop/casthop/blob/main/CONTRIBUTING.md) dans le dépôt.

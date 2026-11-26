@@ -1,0 +1,29 @@
+---
+title: Gäste
+description: Wie Gäste per Link ins Studio kommen, und was der Host tun muss.
+group: Start
+order: 2
+---
+
+Gäste kommen über einen Link. Sie brauchen kein Konto.
+
+## So läuft’s
+
+1. Der Host öffnet ein Studio und kopiert den Gastlink.
+2. Der Gast öffnet den Link im Browser und gibt einen Namen ein.
+3. Der Gast wartet hinter der Bühne. Der Host sieht ihn, aber er ist noch nicht im Stream.
+4. Der Host holt ihn auf die Bühne. Bis zu sechs gleichzeitig.
+
+![Der Gast-Join-Screen mit einem grünen Testbild.](/guest.png)
+
+*Das grüne Bild ist eine Fake-Kamera in einer Testaufnahme, kein echter Gast.*
+
+## Wer darf was
+
+- **Hosten braucht ein Konto.** Der Host meldet sich per E-Mail-Magic-Link an, oder GitHub, wenn du das eingerichtet hast. Der Eigentümer eines Studios und jeder Co-Host, den er einlädt, kann es steuern.
+- **Gäste können den Host nicht nachahmen.** Identitäten vergibt der Worker, und jede Aktion wird auf dem Server geprüft.
+- **Gäste sehen nie Stream-Keys.** Der öffentliche Studiostatus enthält nur ein maskiertes Suffix jeder Ziel-URL. Siehe [Ziele](/docs/destinations).
+
+## Wenn ein Gast nicht verbindet
+
+TURN für Gäste hinter striktem NAT ist nicht gebaut. Ein Gast in einem restriktiven Netz kann vorerst scheitern.

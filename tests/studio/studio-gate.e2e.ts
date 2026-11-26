@@ -40,6 +40,6 @@ describe("studio without a session", { session: "host" }, () => {
     await guest.getByLabel("Your name").fill("Ada");
     await guest.getByRole("button", { name: "Join backstage" }).click();
     await guest.getByText("Backstage — waiting for the host").waitFor({ timeout: 60_000 });
-    await expect(screen.getByRole("button", "Ada")).toBeVisible({ timeout: 30_000 });
+    await expect(screen.getByRole("button", "Add Ada to stage")).toBeVisible({ timeout: 30_000 });
   });
 });

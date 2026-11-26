@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Logo } from "../components/Logo";
+import { LanguageSwitcher, useI18n } from "../i18n";
 import {
   createStudio,
   getConfig,
@@ -15,14 +16,21 @@ import {
 export function Home() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
+  const { t } = useI18n();
   const [me, setMe] = useState<AccountMe | null | undefined>(undefined);
   const [github, setGithub] = useState(false);
   const [studios, setStudios] = useState<StudioRecord[]>([]);
-  const [title, setTitle] = useState("Weekly product update");
+  const [title, setTitle] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [sentTo, setSentTo] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(params.get("auth") === "invalid" ? "That sign-in link is invalid or expired." : "");
+  const [error, setError] = useState("");
+
+  const titleValue = title ?? t("homeDefaultTitle");
+
+  useEffect(() => {
+    if (params.get("auth") === "invalid") setError(t("homeInvalidLink"));
+  }, [params, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,7 +71,7 @@ export function Home() {
       await requestMagicLink(email);
       setSentTo(email.trim());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not send a link");
+      setError(err instanceof Error ? err.message : t("homeSendFailed"));
     } finally {
       setBusy(false);
     }
@@ -74,10 +82,10 @@ export function Home() {
     setBusy(true);
     setError("");
     try {
-      const studio = await createStudio(title);
+      const studio = await createStudio(titleValue);
       navigate(`/studio/${studio.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not open a studio");
+      setError(err instanceof Error ? err.message : t("homeOpenFailed"));
     } finally {
       setBusy(false);
     }
@@ -94,42 +102,43 @@ export function Home() {
       <div className="home-inner">
         <header>
           <Logo dark />
-          {me ? (
-            <div className="home-account">
-              <span>{me.email || me.name}</span>
-              <button className="btn quiet" type="button" onClick={() => void onLogout()}>
-                Sign out
-              </button>
-            </div>
-          ) : null}
+          <div className="home-tools">
+            {me ? (
+              <div className="home-account">
+                <span>{me.email || me.name}</span>
+                <button className="btn quiet" type="button" onClick={() => void onLogout()}>
+                  {t("homeSignOut")}
+                </button>
+              </div>
+            ) : null}
+            <LanguageSwitcher tone="light" />
+          </div>
         </header>
 
-        {me === undefined ? <p className="lede">Loading…</p> : null}
+        {me === undefined ? <p className="lede">{t("loading")}</p> : null}
 
         {me === null ? (
           <>
-            <h1>Sign in</h1>
-            <p className="lede">Email a link. No password. Guests still join a studio from an invite, without an account.</p>
+            <h1>{t("homeSignIn")}</h1>
+            <p className="lede">{t("homeSignInLede")}</p>
             {sentTo ? (
-              <p className="sent-note">
-                Link sent to {sentTo}. On this machine the Worker also prints the URL in the console.
-              </p>
+              <p className="sent-note">{t("homeLinkSent", { email: sentTo })}</p>
             ) : (
               <form onSubmit={onSignIn}>
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  aria-label="Email"
-                  placeholder="you@example.com"
+                  aria-label={t("homeEmail")}
+                  placeholder={t("homeEmailPlaceholder")}
                   required
                 />
                 <button className="btn primary" type="submit" disabled={busy}>
-                  {busy ? "Sending…" : "Email me a link"}
+                  {busy ? t("homeSending") : t("homeEmailMe")}
                 </button>
                 {github ? (
                   <a className="btn" href="/api/auth/github">
-                    Continue with GitHub
+                    {t("homeGitHub")}
                   </a>
                 ) : null}
                 {error ? <p className="err">{error}</p> : null}
@@ -140,35 +149,35 @@ export function Home() {
 
         {me ? (
           <>
-            <h1>Open a studio</h1>
-            <p className="lede">Guests join from a link. No account. Up to six people on stage, live to several RTMP destinations.</p>
+            <h1>{t("homeOpenStudio")}</h1>
+            <p className="lede">{t("homeOpenLede")}</p>
             <form onSubmit={onCreate}>
               <input
-                value={title}
+                value={titleValue}
                 onChange={(e) => setTitle(e.target.value)}
-                aria-label="Studio title"
+                aria-label={t("homeStudioTitle")}
                 maxLength={80}
               />
               <button className="btn primary" type="submit" disabled={busy}>
-                {busy ? "Opening…" : "Open studio"}
+                {busy ? t("homeOpening") : t("homeOpen")}
               </button>
               {error ? <p className="err">{error}</p> : null}
             </form>
             {studios.length ? (
               <section className="studio-list">
-                <h2>Your studios</h2>
+                <h2>{t("homeYourStudios")}</h2>
                 {studios.map((s) => (
                   <div className="studio-block" key={s.id}>
                     <a className="studio-row" href={`/studio/${s.id}`}>
                       <b>{s.title}</b>
-                      <span>{s.role === "owner" ? "Owner" : "Co-host"}</span>
+                      <span>{s.role === "owner" ? t("roleOwner") : t("roleCohost")}</span>
                     </a>
                     {s.replays?.length ? (
                       <ul className="replay-list">
                         {s.replays.map((r) => (
                           <li className="replay-row" key={r.id}>
                             <a href={`/watch/${r.id}`}>{r.title}</a>
-                            <span>{r.visibility === "public" ? "Public" : "Private"}</span>
+                            <span>{r.visibility === "public" ? t("replayPublic") : t("replayPrivate")}</span>
                           </li>
                         ))}
                       </ul>

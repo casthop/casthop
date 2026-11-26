@@ -1,0 +1,29 @@
+---
+title: Invités
+description: Comment les invités rejoignent un studio par un lien, et ce que l’hôte doit faire.
+group: Démarrer
+order: 2
+---
+
+Les invités arrivent par un lien. Ils n’ont pas besoin de compte.
+
+## Comment ça marche
+
+1. L’hôte ouvre un studio et copie le lien invité.
+2. L’invité ouvre le lien dans un navigateur et entre un nom.
+3. L’invité attend en coulisses. L’hôte le voit, mais il n’est pas encore dans le flux.
+4. L’hôte le fait monter sur scène. Jusqu’à six personnes à la fois.
+
+![L’écran d’arrivée de l’invité, avec une image de test verte.](/guest.png)
+
+*L’image verte est une fausse caméra dans une capture de test, pas un vrai invité.*
+
+## Qui peut faire quoi
+
+- **Animer le studio demande un compte.** L’hôte se connecte avec un magic link par e-mail, ou GitHub si vous l’avez configuré. Le propriétaire du studio, et tout co-hôte qu’il invite, peut le contrôler.
+- **Les invités ne se font pas passer pour l’hôte.** Les identités sont attribuées par le Worker, et chaque action est vérifiée côté serveur.
+- **Les invités ne voient jamais les clés de stream.** L’état public du studio n’inclut qu’un suffixe masqué de chaque URL de destination. Voir [Destinations](/docs/destinations).
+
+## Si un invité ne se connecte pas
+
+Le TURN pour les invités derrière un NAT strict n’est pas là. Sur un réseau restrictif, l’invité peut échouer pour l’instant.

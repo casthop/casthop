@@ -23,7 +23,7 @@ This file is the source of truth for coding agents. Nested `AGENTS.md` files add
 
 ## Commands
 
-Bun is the package manager and script runner (`packageManager` in `package.json`). Do not use npm or npx. Linux + Docker host networking is the supported local path. Rebuild WASM only with rustc 1.83+ and `wasm32-unknown-unknown`.
+Bun is the package manager and script runner (`packageManager` in `package.json`). Do not use npm or npx. Linux + Docker host networking is the supported local path. Rebuild WASM only with rustc 1.100+ and `wasm32-unknown-unknown`.
 
 ```bash
 cp .env.example .env
@@ -43,7 +43,7 @@ bun test tests/egress.test.ts
 bun test tests/chat-ingest.test.ts
 bun run check:wasm          # < 500 KiB, zero imports
 bun audit --audit-level=high
-cargo audit                  # needs rustc 1.88+ (CI audit job uses stable)
+cargo audit                  # rustc 1.88+ (this pin is enough; CI audit job uses stable)
 
 cargo test -p casthop-media
 cargo test -p casthop-media -p casthop-post
@@ -91,7 +91,7 @@ Budgets from `MEASUREMENTS.md`. Beat them, or record why not:
 |---|---|---|
 | Denoise | < 1 ms / 10 ms frame | WASM RNNoise 0.088 ms |
 | CPU compose blit | not on the live path if ≥ 8 ms/frame @ 1280×720 | WASM ~5.4 ms, JS ~4.1 ms; live is Canvas2D in a Worker |
-| WASM binary | < 500 KiB, zero imports | ~384 KiB (+ 33 KiB GPU wasm, lazy) |
+| WASM binary | < 500 KiB, zero imports | ~383 KiB (+ 33 KiB GPU wasm, lazy) |
 | Camera blur 1280×720 | < 33 ms/frame (30 fps) | WASM 14.2 ms, JS 14.1 ms |
 | Worker HTTP glue | < 10 ms CPU | Cloudflare Worker CPU |
 | Durable Object write | < 50 ms | stage / live / destinations |

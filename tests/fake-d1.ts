@@ -1,4 +1,4 @@
-import { Q, SCHEMA } from "../worker/db.ts";
+import { LIST_REPLAYS_PER_STUDIO, Q, SCHEMA } from "../worker/db.ts";
 
 type Row = Record<string, unknown>;
 
@@ -286,15 +286,21 @@ export class FakeD1 implements D1Database {
       const studioIds = new Set(
         this.rows("studio_members").filter((m) => m.account_id === binds[0]).map((m) => m.studio_id),
       );
-      const results = this.rows("replays")
+      const grouped = new Map<string, Row[]>();
+      const sorted = this.rows("replays")
         .filter((r) => studioIds.has(r.studio_id))
-        .map(clone)
         .sort((a, b) => {
           const studios = String(a.studio_id).localeCompare(String(b.studio_id));
           if (studios !== 0) return studios;
           return Number(b.created_at) - Number(a.created_at);
         });
-      return { results, changes: 0 };
+      for (const row of sorted) {
+        const list = grouped.get(String(row.studio_id)) ?? [];
+        if (list.length >= LIST_REPLAYS_PER_STUDIO) continue;
+        list.push(clone(row));
+        grouped.set(String(row.studio_id), list);
+      }
+      return { results: [...grouped.values()].flat(), changes: 0 };
     }
     if (q === norm(Q.updateReplayVisibility)) {
       const [visibility, id] = binds;

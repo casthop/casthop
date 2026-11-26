@@ -7,11 +7,14 @@ export const HLS_INDEX = "index.m3u8";
 const MAX_FILES = 256;
 export const MAX_FILE_BYTES = 12 * 1024 * 1024;
 export const MAX_INGEST_BYTES = 32 * 1024 * 1024;
+export const MAX_REPLAY_BYTES = 2 * 1024 * 1024 * 1024;
+export const MAX_REPLAY_OBJECTS = 4096;
 const MAX_PLAYLIST_BYTES = 256 * 1024;
 
 export function contentLengthOver(header: string | undefined, max: number): boolean {
-  const n = Number(header ?? 0);
-  return !Number.isFinite(n) || n > max;
+  if (header == null || header.trim() === "") return true;
+  const n = Number(header);
+  return !Number.isFinite(n) || n < 0 || n > max;
 }
 
 export type ReplayFileInput = {
@@ -113,6 +116,43 @@ export function decodeReplayFile(file: ReplayFileInput): Uint8Array | null {
   return new TextEncoder().encode(file.content);
 }
 
+export async function deleteReplayPrefix(env: Env, studioId: string, replayId: string): Promise<void> {
+  const prefix = replayPrefix(studioId, replayId);
+  let cursor: string | undefined;
+  for (;;) {
+    const listed = await env.RECORDINGS.list({ prefix, limit: 1000, cursor });
+    if (listed.objects.length) {
+      await env.RECORDINGS.delete(listed.objects.map((obj) => obj.key));
+    }
+    if (!listed.truncated) break;
+    cursor = listed.cursor;
+    if (!cursor) break;
+  }
+}
+
+export async function replayWouldExceedQuota(
+  env: Env,
+  studioId: string,
+  replayId: string,
+  currentBytes: number,
+  files: { name: string; bytes: Uint8Array }[],
+): Promise<string | null> {
+  const prefix = replayPrefix(studioId, replayId);
+  const listed = await env.RECORDINGS.list({ prefix, limit: MAX_REPLAY_OBJECTS + 1 });
+  const existing = new Map(listed.objects.map((obj) => [obj.key, obj.size]));
+  let nextCount = listed.truncated ? MAX_REPLAY_OBJECTS + 1 : existing.size;
+  let nextBytes = currentBytes;
+  for (const file of files) {
+    const key = replayObjectKey(studioId, replayId, file.name);
+    const prev = existing.get(key);
+    if (prev === undefined) nextCount += 1;
+    nextBytes += file.bytes.byteLength - (prev ?? 0);
+  }
+  if (nextCount > MAX_REPLAY_OBJECTS) return "too many files";
+  if (nextBytes > MAX_REPLAY_BYTES) return "replay too large";
+  return null;
+}
+
 export async function putReplayFiles(
   env: Env,
   studioId: string,
@@ -151,7 +191,8 @@ export async function serveReplayObject(env: Env, replay: ReplayRecord, file: st
   const headers = new Headers();
   obj.writeHttpMetadata(headers);
   if (!headers.has("Content-Type")) headers.set("Content-Type", hlsContentType(file));
-  headers.set("Cache-Control", replay.visibility === "public" ? "public, max-age=3600" : "private, no-store");
+  headers.set("Cache-Control", replay.visibility === "public" ? "public, max-age=60" : "private, no-store");
+  headers.set("Vary", "Cookie");
   headers.set("X-Content-Type-Options", "nosniff");
   return new Response(obj.body, { headers });
 }

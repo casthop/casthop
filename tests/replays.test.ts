@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { app, StudioDurableObject } from "../worker/index.ts";
+import { addReplayBytes, LIST_REPLAYS_PER_STUDIO } from "../worker/db.ts";
 import {
+  contentLengthOver,
   durationFromPlaylist,
   hlsFilenamesInPlaylist,
   isHlsFilename,
   MAX_FILE_BYTES,
   MAX_INGEST_BYTES,
+  MAX_REPLAY_BYTES,
+  MAX_REPLAY_OBJECTS,
   playlistError,
 } from "../worker/replays.ts";
 import { DEV_API_KEY, DEV_API_SECRET, SESSION_COOKIE } from "../worker/security.ts";
@@ -128,18 +132,27 @@ async function createStudio(env: Env, cookie: string, title = "Weekly product up
   return json<{ id: string }>(res);
 }
 
+function contentLengthOf(payload: string): string {
+  return String(new TextEncoder().encode(payload).length);
+}
+
 async function postReplay(
   env: Env,
   cookie: string,
   studioId: string,
   body: Record<string, unknown>,
 ): Promise<Response> {
+  const payload = JSON.stringify(body);
   return app.request(
     `https://casthop.test/api/studios/${studioId}/replays`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json", Cookie: cookie },
-      body: JSON.stringify(body),
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: cookie,
+        "Content-Length": contentLengthOf(payload),
+      },
+      body: payload,
     },
     env,
   );
@@ -168,6 +181,12 @@ test("playlist helper rejects traversal and remote URIs", () => {
   assert.equal(playlistError("#EXTM3U\n#EXT-X-MAP:URI=\"../init.mp4\"\n"), "playlist has an unsafe URI");
   assert.deepEqual(hlsFilenamesInPlaylist(HLS_PLAYLIST), ["init.mp4", "seg0.m4s"]);
   assert.equal(durationFromPlaylist(HLS_PLAYLIST), 4000);
+  assert.equal(contentLengthOver(undefined, 12), true);
+  assert.equal(contentLengthOver("", 12), true);
+  assert.equal(contentLengthOver("abc", 12), true);
+  assert.equal(contentLengthOver("0", 12), false);
+  assert.equal(contentLengthOver("12", 12), false);
+  assert.equal(contentLengthOver("13", 12), true);
 });
 
 test("owner archives a private replay into mocked R2 and plays HLS", async () => {
@@ -197,6 +216,7 @@ test("owner archives a private replay into mocked R2 and plays HLS", async () =>
   assert.equal(playlist.status, 200, await playlist.clone().text());
   assert.equal(playlist.headers.get("content-type"), "application/vnd.apple.mpegurl");
   assert.equal(playlist.headers.get("cache-control"), "private, no-store");
+  assert.equal(playlist.headers.get("vary"), "Cookie");
   const text = await playlist.text();
   assert.match(text, /#EXTM3U/);
   assert.ok(playlistMs < 100, `playlist TTFB ${playlistMs}ms`);
@@ -230,7 +250,8 @@ test("public replay is playable by link; private stays host-only", async () => {
   assert.equal(pubBody.viewerCanEdit, false);
   const openHls = await app.request(`https://casthop.test${pub.playlistUrl}`, {}, env);
   assert.equal(openHls.status, 200);
-  assert.equal(openHls.headers.get("cache-control"), "public, max-age=3600");
+  assert.equal(openHls.headers.get("cache-control"), "public, max-age=60");
+  assert.equal(openHls.headers.get("vary"), "Cookie");
 
   const outsiderPriv = await app.request(
     `https://casthop.test/api/replays/${priv.id}`,
@@ -275,6 +296,27 @@ test("studio list loads replays for every studio in one query", async () => {
   assert.equal(two?.replays[0]?.title, "Cut B");
 });
 
+test("studio list keeps the latest 20 replays per studio", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "owner@example.com");
+  const { id } = await createStudio(env, cookie, "One");
+  for (let i = 0; i < LIST_REPLAYS_PER_STUDIO + 1; i++) {
+    const created = await json<PublicReplay>(
+      await postReplay(env, cookie, id, { title: `Cut ${String(i).padStart(2, "0")}` }),
+    );
+    assert.equal(created.title, `Cut ${String(i).padStart(2, "0")}`);
+  }
+  const listed = await json<{ studios: { id: string; replays: PublicReplay[] }[] }>(
+    await app.request("https://casthop.test/api/studios", { headers: { Cookie: cookie } }, env),
+  );
+  const home = listed.studios.find((s) => s.id === id);
+  assert.equal(home?.replays.length, LIST_REPLAYS_PER_STUDIO);
+  const studioList = await json<{ replays: PublicReplay[] }>(
+    await app.request(`https://casthop.test/api/studios/${id}/replays`, { headers: { Cookie: cookie } }, env),
+  );
+  assert.equal(studioList.replays.length, LIST_REPLAYS_PER_STUDIO + 1);
+});
+
 test("PUT HLS files add to the stored byte total", async () => {
   const env = makeEnv();
   const cookie = await signIn(env, "owner@example.com");
@@ -283,7 +325,7 @@ test("PUT HLS files add to the stored byte total", async () => {
   const first = await json<PublicReplay>(
     await app.request(`https://casthop.test/api/studios/${id}/replays/${created.id}/hls/seg1.m4s`, {
       method: "PUT",
-      headers: { Cookie: cookie },
+      headers: { Cookie: cookie, "Content-Length": "4" },
       body: "aaaa",
     }, env),
   );
@@ -291,7 +333,7 @@ test("PUT HLS files add to the stored byte total", async () => {
   const second = await json<PublicReplay>(
     await app.request(`https://casthop.test/api/studios/${id}/replays/${created.id}/hls/seg2.m4s`, {
       method: "PUT",
-      headers: { Cookie: cookie },
+      headers: { Cookie: cookie, "Content-Length": "6" },
       body: "bbbbbb",
     }, env),
   );
@@ -328,6 +370,24 @@ test("ingest and PUT reject oversized content-length before reading the body", a
     env,
   );
   assert.equal(hugePut.status, 400);
+
+  const missingPut = new Request(`https://casthop.test/api/studios/${id}/replays/${replay.id}/hls/seg1.m4s`, {
+    method: "PUT",
+    headers: { Cookie: cookie },
+    body: "aaaa",
+  });
+  missingPut.headers.delete("content-length");
+  const skippedPut = await app.request(missingPut, undefined, env);
+  assert.equal(skippedPut.status, 400);
+
+  const missingPost = new Request(`https://casthop.test/api/studios/${id}/replays`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: cookie },
+    body: JSON.stringify({ title: "nope" }),
+  });
+  missingPost.headers.delete("content-length");
+  const skippedPost = await app.request(missingPost, undefined, env);
+  assert.equal(skippedPost.status, 413);
 });
 
 test("ingest rejects unsafe playlists and missing index", async () => {
@@ -342,4 +402,81 @@ test("ingest rejects unsafe playlists and missing index", async () => {
     files: [{ name: "seg0.m4s", content: "c2VnMA==", encoding: "base64" }],
   });
   assert.equal(missing.status, 400);
+});
+
+test("ingest deletes uploaded objects when a later file is invalid", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "owner@example.com");
+  const { id } = await createStudio(env, cookie);
+  const failed = await postReplay(env, cookie, id, {
+    title: "Broken pack",
+    files: [
+      { name: "index.m3u8", content: HLS_PLAYLIST },
+      { name: "init.mp4", content: "aW5pdA==", encoding: "base64" },
+      { name: "seg0.m4s", content: "" },
+    ],
+  });
+  assert.equal(failed.status, 400);
+  const leftover = await env.RECORDINGS.list({ prefix: `replays/${id}/` });
+  assert.equal(leftover.objects.length, 0);
+  const listed = await json<{ replays: PublicReplay[] }>(
+    await app.request(`https://casthop.test/api/studios/${id}/replays`, { headers: { Cookie: cookie } }, env),
+  );
+  assert.equal(listed.replays.length, 0);
+});
+
+test("PATCH null JSON does not 500", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "owner@example.com");
+  const { id } = await createStudio(env, cookie);
+  const created = await json<PublicReplay>(await postReplay(env, cookie, id, { title: "Cut" }));
+  const patched = await app.request(
+    `https://casthop.test/api/studios/${id}/replays/${created.id}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: "null",
+    },
+    env,
+  );
+  assert.equal(patched.status, 400);
+});
+
+test("PUT rejects a replay over the byte or object cap", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "owner@example.com");
+  const { id } = await createStudio(env, cookie);
+  const created = await json<PublicReplay>(
+    await postReplay(env, cookie, id, { title: "Cuts", files: hlsFiles() }),
+  );
+  await addReplayBytes(env.DB, created.id, MAX_REPLAY_BYTES - created.bytes);
+  const tooBig = await app.request(
+    `https://casthop.test/api/studios/${id}/replays/${created.id}/hls/seg1.m4s`,
+    {
+      method: "PUT",
+      headers: { Cookie: cookie, "Content-Length": "4" },
+      body: "aaaa",
+    },
+    env,
+  );
+  assert.equal(tooBig.status, 400);
+
+  const other = await json<PublicReplay>(
+    await postReplay(env, cookie, id, { title: "Many files", files: hlsFiles() }),
+  );
+  const prefix = `replays/${id}/${other.id}/`;
+  const already = await env.RECORDINGS.list({ prefix, limit: MAX_REPLAY_OBJECTS + 1 });
+  for (let i = already.objects.length; i < MAX_REPLAY_OBJECTS; i++) {
+    await env.RECORDINGS.put(`${prefix}pad${i}.m4s`, "x");
+  }
+  const tooMany = await app.request(
+    `https://casthop.test/api/studios/${id}/replays/${other.id}/hls/seg99.m4s`,
+    {
+      method: "PUT",
+      headers: { Cookie: cookie, "Content-Length": "4" },
+      body: "aaaa",
+    },
+    env,
+  );
+  assert.equal(tooMany.status, 400);
 });

@@ -226,13 +226,19 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
 
   const outsiderCookie = await signIn(env, "other@example.com");
 
+  const privateReplayBody = JSON.stringify({ title: "Private cut", visibility: "private", files: hlsFiles() });
+  const publicReplayBody = JSON.stringify({ title: "Public cut", visibility: "public", files: hlsFiles() });
   const privateReplay = await json<PublicReplay>(
     await app.request(
       `https://casthop.test/api/studios/${id}/replays`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json", Cookie: ownerCookie },
-        body: JSON.stringify({ title: "Private cut", visibility: "private", files: hlsFiles() }),
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: ownerCookie,
+          "Content-Length": String(new TextEncoder().encode(privateReplayBody).length),
+        },
+        body: privateReplayBody,
       },
       env,
     ),
@@ -242,8 +248,12 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
       `https://casthop.test/api/studios/${id}/replays`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json", Cookie: ownerCookie },
-        body: JSON.stringify({ title: "Public cut", visibility: "public", files: hlsFiles() }),
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: ownerCookie,
+          "Content-Length": String(new TextEncoder().encode(publicReplayBody).length),
+        },
+        body: publicReplayBody,
       },
       env,
     ),
@@ -511,11 +521,17 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
     {
       name: "POST studio replay",
       path: `/api/studios/${id}/replays`,
-      init: {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "Matrix cut", visibility: "private", files: hlsFiles() }),
-      },
+      init: (() => {
+        const body = JSON.stringify({ title: "Matrix cut", visibility: "private", files: hlsFiles() });
+        return {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": String(new TextEncoder().encode(body).length),
+          },
+          body,
+        };
+      })(),
       expect: { owner: 200, cohost: 200, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
     },
     {
@@ -531,7 +547,7 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
     {
       name: "PUT replay HLS file",
       path: `/api/studios/${id}/replays/${privateReplay.id}/hls/init.mp4`,
-      init: { method: "PUT", body: "init" },
+      init: { method: "PUT", headers: { "Content-Length": "4" }, body: "init" },
       expect: { owner: 200, cohost: 200, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
     },
     {

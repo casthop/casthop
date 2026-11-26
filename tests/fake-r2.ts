@@ -123,14 +123,18 @@ export class FakeR2 implements R2Bucket {
 
   async list(options?: R2ListOptions): Promise<R2Objects> {
     const prefix = options?.prefix ?? "";
-    const keys = [...this.objects.keys()].filter((k) => k.startsWith(prefix)).sort();
-    const sliced = keys.slice(0, options?.limit ?? 1000);
+    const limit = options?.limit ?? 1000;
+    let keys = [...this.objects.keys()].filter((k) => k.startsWith(prefix)).sort();
+    if (options?.cursor) keys = keys.filter((k) => k > options.cursor!);
+    const sliced = keys.slice(0, limit);
+    const truncated = keys.length > limit;
     return {
       objects: sliced.map((key) => {
         const stored = this.objects.get(key)!;
         return new FakeR2Object(key, stored.bytes, stored.uploaded, stored.httpMetadata);
       }),
-      truncated: false,
+      truncated,
+      cursor: truncated && sliced.length ? sliced[sliced.length - 1] : undefined,
       delimitedPrefixes: [],
     };
   }

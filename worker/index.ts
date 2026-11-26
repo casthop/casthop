@@ -73,6 +73,7 @@ import {
   applyReplayBytes,
   canViewReplay,
   contentLengthOver,
+  deleteReplayPrefix,
   ingestFilesFromBody,
   isHlsFilename,
   MAX_FILE_BYTES,
@@ -81,6 +82,7 @@ import {
   parseVisibility,
   publicReplay,
   putReplayFiles,
+  replayWouldExceedQuota,
   serveReplayObject,
 } from "./replays";
 
@@ -286,27 +288,30 @@ app.post("/api/studios/:id/replays", async (c) => {
   const ingested = ingestFilesFromBody(await c.req.json().catch(() => ({})));
   if ("error" in ingested) return c.json({ error: ingested.error }, ingested.status);
   const replayId = newReplayId();
-  let bytes = 0;
-  if (ingested.files.length) {
-    try {
+  try {
+    let bytes = 0;
+    if (ingested.files.length) {
+      const quota = await replayWouldExceedQuota(c.env, id, replayId, 0, ingested.files);
+      if (quota) return c.json({ error: quota }, 400);
       bytes = await putReplayFiles(c.env, id, replayId, ingested.files);
-    } catch (err) {
-      const status = errorStatus(err);
-      if (status === 400) return c.json({ error: err instanceof Error ? err.message : "invalid files" }, 400);
-      throw err;
     }
+    const row: ReplayRecord = {
+      id: replayId,
+      studioId: id,
+      title: ingested.title ?? asName(studio.title, "Replay"),
+      visibility: ingested.visibility,
+      durationMs: ingested.durationMs,
+      createdAt: Date.now(),
+      bytes,
+    };
+    await insertReplay(c.env.DB, row);
+    return c.json(publicReplay(row, true));
+  } catch (err) {
+    await deleteReplayPrefix(c.env, id, replayId);
+    const status = errorStatus(err);
+    if (status === 400) return c.json({ error: err instanceof Error ? err.message : "invalid files" }, 400);
+    throw err;
   }
-  const row: ReplayRecord = {
-    id: replayId,
-    studioId: id,
-    title: ingested.title ?? asName(studio.title, "Replay"),
-    visibility: ingested.visibility,
-    durationMs: ingested.durationMs,
-    createdAt: Date.now(),
-    bytes,
-  };
-  await insertReplay(c.env.DB, row);
-  return c.json(publicReplay(row, true));
 });
 
 app.patch("/api/studios/:id/replays/:rid", async (c) => {
@@ -318,7 +323,7 @@ app.patch("/api/studios/:id/replays/:rid", async (c) => {
   if (!host) return c.json({ error: "host access required" }, 403);
   const replay = await replayById(c.env.DB, rid);
   if (!replay || replay.studioId !== id) return c.json({ error: "not found" }, 404);
-  const body = (await c.req.json().catch(() => ({}))) as { visibility?: unknown };
+  const body = ((await c.req.json().catch(() => ({}))) ?? {}) as { visibility?: unknown };
   const visibility = parseVisibility(body.visibility, replay.visibility);
   if (!visibility || body.visibility === undefined) return c.json({ error: "visibility must be private or public" }, 400);
   if (visibility !== replay.visibility) await updateReplayVisibility(c.env.DB, rid, visibility);
@@ -340,8 +345,11 @@ app.put("/api/studios/:id/replays/:rid/hls/:file", async (c) => {
     return c.json({ error: "invalid file size" }, 400);
   }
   const bytes = new Uint8Array(await c.req.arrayBuffer());
+  const files = [{ name: file, bytes }];
+  const quota = await replayWouldExceedQuota(c.env, id, rid, replay.bytes, files);
+  if (quota) return c.json({ error: quota }, 400);
   try {
-    const delta = await putReplayFiles(c.env, id, rid, [{ name: file, bytes }]);
+    const delta = await putReplayFiles(c.env, id, rid, files);
     const nextBytes = await applyReplayBytes(c.env, rid, delta);
     return c.json(publicReplay({ ...replay, bytes: nextBytes }, true));
   } catch (err) {

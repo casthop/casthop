@@ -69,6 +69,8 @@ export const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS replays_studio ON replays(studio_id, created_at)`,
 ] as const;
 
+export const LIST_REPLAYS_PER_STUDIO = 20;
+
 export const Q = {
   insertAccount: "INSERT INTO accounts (id, email, name, github_id, created_at) VALUES (?, ?, ?, ?, ?)",
   accountById: "SELECT id, email, name, github_id, created_at FROM accounts WHERE id = ?",
@@ -111,8 +113,7 @@ export const Q = {
   replayById: "SELECT id, studio_id, title, visibility, duration_ms, created_at, bytes FROM replays WHERE id = ?",
   listReplaysByStudio:
     "SELECT id, studio_id, title, visibility, duration_ms, created_at, bytes FROM replays WHERE studio_id = ? ORDER BY created_at DESC",
-  listReplaysForAccount:
-    "SELECT r.id, r.studio_id, r.title, r.visibility, r.duration_ms, r.created_at, r.bytes FROM replays r INNER JOIN studio_members m ON m.studio_id = r.studio_id WHERE m.account_id = ? ORDER BY r.studio_id, r.created_at DESC",
+  listReplaysForAccount: `SELECT id, studio_id, title, visibility, duration_ms, created_at, bytes FROM (SELECT r.id, r.studio_id, r.title, r.visibility, r.duration_ms, r.created_at, r.bytes, ROW_NUMBER() OVER (PARTITION BY r.studio_id ORDER BY r.created_at DESC) AS rn FROM replays r INNER JOIN studio_members m ON m.studio_id = r.studio_id WHERE m.account_id = ?) WHERE rn <= ${LIST_REPLAYS_PER_STUDIO} ORDER BY studio_id, created_at DESC`,
   updateReplayVisibility: "UPDATE replays SET visibility = ? WHERE id = ?",
   addReplayBytes: "UPDATE replays SET bytes = MAX(0, bytes + ?) WHERE id = ? RETURNING bytes",
 } as const;
@@ -313,6 +314,7 @@ export async function listStudiosFor(db: D1Database, accountId: string): Promise
   const byStudio = new Map<string, ReplayRecord[]>();
   for (const row of replayRows) {
     const list = byStudio.get(row.studio_id) ?? [];
+    if (list.length >= LIST_REPLAYS_PER_STUDIO) continue;
     list.push(mapReplay(row));
     byStudio.set(row.studio_id, list);
   }

@@ -11,6 +11,8 @@ data/
 coverage
 *.tsbuildinfo
 /target
+crates/casthop-hot/target
+crates/casthop-hot/build
 **/*.rs.bk
 public/mediapipe/wasm/*.js
 public/mediapipe/wasm/*.wasm

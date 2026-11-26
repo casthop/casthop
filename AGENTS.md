@@ -10,6 +10,7 @@ This file is the source of truth. Nested `AGENTS.md` files add tree-specific rul
 - `worker/` — Hono Worker, studio Durable Object, LiveKit tokens, Egress
 - `crates/casthop-media` — WASM media (C ABI, zero JS imports)
 - `crates/casthop-post` — inspect / remux / HLS package recordings
+- `crates/casthop-hot` — workers-rs bench Worker (JWT CPU vs TS; not on the live path)
 - `tests/auth.test.ts` — owner / co-host / guest / signed-out / expired session matrix for every Worker route
 - `tests/egress.test.ts` — start/stop, crash retry, RTMP dest status, empty-studio cleanup
 - `tests/replays.test.ts` — R2 HLS ingest, playlist safety, private/public access (mocked R2)
@@ -44,9 +45,13 @@ cargo test -p casthop-media
 cargo test -p casthop-media -p casthop-post
 cargo fmt -p casthop-media -p casthop-post -- --check
 cargo clippy -p casthop-media -p casthop-post --all-targets --no-deps -- -D warnings
+cargo fmt --manifest-path crates/casthop-hot/Cargo.toml -- --check
+cargo test --manifest-path crates/casthop-hot/Cargo.toml
+cargo clippy --manifest-path crates/casthop-hot/Cargo.toml --all-targets --no-deps -- -D warnings
 
 bun run build:wasm          # crate → src/wasm/casthop_media.wasm
 bun run bench:wasm          # Bun WASM vs JS
+bun run bench:worker        # wrangler TS vs workers-rs JWT CPU (Node fetch)
 bun run measure             # load + silent-audio check
 bash scripts/check-silent-audio.sh data/recordings/<file>.mp4
 cargo run -p casthop-post -- inspect data/recordings/<file>.mp4

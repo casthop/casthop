@@ -11,7 +11,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.e2e.json",
-    "lint": "cargo fmt -p casthop-media -p casthop-post -- --check",
+    "lint": "cargo fmt -p casthop-media -p casthop-post -- --check && cargo fmt --manifest-path crates/casthop-hot/Cargo.toml -- --check",
     "test": "bun test --max-concurrency=1",
     "test:e2e": "bun scripts/e2e-live.mjs",
     "test:perf": "bun scripts/perf-compose.mjs",
@@ -19,6 +19,7 @@
     "check:wasm": "bun scripts/check-wasm-budget.mjs",
     "build:wasm": "bash scripts/build-wasm.sh",
     "bench:wasm": "bun scripts/bench-wasm.mjs",
+    "bench:worker": "node scripts/bench-worker.mjs",
     "measure": "bash scripts/measure.sh",
     "postinstall": "bun scripts/copy-mediapipe.mjs"
   },

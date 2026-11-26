@@ -377,6 +377,7 @@ app.get("/api/replays/:rid/hls/:file", async (c) => {
 });
 
 app.get("/api/studios/:id", async (c) => {
+  // Studio chrome + compositor poll (~1s). Time is D1 session + DO, not JWT CPU.
   const id = c.req.param("id");
   const sess = await loadSession(c);
   attachSessionCookie(c, sess?.cookie);
@@ -400,6 +401,7 @@ app.get("/api/studios/:id/ws", async (c) => {
 });
 
 app.post("/api/studios/:id/token", async (c) => {
+  // Guest join + host refresh. JWT is WebCrypto HMAC; workers-rs did not beat it (MEASUREMENTS.md).
   const id = c.req.param("id");
   const ip = requestIp(c);
   if (!(await allowRate(c.env.DB, `token:ip:${ip}`, TOKEN_IP_MAX, TOKEN_IP_WINDOW_MS))) {
@@ -553,6 +555,7 @@ app.post("/api/studios/:id/chat", async (c) => {
 });
 
 app.post("/api/livekit/webhook", async (c) => {
+  // LiveKit / Egress events. CPU is JWT verify + SHA-256; I/O is the Durable Object.
   const raw = await c.req.text();
   if (!(await verifyLivekitWebhook(c.env, c.req.header("Authorization") ?? c.req.header("Authorize"), raw))) {
     return c.json({ error: "unauthorized" }, 401);
@@ -571,6 +574,7 @@ app.post("/api/livekit/webhook", async (c) => {
 });
 
 app.post("/api/studios/:id/egress-beat", async (c) => {
+  // Compositor posts this every 1s while live. Auth is a participant JWT.
   const id = c.req.param("id");
   const claims = await verifyParticipantToken(c.env, c.req.header("Authorization"));
   if (!claims) return c.json({ error: "unauthorized" }, 401);

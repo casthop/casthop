@@ -1,6 +1,6 @@
 import wasmUrl from "../wasm/casthop_media.wasm?url";
 
-export type LayoutMode = "solo" | "side" | "grid" | "screen";
+export type LayoutMode = "solo" | "side" | "grid" | "screen" | "portrait";
 
 export type Rect = { x: number; y: number; w: number; h: number };
 
@@ -71,6 +71,7 @@ export function modeCode(mode: LayoutMode): number {
   if (mode === "solo") return 0;
   if (mode === "side") return 1;
   if (mode === "screen") return 3;
+  if (mode === "portrait") return 4;
   return 2;
 }
 

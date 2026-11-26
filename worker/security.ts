@@ -1,5 +1,5 @@
 import { livePhaseOf } from "./egress";
-import type { Destination, DestStatus, Env, PublicDestination, PublicStudio, StudioState } from "./types";
+import { destAspectOf, type DestAspect, type Destination, type DestStatus, type Env, type PublicDestination, type PublicStudio, type StudioState } from "./types";
 
 export const DEV_API_KEY = "devkey";
 export const DEV_API_SECRET = "casthop_dev_secret_not_for_production_use_32b";
@@ -126,6 +126,7 @@ export function publicDestinations(destinations: Destination[], includeUrls: boo
       urlMasked: maskRtmpUrl(d.url),
       status: d.status ?? "idle",
       error: d.error ?? null,
+      aspect: destAspectOf(d),
     };
     if (includeUrls) pub.url = d.url;
     return pub;
@@ -181,7 +182,7 @@ export function parseRtmpUrl(raw: unknown, opts: { allowLoopback: boolean }): st
 export function sanitizeDestinations(
   incoming: unknown,
   existing: Destination[],
-  opts: { allowLoopback: boolean },
+  opts: { allowLoopback: boolean; allowPortrait?: boolean },
 ): Destination[] | null {
   if (!Array.isArray(incoming) || incoming.length > 16) return null;
   const byId = new Map(existing.map((d) => [d.id, d]));
@@ -203,7 +204,18 @@ export function sanitizeDestinations(
       url = parsedUrl;
     }
     const urlChanged = url !== (prev?.url || "");
-    const status: DestStatus = urlChanged ? "idle" : (prev?.status ?? "idle");
+    const aspect: DestAspect = r.aspect === "portrait" || r.aspect === "landscape" ? r.aspect : destAspectOf(prev ?? {});
+    // An already-enabled 9:16 row must still save so a later missing template cannot block other dest edits.
+    if (
+      aspect === "portrait" &&
+      Boolean(r.enabled) &&
+      !opts.allowPortrait &&
+      !(prev && destAspectOf(prev) === "portrait" && prev.enabled)
+    ) {
+      return null;
+    }
+    const aspectChanged = aspect !== destAspectOf(prev ?? {});
+    const status: DestStatus = urlChanged || aspectChanged ? "idle" : (prev?.status ?? "idle");
     out.push({
       id,
       kind,
@@ -212,9 +224,10 @@ export function sanitizeDestinations(
       url,
       enabled: Boolean(r.enabled),
       status: Boolean(r.enabled) && url ? status : "idle",
-      error: urlChanged ? null : (prev?.error ?? null),
-      retryCount: urlChanged ? 0 : (prev?.retryCount ?? 0),
-      retryAt: urlChanged ? null : (prev?.retryAt ?? null),
+      error: urlChanged || aspectChanged ? null : (prev?.error ?? null),
+      retryCount: urlChanged || aspectChanged ? 0 : (prev?.retryCount ?? 0),
+      retryAt: urlChanged || aspectChanged ? null : (prev?.retryAt ?? null),
+      aspect,
     });
   }
   return out;

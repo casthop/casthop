@@ -1,7 +1,7 @@
 import { composeFrame, pickComposeBackend, pickComposeThread, spawnComposeWorker, type ComposeBackend, type ComposePin } from "./compositor";
 import type { ComposeWorkerIn, ComposeWorkerOut } from "./compose-messages";
 import { FRAME_SAMPLE_CAP, pushSample, supportsOffscreenCompose, supportsTrackGenerator, usedSamples } from "./compose-support";
-import { OUT_H, OUT_W } from "./draw-canvas";
+import { OUT_H, OUT_W, VERT_H, VERT_W } from "./draw-canvas";
 import type { LayoutMode } from "./wasm";
 
 export type ComposeStats = {
@@ -62,6 +62,8 @@ async function startWorker(opts: {
   mode: LayoutMode;
   title: string;
   subtitle: string;
+  width: number;
+  height: number;
 }): Promise<ProgramCompose> {
   const worker = spawnComposeWorker();
   let outputTrack: MediaStreamTrack | null = null;
@@ -92,8 +94,9 @@ async function startWorker(opts: {
       type: "init",
       canvas: offscreen,
       backend: opts.backend,
-      width: OUT_W,
-      height: OUT_H,
+      width: opts.width,
+      height: opts.height,
+      mode: opts.mode,
       writable,
     },
     transfer,
@@ -158,6 +161,8 @@ function startMain(opts: {
   mode: LayoutMode;
   title: string;
   subtitle: string;
+  width: number;
+  height: number;
 }): ProgramCompose {
   const videos = new Map<string, HTMLVideoElement>();
   const owned: HTMLVideoElement[] = [];
@@ -199,6 +204,8 @@ function startMain(opts: {
       subtitle,
       pin,
       canvas: opts.canvas,
+      width: opts.width,
+      height: opts.height,
     })
       .then((result) => {
         backend = result.backend;
@@ -279,21 +286,25 @@ export async function startProgramCompose(opts: {
   title?: string;
   subtitle?: string;
   preferWorker?: boolean;
+  width?: number;
+  height?: number;
 }): Promise<ProgramCompose> {
   const backend = opts.backend ?? pickComposeBackend();
   const mode = opts.mode ?? "grid";
   const title = opts.title ?? "Casthop";
   const subtitle = opts.subtitle ?? "live";
+  const width = opts.width ?? (mode === "portrait" ? VERT_W : OUT_W);
+  const height = opts.height ?? (mode === "portrait" ? VERT_H : OUT_H);
   const thread = pickComposeThread();
   const wantWorker = opts.preferWorker ?? thread !== "main";
   if (wantWorker && (thread === "worker" || supportsOffscreenCompose())) {
     try {
-      return await startWorker({ canvas: opts.canvas, backend, mode, title, subtitle });
+      return await startWorker({ canvas: opts.canvas, backend, mode, title, subtitle, width, height });
     } catch (err) {
       console.warn("offthread compose fallback", err);
       const canvas = opts.canvas.parentElement ? replaceCanvas(opts.canvas) : opts.canvas;
-      return startMain({ canvas, backend, mode, title, subtitle });
+      return startMain({ canvas, backend, mode, title, subtitle, width, height });
     }
   }
-  return startMain({ canvas: opts.canvas, backend, mode, title, subtitle });
+  return startMain({ canvas: opts.canvas, backend, mode, title, subtitle, width, height });
 }

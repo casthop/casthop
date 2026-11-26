@@ -2,6 +2,9 @@ export type LayoutId = "solo" | "side" | "screen";
 
 export type DestinationKind = "youtube" | "linkedin" | "x" | "custom";
 
+/** Which composite this destination receives. Landscape is the 16:9 program. */
+export type DestAspect = "landscape" | "portrait";
+
 /** Host intent vs compositor health, shown in the studio pill. */
 export type LivePhase = "idle" | "starting" | "live" | "retrying" | "stopping" | "failed";
 
@@ -19,6 +22,8 @@ export type Destination = {
   error: string | null;
   retryCount?: number;
   retryAt?: number | null;
+  /** Omitted on older stored rows; treat as landscape. */
+  aspect?: DestAspect;
 };
 
 /** Wire format. `url` is present only for an authenticated host. */
@@ -33,6 +38,7 @@ export type PublicDestination = {
   url?: string;
   status: DestStatus;
   error: string | null;
+  aspect: DestAspect;
 };
 
 export type ParticipantInfo = {
@@ -86,6 +92,12 @@ export type StudioState = {
   abandonedEgressIds?: string[];
   /** Last compositor page beat; used to drop Live as soon as Chrome dies. */
   egressHeartbeatAt?: number | null;
+  /** Second RoomComposite for 9:16 destinations. Independent encode. */
+  portraitEgressId?: string | null;
+  portraitHeartbeatAt?: number | null;
+  portraitRetryCount?: number;
+  portraitRetryAt?: number | null;
+  portraitRecoveringSince?: number | null;
   emptySince: number | null;
   egressId: string | null;
   recordingPath: string | null;
@@ -208,6 +220,11 @@ export type PublicStudio = Omit<
   | "abandonedEgressIds"
   | "egressRecoveringSince"
   | "destChat"
+  | "portraitEgressId"
+  | "portraitHeartbeatAt"
+  | "portraitRetryCount"
+  | "portraitRetryAt"
+  | "portraitRecoveringSince"
 > & {
   destinations: PublicDestination[];
   egressId?: string | null;
@@ -215,6 +232,10 @@ export type PublicStudio = Omit<
 };
 
 export const MAX_ON_STAGE = 6;
+
+export function destAspectOf(d: { aspect?: string | null }): DestAspect {
+  return d.aspect === "portrait" ? "portrait" : "landscape";
+}
 
 function idleDest(
   id: Destination["id"],
@@ -224,7 +245,19 @@ function idleDest(
   url: string,
   enabled: boolean,
 ): Destination {
-  return { id, kind, label, detail, url, enabled, status: "idle", error: null, retryCount: 0, retryAt: null };
+  return {
+    id,
+    kind,
+    label,
+    detail,
+    url,
+    enabled,
+    status: "idle",
+    error: null,
+    retryCount: 0,
+    retryAt: null,
+    aspect: "landscape",
+  };
 }
 
 export function defaultDestinations(env: Pick<Env, "RTMP_YOUTUBE" | "RTMP_LINKEDIN" | "RTMP_X">): Destination[] {

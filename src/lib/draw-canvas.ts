@@ -3,6 +3,8 @@ export type DrawContext = CanvasRenderingContext2D | OffscreenCanvasRenderingCon
 
 export const OUT_W = 1280;
 export const OUT_H = 720;
+export const VERT_W = 720;
+export const VERT_H = 1280;
 
 export function makeDrawCanvas(width: number, height: number): DrawCanvas {
   if (typeof document !== "undefined") {

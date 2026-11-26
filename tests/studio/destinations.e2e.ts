@@ -25,4 +25,14 @@ describe("destinations", { session: "host" }, () => {
     await screen.getByRole("button", "Enable Custom RTMP").click();
     await expect(screen.getByRole("button", "Disable Custom RTMP")).toBeVisible();
   });
+
+  test("marks a destination 9:16 without changing 16:9", async ({ app, screen, studio }) => {
+    await app.open(`/studio/${studio.id}`);
+    await screen.getByRole("button", "Destinations").click();
+    await expect(screen.getByRole("heading", "Destinations")).toBeVisible();
+    await expect(screen.getByRole("button", "YouTube 16:9 widescreen")).toBeVisible();
+    await screen.getByRole("button", "YouTube 9:16 vertical").click();
+    await expect(screen.getByRole("button", "YouTube 9:16 vertical")).toHaveAttribute("aria-pressed", "true");
+    await expect(screen.getByRole("button", "LinkedIn 16:9 widescreen")).toHaveAttribute("aria-pressed", "true");
+  });
 });

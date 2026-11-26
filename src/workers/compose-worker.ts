@@ -64,6 +64,8 @@ async function composeOnce(): Promise<void> {
     subtitle,
     pin,
     canvas,
+    width: canvas.width,
+    height: canvas.height,
   });
   backend = result.backend;
   pushSample(samples, cursor, result.ms);
@@ -150,6 +152,7 @@ self.onmessage = (ev: MessageEvent<ComposeWorkerIn>) => {
   if (msg.type === "init") {
     canvas = msg.canvas;
     backend = msg.backend;
+    mode = msg.mode;
     if (msg.writable) writer = msg.writable.getWriter();
     running = true;
     post({ type: "ready", backend });

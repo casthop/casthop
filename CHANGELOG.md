@@ -12,6 +12,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 - Guest join from a link with no account. Up to six people on stage; others wait backstage.
 - Accounts: email magic link, optional GitHub OAuth, owner and co-host sessions. Auth matrix for Worker routes.
 - RTMP multistream via LiveKit Egress (one transcode, several URLs). Local MediaMTX stand-ins for YouTube, LinkedIn, and X; custom `rtmp:` destinations. Per-destination status and crash retry with backoff.
+- Dual output: each destination can take the 16:9 program or a second 9:16 composite (stacked cameras, captions band) from the same studio. Vertical dests get their own Egress encode.
 - Egress MP4 recording of the composite.
 - Studio chat in the room. Optional YouTube Live chat ingest while live (`liveChatMessages.list`); hosts can pin a comment onto the compositor overlay. X and LinkedIn comments are not wired.
 - Camera background blur (MediaPipe Selfie Segmenter, on-device, lazy load).
@@ -27,6 +28,8 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 ### Fixed
 
+- 9:16 destinations need a custom Egress template; overlapping starts share one portrait compositor. An already-enabled 9:16 row still saves if the template is later unset.
+- 9:16 start and crash retries follow the same recovery budget as 16:9. A compositor that never beats is timed out.
 - Studio tiles attach camera video when the track arrives after the first render.
 - Adding a guest to stage before they connect applies once they join LiveKit. Permission errors show in the studio.
 - Marketing site header on phones: Docs and GitHub move into a menu, the language switcher shows a short code, and the page no longer scrolls sideways.

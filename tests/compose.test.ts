@@ -4,8 +4,19 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { pickComposeBackendFrom, pickComposeThreadFrom } from "../src/lib/compose-backend.ts";
+import { jsLayout } from "../src/lib/js-pipeline.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+test("js portrait layout stacks cameras above a captions band", () => {
+  const r = jsLayout(3, 4);
+  assert.equal(r.length, 3);
+  const last = r[2]!;
+  assert.ok(last.y + last.h < 0.84);
+  assert.equal(r[0]?.x, 0);
+  assert.equal(r[0]?.w, 1);
+  assert.ok((r[1]?.y ?? 0) > (r[0]?.y ?? 0));
+});
 
 test("pickComposeBackendFrom maps query flags", () => {
   assert.equal(pickComposeBackendFrom(""), "canvas2d");
@@ -24,8 +35,20 @@ test("casthop_media.wasm has zero imports", () => {
   const mod = new WebAssembly.Module(buf);
   assert.equal(WebAssembly.Module.imports(mod).length, 0);
   const inst = new WebAssembly.Instance(mod, {});
-  const exp = inst.exports as { casthop_layout: (n: number, mode: number, out: number, cap: number) => number; memory: WebAssembly.Memory };
+  const exp = inst.exports as {
+    casthop_layout: (n: number, mode: number, out: number, cap: number) => number;
+    casthop_compose_new: (w: number, h: number) => number;
+    casthop_tile_reserve: (h: number, bytes: number) => number;
+    memory: WebAssembly.Memory;
+  };
   assert.equal(typeof exp.casthop_layout, "function");
+  const handle = exp.casthop_compose_new(16, 16);
+  const ptr = exp.casthop_tile_reserve(handle, 128);
+  const n = exp.casthop_layout(3, 4, ptr, 32);
+  assert.equal(n, 3);
+  const mem = new Float32Array(exp.memory.buffer, ptr, 12);
+  const bottom = mem[2 * 4 + 1]! + mem[2 * 4 + 3]!;
+  assert.ok(bottom < 0.84, `portrait cameras must leave a captions band, got ${bottom}`);
 });
 
 test("casthop_gpu_bg.wasm is a separate compositor module with JS imports", () => {
@@ -115,6 +138,7 @@ test("egress template still falls back through pickComposeBackend", () => {
   const src = readFileSync(join(root, "src/pages/EgressTemplate.tsx"), "utf8");
   assert.match(src, /pickComposeBackend/);
   assert.match(src, /startProgramCompose/);
+  assert.match(src, /initialLayout === "portrait"/);
   assert.match(src, /sendEgressBeat/);
   assert.match(src, /q\.get\("egressId"\) \|\| fromToken\.egressId/);
   assert.match(src, /sendEgressBeat\(studioId, token, egressId\)/);

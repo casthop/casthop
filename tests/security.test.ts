@@ -157,6 +157,59 @@ test("sanitizeDestinations merges omitted urls onto existing keys", () => {
   assert.equal(cleared[0]?.url, "");
 });
 
+test("sanitizeDestinations keeps a 9:16 aspect and defaults omitted to landscape", () => {
+  const existing = [dest(secretUrl)];
+  const portrait = sanitizeDestinations(
+    [{ id: "youtube", kind: "youtube", label: "YouTube", detail: "", enabled: true, aspect: "portrait" }],
+    existing,
+    { allowLoopback: false, allowPortrait: true },
+  );
+  assert.ok(portrait);
+  assert.equal(portrait[0]?.aspect, "portrait");
+  assert.equal(
+    sanitizeDestinations(
+      [{ id: "youtube", kind: "youtube", label: "YouTube", detail: "", enabled: true, aspect: "portrait" }],
+      existing,
+      { allowLoopback: false },
+    ),
+    null,
+  );
+  const disabledPortrait = sanitizeDestinations(
+    [{ id: "youtube", kind: "youtube", label: "YouTube", detail: "", enabled: false, aspect: "portrait" }],
+    existing,
+    { allowLoopback: false },
+  );
+  assert.ok(disabledPortrait);
+  assert.equal(disabledPortrait[0]?.aspect, "portrait");
+  assert.equal(disabledPortrait[0]?.enabled, false);
+  const alreadyEnabled = sanitizeDestinations(
+    [{ id: "youtube", kind: "youtube", label: "YouTube", detail: "", enabled: true, aspect: "portrait" }],
+    [{ ...dest(secretUrl), aspect: "portrait", enabled: true }],
+    { allowLoopback: false },
+  );
+  assert.ok(alreadyEnabled);
+  assert.equal(alreadyEnabled[0]?.aspect, "portrait");
+  assert.equal(alreadyEnabled[0]?.enabled, true);
+  assert.equal(
+    sanitizeDestinations(
+      [{ id: "youtube", kind: "youtube", label: "YouTube", detail: "", enabled: true, aspect: "portrait" }],
+      [{ ...dest(secretUrl), aspect: "portrait", enabled: false }],
+      { allowLoopback: false },
+    ),
+    null,
+  );
+  const omitted = sanitizeDestinations(
+    [{ id: "youtube", kind: "youtube", label: "YouTube", detail: "", enabled: true }],
+    existing,
+    { allowLoopback: false },
+  );
+  assert.ok(omitted);
+  assert.equal(omitted[0]?.aspect, "landscape");
+  const shown = publicDestinations(portrait, false);
+  assert.equal(shown[0]?.aspect, "portrait");
+  assert.equal(shown[0]?.url, undefined);
+});
+
 test("publicOrigin uses PUBLIC_ORIGIN and only falls back on loopback", () => {
   assert.equal(publicOrigin({ PUBLIC_ORIGIN: "https://casthop.example" }, "https://evil.example/"), "https://casthop.example");
   assert.equal(publicOrigin({ PUBLIC_ORIGIN: "https://casthop.example/app" }, "http://127.0.0.1/"), "https://casthop.example");

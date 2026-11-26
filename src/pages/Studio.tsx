@@ -44,7 +44,8 @@ import { canConnectToStudio } from "../lib/studio-entry";
 import { SHOT_LIVE_MS, shotFromUrl, shotStudio } from "../lib/studio-shot";
 import { IsoRecorder } from "../lib/iso-recorder";
 import { isHostIdentity } from "../../worker/security";
-import type { IsoTrack, LayoutId, ParticipantInfo, PublicDestination } from "../../worker/types";
+import { destAspectOf, type DestAspect, type IsoTrack, type LayoutId, type ParticipantInfo, type PublicDestination } from "../../worker/types";
+import { outputPhase } from "../../worker/egress";
 
 type PanelId = "chat" | "destinations" | "lower-third" | "settings" | "recordings";
 type Translate = (key: MessageKey, vars?: Record<string, string | number>) => string;
@@ -132,7 +133,57 @@ function newCustomDest(url: string, existing: PublicDestination[], t: Translate)
     url,
     status: "idle",
     error: null,
+    aspect: "landscape",
   };
+}
+
+function AspectToggle({
+  label,
+  value,
+  disabled,
+  onChange,
+  t,
+}: {
+  label: string;
+  value: DestAspect;
+  disabled?: boolean;
+  onChange: (next: DestAspect) => void;
+  t: Translate;
+}) {
+  const aspect = destAspectOf({ aspect: value });
+  return (
+    <div className="aspect" role="group" aria-label={`${label} ${t("destAspect")}`}>
+      <button
+        type="button"
+        className={aspect === "landscape" ? "on" : undefined}
+        aria-pressed={aspect === "landscape"}
+        aria-label={`${label} ${t("destAspectLandscape")}`}
+        disabled={disabled}
+        onClick={() => onChange("landscape")}
+      >
+        16:9
+      </button>
+      <button
+        type="button"
+        className={aspect === "portrait" ? "on" : undefined}
+        aria-pressed={aspect === "portrait"}
+        aria-label={`${label} ${t("destAspectPortrait")}`}
+        disabled={disabled}
+        onClick={() => onChange("portrait")}
+      >
+        9:16
+      </button>
+    </div>
+  );
+}
+
+function outputStatusLabel(t: Translate, phase: ReturnType<typeof outputPhase>): string {
+  if (phase === "live") return t("destOutputLive");
+  if (phase === "connecting") return t("destOutputStarting");
+  if (phase === "retrying") return t("destOutputRetrying");
+  if (phase === "failed") return t("destOutputFailed");
+  if (phase === "off") return t("destOutputOff");
+  return "";
 }
 
 export function Studio() {
@@ -634,12 +685,11 @@ export function Studio() {
 
   async function onLayout(layout: LayoutId) {
     if (!isHost) return;
-    if (shot) {
-      setStudio((prev) => (prev ? { ...prev, layout } : prev));
-      return;
-    }
+    setStudio((prev) => (prev ? { ...prev, layout } : prev));
+    if (shot) return;
     try {
-      await setLayout(id, layout);
+      const next = await setLayout(id, layout);
+      setStudio((prev) => mergeStudio(prev, next, prev?.viewerRole ?? "guest"));
     } catch (err) {
       setError(err instanceof Error ? err.message : t("errLayout"));
     }
@@ -672,6 +722,16 @@ export function Studio() {
   async function onToggleDest(destId: string) {
     if (!isHost || !studio) return;
     const next = studio.destinations.map((x) => (x.id === destId ? { ...x, enabled: !x.enabled } : x));
+    try {
+      await persistDestinations(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("errDestinations"));
+    }
+  }
+
+  async function onDestAspect(destId: string, aspect: DestAspect) {
+    if (!isHost || !studio) return;
+    const next = studio.destinations.map((x) => (x.id === destId ? { ...x, aspect } : x));
     try {
       await persistDestinations(next);
     } catch (err) {
@@ -1130,6 +1190,7 @@ export function Studio() {
               onToggleAdd={() => setAddRtmp((v) => !v)}
               onAdd={() => void onAddRtmp(rtmpDraft)}
               onToggle={onToggleDest}
+              onAspect={onDestAspect}
               onSaveUrls={async (next) => {
                 try {
                   await persistDestinations(next);
@@ -1271,6 +1332,14 @@ export function Studio() {
               </button>
             </header>
             <p className="lead">{t("liveLead")}</p>
+            <div className="output-row" aria-label={t("destOutputs")}>
+              <span className={`output-pill ${outputPhase(studio.destinations, "landscape")}`}>
+                {t("destOutputLandscape")} {outputStatusLabel(t, outputPhase(studio.destinations, "landscape"))}
+              </span>
+              <span className={`output-pill ${outputPhase(studio.destinations, "portrait")}`}>
+                {t("destOutputPortrait")} {outputStatusLabel(t, outputPhase(studio.destinations, "portrait"))}
+              </span>
+            </div>
             {studio.destinations.map((d) => (
               <div className="dest" key={d.id}>
                 <span className="k">{destGlyph(d.kind)}</span>
@@ -1280,6 +1349,14 @@ export function Studio() {
                     {d.detail}
                     <span className={`dest-status ${d.status ?? "idle"}`}>{destStatusLabel(t, d.status, d.error)}</span>
                   </small>
+                  {isHost ? (
+                    <AspectToggle
+                      label={d.label}
+                      value={destAspectOf(d)}
+                      onChange={(aspect) => void onDestAspect(d.id, aspect)}
+                      t={t}
+                    />
+                  ) : null}
                 </div>
                 <button
                   type="button"
@@ -1466,6 +1543,7 @@ function DestinationsPanel({
   onToggleAdd,
   onAdd,
   onToggle,
+  onAspect,
   onSaveUrls,
 }: {
   studio: PublicStudio;
@@ -1476,6 +1554,7 @@ function DestinationsPanel({
   onToggleAdd: () => void;
   onAdd: () => void;
   onToggle: (id: string) => void;
+  onAspect: (id: string, aspect: DestAspect) => void;
   onSaveUrls: (next: PublicDestination[]) => Promise<void>;
 }) {
   const { t } = useI18n();
@@ -1484,8 +1563,20 @@ function DestinationsPanel({
     setRows(studio.destinations);
   }, [studio.destinations]);
 
+  const landPhase = outputPhase(studio.destinations, "landscape");
+  const portPhase = outputPhase(studio.destinations, "portrait");
+
   return (
     <div className="panel-body">
+      <div className="output-row" aria-label={t("destOutputs")}>
+        <span className={`output-pill ${landPhase}`}>
+          {t("destOutputLandscape")} {outputStatusLabel(t, landPhase)}
+        </span>
+        <span className={`output-pill ${portPhase}`}>
+          {t("destOutputPortrait")} {outputStatusLabel(t, portPhase)}
+        </span>
+      </div>
+      <p className="dest-hint">{t("destAspectHint")}</p>
       {rows.map((d, i) => (
         <div className="dest" key={d.id}>
           <span className="k">{destGlyph(d.kind)}</span>
@@ -1495,6 +1586,19 @@ function DestinationsPanel({
               {d.detail}
               <span className={`dest-status ${d.status ?? "idle"}`}>{destStatusLabel(t, d.status, d.error)}</span>
             </small>
+            {isHost ? (
+              <AspectToggle
+                label={d.label}
+                value={destAspectOf(d)}
+                onChange={(aspect) => {
+                  const next = rows.slice();
+                  next[i] = { ...d, aspect };
+                  setRows(next);
+                  void onAspect(d.id, aspect);
+                }}
+                t={t}
+              />
+            ) : null}
             {isHost ? (
               <label>
                 {t("destRtmpUrlNamed", { label: d.label })}

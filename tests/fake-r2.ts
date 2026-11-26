@@ -1,61 +1,128 @@
+/** In-memory R2, same shape Miniflare uses locally. No real bucket. */
+
+type PutValue = ReadableStream | ArrayBuffer | ArrayBufferView | string | null | Blob;
+
 type Stored = {
-  key: string;
   bytes: Uint8Array;
+  httpMetadata?: R2HTTPMetadata;
+  uploaded: Date;
 };
 
-function asBytes(value: R2PutValue): Uint8Array {
-  if (value === null || value === undefined) return new Uint8Array();
+async function toBytes(value: PutValue): Promise<Uint8Array> {
+  if (value == null) return new Uint8Array();
   if (typeof value === "string") return new TextEncoder().encode(value);
-  if (value instanceof ArrayBuffer) return new Uint8Array(value);
-  if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-  throw new Error("fake r2: unsupported put body");
+  if (value instanceof Uint8Array) return value.slice();
+  if (value instanceof ArrayBuffer) return new Uint8Array(value.slice(0));
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+  }
+  if (typeof Blob !== "undefined" && value instanceof Blob) {
+    return new Uint8Array(await value.arrayBuffer());
+  }
+  return new Uint8Array(await new Response(value as ReadableStream).arrayBuffer());
 }
 
-function objectMeta(row: Stored): R2Object {
-  return {
-    key: row.key,
-    size: row.bytes.byteLength,
-    etag: String(row.bytes.byteLength),
-    httpEtag: `"${row.bytes.byteLength}"`,
-    uploaded: new Date(),
-    checksums: {},
-    storageClass: "Standard",
-  } as R2Object;
+class FakeR2Object implements R2Object {
+  readonly key: string;
+  readonly version = "1";
+  readonly size: number;
+  readonly etag: string;
+  readonly httpEtag: string;
+  readonly checksums: R2Checksums = {};
+  readonly uploaded: Date;
+  readonly httpMetadata?: R2HTTPMetadata;
+  readonly customMetadata: Record<string, string> = {};
+  readonly storageClass = "Standard";
+  protected readonly payload: Uint8Array;
+
+  constructor(key: string, payload: Uint8Array, uploaded: Date, httpMetadata?: R2HTTPMetadata) {
+    this.key = key;
+    this.payload = payload;
+    this.size = payload.byteLength;
+    this.etag = `${payload.byteLength}`;
+    this.httpEtag = `"${this.etag}"`;
+    this.uploaded = uploaded;
+    this.httpMetadata = httpMetadata;
+  }
+
+  writeHttpMetadata(headers: Headers): void {
+    if (this.httpMetadata?.contentType) headers.set("Content-Type", this.httpMetadata.contentType);
+    if (this.httpMetadata?.cacheControl) headers.set("Cache-Control", this.httpMetadata.cacheControl);
+    if (this.httpMetadata?.contentDisposition) headers.set("Content-Disposition", this.httpMetadata.contentDisposition);
+    if (this.httpMetadata?.contentEncoding) headers.set("Content-Encoding", this.httpMetadata.contentEncoding);
+    if (this.httpMetadata?.contentLanguage) headers.set("Content-Language", this.httpMetadata.contentLanguage);
+  }
 }
 
-export class FakeR2 {
+class FakeR2ObjectBody extends FakeR2Object implements R2ObjectBody {
+  private used = false;
+
+  get body(): ReadableStream {
+    this.used = true;
+    return new ReadableStream({
+      start: (controller) => {
+        controller.enqueue(this.payload);
+        controller.close();
+      },
+    });
+  }
+
+  get bodyUsed(): boolean {
+    return this.used;
+  }
+
+  async arrayBuffer(): Promise<ArrayBuffer> {
+    this.used = true;
+    return this.payload.buffer.slice(this.payload.byteOffset, this.payload.byteOffset + this.payload.byteLength);
+  }
+
+  async text(): Promise<string> {
+    this.used = true;
+    return new TextDecoder().decode(this.payload);
+  }
+
+  async json<T>(): Promise<T> {
+    return JSON.parse(await this.text()) as T;
+  }
+
+  async blob(): Promise<Blob> {
+    this.used = true;
+    return new Blob([this.payload]);
+  }
+}
+
+export class FakeR2 implements R2Bucket {
+  private readonly objects = new Map<string, Stored>();
+  listCalls = 0;
+  headCalls = 0;
   failNextPut = false;
-  private objects = new Map<string, Stored>();
 
   async head(key: string): Promise<R2Object | null> {
-    const row = this.objects.get(key);
-    return row ? objectMeta(row) : null;
+    this.headCalls += 1;
+    const stored = this.objects.get(key);
+    if (!stored) return null;
+    return new FakeR2Object(key, stored.bytes, stored.uploaded, stored.httpMetadata);
   }
 
   async get(key: string): Promise<R2ObjectBody | null> {
-    const row = this.objects.get(key);
-    if (!row) return null;
-    const copy = row.bytes.slice();
-    return {
-      ...objectMeta(row),
-      body: new Blob([copy]).stream(),
-      bodyUsed: false,
-      arrayBuffer: async () => copy.buffer.slice(copy.byteOffset, copy.byteOffset + copy.byteLength),
-      text: async () => new TextDecoder().decode(copy),
-      json: async <T>() => JSON.parse(new TextDecoder().decode(copy)) as T,
-      blob: async () => new Blob([copy]),
-    } as R2ObjectBody;
+    const stored = this.objects.get(key);
+    if (!stored) return null;
+    return new FakeR2ObjectBody(key, stored.bytes, stored.uploaded, stored.httpMetadata);
   }
 
-  async put(key: string, value: R2PutValue): Promise<R2Object> {
+  async put(key: string, value: PutValue, options?: R2PutOptions): Promise<R2Object> {
     if (this.failNextPut) {
       this.failNextPut = false;
       throw new Error("r2 put failed");
     }
-    const bytes = asBytes(await resolvePut(value));
-    const row = { key, bytes };
-    this.objects.set(key, row);
-    return objectMeta(row);
+    const bytes = await toBytes(value);
+    const stored: Stored = {
+      bytes,
+      httpMetadata: options?.httpMetadata,
+      uploaded: new Date(),
+    };
+    this.objects.set(key, stored);
+    return new FakeR2Object(key, bytes, stored.uploaded, stored.httpMetadata);
   }
 
   async delete(keys: string | string[]): Promise<void> {
@@ -63,43 +130,29 @@ export class FakeR2 {
   }
 
   async list(options?: R2ListOptions): Promise<R2Objects> {
+    this.listCalls += 1;
     const prefix = options?.prefix ?? "";
-    const limit = options?.limit ?? 1000;
-    const startAfter = options?.cursor ?? options?.startAfter ?? "";
-    const keys = [...this.objects.keys()].filter((k) => k.startsWith(prefix)).sort();
-    const from = startAfter ? keys.findIndex((k) => k > startAfter) : 0;
-    const slice = from < 0 ? [] : keys.slice(Math.max(0, from), Math.max(0, from) + limit);
-    const truncated = from >= 0 && from + limit < keys.length;
+    const limit = Math.min(options?.limit ?? 1000, 1000);
+    let keys = [...this.objects.keys()].filter((k) => k.startsWith(prefix)).sort();
+    if (options?.cursor) keys = keys.filter((k) => k > options.cursor!);
+    const sliced = keys.slice(0, limit);
+    const truncated = keys.length > limit;
     return {
-      objects: slice.map((key) => objectMeta(this.objects.get(key)!)),
+      objects: sliced.map((key) => {
+        const stored = this.objects.get(key)!;
+        return new FakeR2Object(key, stored.bytes, stored.uploaded, stored.httpMetadata);
+      }),
       truncated,
-      cursor: truncated ? slice.at(-1) : undefined,
+      cursor: truncated && sliced.length ? sliced[sliced.length - 1] : undefined,
       delimitedPrefixes: [],
     };
   }
 
-}
-
-type R2PutValue = Parameters<R2Bucket["put"]>[1];
-
-async function resolvePut(value: R2PutValue): Promise<R2PutValue> {
-  if (value && typeof value === "object" && "getReader" in value) {
-    const reader = (value as ReadableStream<Uint8Array>).getReader();
-    const chunks: Uint8Array[] = [];
-    for (;;) {
-      const { done, value: chunk } = await reader.read();
-      if (done) break;
-      if (chunk) chunks.push(chunk);
-    }
-    const size = chunks.reduce((n, c) => n + c.byteLength, 0);
-    const out = new Uint8Array(size);
-    let offset = 0;
-    for (const chunk of chunks) {
-      out.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return out;
+  createMultipartUpload(): Promise<R2MultipartUpload> {
+    return Promise.reject(new Error("multipart not used"));
   }
-  if (typeof Blob !== "undefined" && value instanceof Blob) return new Uint8Array(await value.arrayBuffer());
-  return value;
+
+  resumeMultipartUpload(): R2MultipartUpload {
+    throw new Error("multipart not used");
+  }
 }

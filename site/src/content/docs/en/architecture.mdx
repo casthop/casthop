@@ -17,7 +17,7 @@ LiveKit SFU (Go)  ────────────────────�
     │  full-quality subscribe                              │
     ▼                                                      ▼
 LiveKit Egress (custom /egress-template)             Durable Object
-    │  one transcode, N RTMP URLs                    (stage, layout,
+    │  16:9 encode + optional 9:16 encode            (stage, layout,
     ├──────────────┬──────────────┐                   chat, destinations)
     ▼              ▼              ▼
  MediaMTX       MediaMTX       MediaMTX              Cloudflare Worker
@@ -48,7 +48,7 @@ Cloudflare Stream Live needs a Cloudflare account with Stream enabled, and Strea
 
 ## Control plane
 
-The app is a Hono Worker with one Durable Object per studio (stage, layout, chat, destinations) and D1 for the studio index. R2 stores per-person ISO chunks uploaded from each browser during a show. The mixed MP4 still lands on the Egress volume. Hot Worker endpoints stay TypeScript; a workers-rs port was measured (`bun run bench:worker`) and did not win on CPU, cold start, or bundle size.
+The app is a Hono Worker with one Durable Object per studio (stage, layout, chat, destinations) and D1 for the studio index. R2 stores HLS replays and per-person ISO chunks uploaded from each browser during a show. Egress still writes the source MP4 to the recordings volume; `casthop-post hls` packages it and the Worker serves it. Hot Worker endpoints stay TypeScript; a workers-rs port was measured (`bun run bench:worker`) and did not win on CPU, cold start, or bundle size.
 
 ## Destination chat
 
@@ -60,7 +60,7 @@ The studio pill is `live` only when Egress is producing output: stream bytes or 
 
 ## casthop-post
 
-`crates/casthop-post` inspects and remuxes recordings. See [Destinations](/docs/destinations).
+`crates/casthop-post` inspects, remuxes, and packages HLS for the R2 replay viewer. See [Destinations](/docs/destinations).
 
 ## Measurements
 

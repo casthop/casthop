@@ -24,6 +24,7 @@ CLI for recordings. Do not turn it into the live fan-out path without measuremen
 
 ```bash
 cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
+cargo run -p casthop-post -- hls data/recordings/<file>.mp4 /tmp/replay-hls
 ```
 
 ## casthop-hot

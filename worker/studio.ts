@@ -29,6 +29,7 @@ import {
 } from "./livekit";
 import {
   applyStreamResults,
+  beginPortraitRecovery,
   beginRecovery,
   compositorGraceMs,
   egressIsProducing,
@@ -51,10 +52,12 @@ import {
   parseParticipantIdentities,
   pickActiveEgress,
   skipIds,
+  portraitRecoveryTimedOut,
   publicError,
   recordingPathFor,
   recoveryBudgetMs,
   recoveryTimedOut,
+  remainingPortraitRecoveryMs,
   remainingRecoveryMs,
   rememberAbandoned,
   setDestStatuses,
@@ -466,7 +469,10 @@ export class StudioDurableObject {
   private async runStartLive(state: StudioState, fromWatch = false): Promise<Response> {
     state.wantLive = true;
     state.liveFailed = false;
-    if (!fromWatch) state.egressRecoveringSince = null;
+    if (!fromWatch) {
+      state.egressRecoveringSince = null;
+      this.clearPortraitRecovery(state);
+    }
     state.liveStartingAt = Date.now();
     await this.putState(state);
 
@@ -631,6 +637,7 @@ export class StudioDurableObject {
     latest.egressRecoveringSince = null;
     latest.egressHeartbeatAt = null;
     latest.portraitHeartbeatAt = null;
+    this.clearPortraitRecovery(latest);
     latest.destChat = undefined;
     setDestStatuses(latest.destinations, reason === "stopped" ? "stopped" : "idle", null);
     if (reason === "stopped") {
@@ -762,7 +769,7 @@ export class StudioDurableObject {
       await this.restartDeadEgress(latest, latest.egressId, "Egress heartbeat lost");
       return;
     }
-    if (latest.portraitEgressId && latest.portraitHeartbeatAt && now - latest.portraitHeartbeatAt >= stale) {
+    if (this.portraitBeatLost(latest, now, stale)) {
       await this.restartPortraitEgress(latest, "Egress heartbeat lost");
       return;
     }
@@ -857,7 +864,7 @@ export class StudioDurableObject {
     if (isActiveHealth(info.status)) {
       const stale = heartbeatStaleMs(this.env.CASTHOP_HEARTBEAT_MS);
       const beatLost = portrait
-        ? Boolean(state.portraitHeartbeatAt) && Date.now() - (state.portraitHeartbeatAt ?? 0) >= stale
+        ? this.portraitBeatLost(state, Date.now(), stale)
         : heartbeatLost(state, Date.now(), stale);
       if (beatLost || this.compositorGone(state, identities, info.egressId)) {
         if (portrait) {
@@ -884,6 +891,7 @@ export class StudioDurableObject {
       }
       if (portrait) {
         state.portraitEgressId = info.egressId;
+        this.clearPortraitRecovery(state);
         if (!state.live) {
           state.live = true;
           state.liveFailed = false;
@@ -1013,6 +1021,7 @@ export class StudioDurableObject {
     state.egressRetryAt = null;
     state.egressHeartbeatAt = null;
     state.portraitHeartbeatAt = null;
+    this.clearPortraitRecovery(state);
     setDestStatuses(state.destinations, "failed", error);
     await this.putState(state);
     await this.clearWatch();
@@ -1037,6 +1046,7 @@ export class StudioDurableObject {
     state.egressRetryAt = Date.now() + delay;
     state.egressHeartbeatAt = null;
     state.portraitHeartbeatAt = null;
+    this.clearPortraitRecovery(state);
     setDestStatuses(state.destinations, "retrying", error);
     await this.putState(state);
     await this.scheduleWatch(state.egressRetryAt);
@@ -1115,6 +1125,7 @@ export class StudioDurableObject {
         const id = fresh.portraitEgressId;
         fresh.portraitEgressId = null;
         fresh.portraitHeartbeatAt = null;
+        this.clearPortraitRecovery(fresh);
         setDestStatuses(fresh.destinations, "idle", null, "portrait");
         await this.putState(fresh);
         try {
@@ -1128,6 +1139,7 @@ export class StudioDurableObject {
       return;
     }
     if (!fresh.portraitEgressId) {
+      this.clearPortraitRecovery(fresh);
       await this.putState(fresh);
       await this.ensurePortraitEgress(fresh);
       return;
@@ -1152,6 +1164,15 @@ export class StudioDurableObject {
     const urls = enabledUrls(state.destinations, "portrait");
     if (!urls.length || !state.wantLive) return;
     if (state.portraitEgressId || this.portraitLaunching) return;
+    if (state.portraitRetryAt && Date.now() < state.portraitRetryAt) return;
+    const budget = recoveryBudgetMs(this.env.CASTHOP_RECOVERY_MS);
+    const portDests = destsForAspect(state.destinations, "portrait").filter((d) => d.enabled && d.url);
+    if (portDests.length && portDests.every((d) => d.status === "failed")) {
+      if (portraitRecoveryTimedOut(state, Date.now(), budget)) return;
+    } else if (portraitRecoveryTimedOut(state, Date.now(), budget)) {
+      await this.markPortraitFailed(state, "Could not start 9:16");
+      return;
+    }
     if (!this.env.EGRESS_TEMPLATE_URL) {
       setDestStatuses(state.destinations, "failed", "9:16 needs a custom Egress template", "portrait");
       await this.putState(state);
@@ -1166,7 +1187,7 @@ export class StudioDurableObject {
         room: state.id,
         layout: PORTRAIT_LAYOUT,
         urls,
-        timeoutMs: startEgressTimeoutMs(remainingRecoveryMs(state, Date.now(), recoveryBudgetMs(this.env.CASTHOP_RECOVERY_MS))),
+        timeoutMs: startEgressTimeoutMs(remainingPortraitRecoveryMs(state, Date.now(), budget)),
       });
       const latest = (await this.getState()) ?? state;
       if (!latest.wantLive || latest.portraitEgressId) {
@@ -1178,22 +1199,30 @@ export class StudioDurableObject {
         return;
       }
       latest.portraitEgressId = egressId;
-      latest.portraitHeartbeatAt = null;
+      latest.portraitHeartbeatAt = Date.now();
+      latest.portraitRetryAt = null;
       setDestStatuses(latest.destinations, "connecting", null, "portrait");
       await this.putState(latest);
     } catch (err) {
       console.warn("portrait egress start failed", err);
       const latest = (await this.getState()) ?? state;
       if (!latest.wantLive) return;
-      setDestStatuses(latest.destinations, "retrying", publicError(err instanceof Error ? err.message : "Could not start 9:16") ?? "Could not start 9:16", "portrait");
-      await this.putState(latest);
-      await this.scheduleWatch(Date.now() + WATCH_MS);
+      await this.markPortraitRetry(
+        latest,
+        publicError(err instanceof Error ? err.message : "Could not start 9:16") ?? "Could not start 9:16",
+      );
     } finally {
       this.portraitLaunching = false;
     }
   }
 
   private async restartPortraitEgress(state: StudioState, error: string): Promise<void> {
+    beginPortraitRecovery(state);
+    const budget = recoveryBudgetMs(this.env.CASTHOP_RECOVERY_MS);
+    if (portraitRecoveryTimedOut(state, Date.now(), budget)) {
+      await this.markPortraitFailed(state, error);
+      return;
+    }
     const id = state.portraitEgressId;
     setDestStatuses(state.destinations, "retrying", error, "portrait");
     if (id) await this.abandonEgress(state, id);
@@ -1201,8 +1230,56 @@ export class StudioDurableObject {
     if (!latest.wantLive || latest.liveFailed) return;
     latest.portraitEgressId = null;
     latest.portraitHeartbeatAt = null;
+    latest.portraitRecoveringSince = state.portraitRecoveringSince ?? latest.portraitRecoveringSince;
     await this.putState(latest);
     if (enabledUrls(latest.destinations, "portrait").length) await this.ensurePortraitEgress(latest);
+  }
+
+  private async markPortraitFailed(state: StudioState, error: string): Promise<void> {
+    if (state.portraitEgressId) await this.abandonEgress(state, state.portraitEgressId);
+    const latest = (await this.getState()) ?? state;
+    latest.portraitEgressId = null;
+    latest.portraitHeartbeatAt = null;
+    latest.portraitRetryAt = null;
+    setDestStatuses(latest.destinations, "failed", error, "portrait");
+    await this.putState(latest);
+  }
+
+  private async markPortraitRetry(state: StudioState, error: string): Promise<void> {
+    beginPortraitRecovery(state);
+    const budget = recoveryBudgetMs(this.env.CASTHOP_RECOVERY_MS);
+    if (portraitRecoveryTimedOut(state, Date.now(), budget)) {
+      await this.markPortraitFailed(state, error);
+      return;
+    }
+    const delay = nextBackoffMs(state.portraitRetryCount ?? 0, this.env.CASTHOP_BACKOFF_MS);
+    state.portraitRetryCount = (state.portraitRetryCount ?? 0) + 1;
+    state.portraitRetryAt = Date.now() + delay;
+    setDestStatuses(state.destinations, "retrying", error, "portrait");
+    await this.putState(state);
+    await this.scheduleWatch(Date.now() + WATCH_MS);
+  }
+
+  private clearPortraitRecovery(state: StudioState): void {
+    state.portraitRetryCount = 0;
+    state.portraitRetryAt = null;
+    state.portraitRecoveringSince = null;
+  }
+
+  private portraitBeatLost(state: StudioState, now: number, staleMs: number): boolean {
+    if (!state.portraitEgressId) return false;
+    const at = state.portraitHeartbeatAt;
+    if (!at) {
+      const started = state.liveStartingAt ?? state.liveStartedAt ?? 0;
+      const grace = compositorGraceMs(this.env.CASTHOP_COMPOSITOR_GRACE_MS);
+      return started > 0 && now - started >= grace;
+    }
+    if (now - at < staleMs) return false;
+    const starting = destsForAspect(state.destinations, "portrait").some(
+      (d) => d.enabled && Boolean(d.url) && (d.status === "connecting" || d.status === "retrying"),
+    );
+    if (starting) return now - at >= compositorGraceMs(this.env.CASTHOP_COMPOSITOR_GRACE_MS);
+    return true;
   }
 
   private async stopRoomEgress(state: StudioState): Promise<void> {

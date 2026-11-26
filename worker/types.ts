@@ -95,6 +95,9 @@ export type StudioState = {
   /** Second RoomComposite for 9:16 destinations. Independent encode. */
   portraitEgressId?: string | null;
   portraitHeartbeatAt?: number | null;
+  portraitRetryCount?: number;
+  portraitRetryAt?: number | null;
+  portraitRecoveringSince?: number | null;
   emptySince: number | null;
   egressId: string | null;
   recordingPath: string | null;
@@ -199,6 +202,9 @@ export type PublicStudio = Omit<
   | "destChat"
   | "portraitEgressId"
   | "portraitHeartbeatAt"
+  | "portraitRetryCount"
+  | "portraitRetryAt"
+  | "portraitRecoveringSince"
 > & {
   destinations: PublicDestination[];
   egressId?: string | null;

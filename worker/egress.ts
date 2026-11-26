@@ -119,6 +119,30 @@ export function beginRecovery(
   state.egressRecoveringSince = state.egressHeartbeatAt ?? now;
 }
 
+export function beginPortraitRecovery(
+  state: Pick<StudioState, "portraitRecoveringSince" | "portraitHeartbeatAt">,
+  now = Date.now(),
+): void {
+  if (state.portraitRecoveringSince) return;
+  state.portraitRecoveringSince = state.portraitHeartbeatAt ?? now;
+}
+
+export function portraitRecoveryTimedOut(
+  state: Pick<StudioState, "portraitRecoveringSince">,
+  now = Date.now(),
+  budgetMs = RECOVERY_BUDGET_MS,
+): boolean {
+  return recoveryTimedOut({ egressRecoveringSince: state.portraitRecoveringSince }, now, budgetMs);
+}
+
+export function remainingPortraitRecoveryMs(
+  state: Pick<StudioState, "portraitRecoveringSince">,
+  now = Date.now(),
+  budgetMs = RECOVERY_BUDGET_MS,
+): number | null {
+  return remainingRecoveryMs({ egressRecoveringSince: state.portraitRecoveringSince }, now, budgetMs);
+}
+
 export function rememberAbandoned(ids: string[] | undefined, egressId: string): string[] {
   const next = [egressId, ...(ids ?? []).filter((id) => id !== egressId)];
   return next.slice(0, MAX_ABANDONED_EGRESS);
@@ -661,6 +685,9 @@ export function normalizeStudio(state: StudioState): StudioState {
     egressHeartbeatAt: state.egressHeartbeatAt ?? null,
     portraitEgressId: state.portraitEgressId ?? null,
     portraitHeartbeatAt: state.portraitHeartbeatAt ?? null,
+    portraitRetryCount: state.portraitRetryCount ?? 0,
+    portraitRetryAt: state.portraitRetryAt ?? null,
+    portraitRecoveringSince: state.portraitRecoveringSince ?? null,
     emptySince: state.emptySince ?? null,
     pinnedChat: state.pinnedChat ?? null,
     destinations: state.destinations.map((d) => ({

@@ -7,6 +7,7 @@ const ja: SiteMessages = {
   navDocs: "ドキュメント",
   navGithub: "GitHub",
   navGetStarted: "始める",
+  navMenu: "メニュー",
   language: "言語",
 
   metaTitle: "Casthop — ブラウザで動くオープンソースのライブスタジオ",

@@ -17,12 +17,25 @@ const NATIVE_NAME: Record<Locale, string> = {
   ja: "日本語",
 };
 
+const SHORT_CODE: Record<Locale, string> = {
+  en: "EN",
+  "pt-BR": "PT",
+  es: "ES",
+  fr: "FR",
+  de: "DE",
+  ja: "JA",
+};
+
 export function isLocale(value: string): value is Locale {
   return (LOCALES as readonly string[]).includes(value);
 }
 
 export function localeNativeName(locale: Locale): string {
   return NATIVE_NAME[locale];
+}
+
+export function localeShortCode(locale: Locale): string {
+  return SHORT_CODE[locale];
 }
 
 export function htmlLang(locale: Locale): string {

@@ -215,3 +215,42 @@ jobs:
             .e2e/results
           if-no-files-found: ignore
           retention-days: 7
+
+  e2e-site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile
+        working-directory: site
+      - run: bun run build
+        working-directory: site
+      - name: Preview site
+        working-directory: site
+        run: bun run preview --host 127.0.0.1 --port 4321 > /tmp/site-preview.log 2>&1 &
+      - name: Wait for site
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:4321/ >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "timeout waiting for site preview"
+          cat /tmp/site-preview.log || true
+          exit 1
+      - name: Header overflow and CTA
+        env:
+          CI: "true"
+          CHROME: ${{ steps.chrome.outputs.chrome-path }}
+          SITE_URL: http://127.0.0.1:4321
+        run: bun run test:e2e-site
+      - if: failure()
+        run: cat /tmp/site-preview.log || true

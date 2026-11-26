@@ -13,7 +13,7 @@ import ja from "../src/i18n/locales/ja.ts";
 import ptBR from "../src/i18n/locales/pt-BR.ts";
 import { en as siteEn } from "../site/src/i18n/en.ts";
 import { siteCatalogs } from "../site/src/i18n/index.ts";
-import { withLocale } from "../site/src/i18n/locales.ts";
+import { localeShortCode, withLocale } from "../site/src/i18n/locales.ts";
 
 const studioCatalogs: Record<string, Messages> = {
   "pt-BR": ptBR,
@@ -61,6 +61,12 @@ test("detectBrowserLocale walks navigator.languages and falls back to English", 
 test("interpolate formats numbers with Intl", () => {
   assert.equal(interpolate("Go live on {count}", { count: 3 }, "en"), "Go live on 3");
   assert.equal(interpolate("{name}", { name: "Ada" }, "en"), "Ada");
+});
+
+test("site localeShortCode is a compact label", () => {
+  assert.equal(localeShortCode("en"), "EN");
+  assert.equal(localeShortCode("pt-BR"), "PT");
+  assert.equal(localeShortCode("de"), "DE");
 });
 
 test("site withLocale prefixes non-English paths", () => {

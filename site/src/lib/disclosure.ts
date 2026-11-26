@@ -1,3 +1,17 @@
+function closeRoot(root: HTMLElement): void {
+  const btn = root.querySelector<HTMLButtonElement>("[data-disclosure]");
+  const panel = root.querySelector<HTMLElement>("[data-disclosure-panel]");
+  if (!btn || !panel) return;
+  panel.hidden = true;
+  btn.setAttribute("aria-expanded", "false");
+}
+
+function closeOthers(root: HTMLElement): void {
+  for (const other of document.querySelectorAll<HTMLElement>("[data-disclosure-root]")) {
+    if (other !== root) closeRoot(other);
+  }
+}
+
 export function bindDisclosures(): void {
   for (const root of document.querySelectorAll<HTMLElement>("[data-disclosure-root]")) {
     if (root.dataset.disclosureBound === "1") continue;
@@ -9,34 +23,18 @@ export function bindDisclosures(): void {
     const items = () => [...panel.querySelectorAll<HTMLElement>("a, button")];
 
     const setOpen = (open: boolean) => {
+      if (open) closeOthers(root);
       panel.hidden = !open;
       btn.setAttribute("aria-expanded", String(open));
     };
 
-    const closeOthers = () => {
-      for (const other of document.querySelectorAll<HTMLElement>("[data-disclosure-root]")) {
-        if (other === root) continue;
-        const otherBtn = other.querySelector<HTMLButtonElement>("[data-disclosure]");
-        const otherPanel = other.querySelector<HTMLElement>("[data-disclosure-panel]");
-        if (otherBtn && otherPanel) {
-          otherPanel.hidden = true;
-          otherBtn.setAttribute("aria-expanded", "false");
-        }
-      }
-    };
-
     btn.addEventListener("click", () => {
-      const open = panel.hidden;
-      if (open) closeOthers();
-      setOpen(open);
+      setOpen(panel.hidden);
     });
     btn.addEventListener("keydown", (e) => {
       if (e.key !== "ArrowDown") return;
       e.preventDefault();
-      if (panel.hidden) {
-        closeOthers();
-        setOpen(true);
-      }
+      setOpen(true);
       items()[0]?.focus();
     });
     panel.addEventListener("keydown", (e) => {

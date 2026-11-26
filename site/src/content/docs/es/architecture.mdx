@@ -54,7 +54,7 @@ La app es un Hono Worker con un Durable Object por estudio (escena, layout, chat
 
 En vivo, el Durable Object del estudio sondea `liveChatMessages.list` de YouTube si hay Worker secrets (`worker/chat-ingest.ts`). Los comentarios entran en la lista de chat de la sala. Los anfitriones pueden fijar uno en el overlay Canvas2D. El cursor del sondeo (`liveChatId`, page token) se omite del estado público del estudio. X y LinkedIn no se ingieren.
 
-## Distintivo Live
+## Indicador Live
 
 La pastilla del estudio es `live` solo cuando Egress está produciendo salida: bytes o duración del stream, o un settle corto tras el `started_at` de RTMP (LiveKit puede informar un start antes de que MediaMTX tenga el flujo). Hasta entonces la pastilla se queda en Iniciando. Si muere el Chrome del compositor, el heartbeat quita Live y el estudio reintenta con backoff.
 

@@ -52,7 +52,7 @@ Opcional. Sem valor, valem os padrões do código em `worker/egress.ts`. Testes 
 
 | Nome | Função | Padrão |
 |---|---|---|
-| `CASTHOP_EMPTY_GRACE_MS` | Encerrar o ao vivo depois que o estúdio ficou vazio por esse tempo. | `45000` |
+| `CASTHOP_EMPTY_GRACE_MS` | Encerrar a transmissão depois que o estúdio ficou vazio por esse tempo. | `45000` |
 | `CASTHOP_COMPOSITOR_GRACE_MS` | Esperar o Chrome do compositor entrar depois do StartRoomComposite. | `15000` |
 | `CASTHOP_RECOVERY_MS` | Desistir de reiniciar um compositor morto; o apresentador pode Tentar de novo. | `30000` |
 | `CASTHOP_HEARTBEAT_MS` | O beat do compositor fica velho depois disso (a página posta a cada 1 s). | `3000` |
@@ -73,11 +73,11 @@ Comentários da transmissão do YouTube aparecem no painel de chat do estúdio e
 | Nome | Função | Padrão local |
 |---|---|---|
 | `YOUTUBE_API_KEY` | Chave da YouTube Data API para `liveChatMessages.list` público. | unset |
-| `YOUTUBE_LIVE_CHAT_ID` | Pular a busca e pollar este live chat. | unset |
+| `YOUTUBE_LIVE_CHAT_ID` | Pular a busca e consultar este live chat. | unset |
 | `YOUTUBE_VIDEO_ID` | Resolver `activeLiveChatId` a partir de um vídeo. | unset |
 | `YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN` | Achar a transmissão ativa do dono (`liveBroadcasts.list?mine=true`). | unset |
 
-Precisa de uma API key mais um live chat ou video id, ou o trio de refresh OAuth. O polling usa o `pollingIntervalMillis` da API. A API do X pede plano pago, e comentários do LinkedIn pedem API de parceiro; esses destinos não são ingeridos.
+Precisa de uma API key mais um live chat ou video id, ou o trio de refresh OAuth. A consulta usa o `pollingIntervalMillis` da API. A API do X pede plano pago, e comentários do LinkedIn pedem API de parceiro; esses destinos não são ingeridos.
 
 ## Chaves de stream
 

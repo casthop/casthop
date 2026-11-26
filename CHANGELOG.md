@@ -30,6 +30,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 - Studio tiles attach camera video when the track arrives after the first render.
 - Adding a guest to stage before they connect applies once they join LiveKit. Permission errors show in the studio.
 - Marketing site header on phones: Docs and GitHub move into a menu, the language switcher shows a short code, and the page no longer scrolls sideways.
+- Opening the docs language menu closes the header menu, so the two panels do not stack on phones.
 
 ### Changed
 

@@ -13,7 +13,7 @@ Linux avec Docker en host networking est le chemin local pris en charge. Docker 
 - Docker avec Compose.
 - Un hôte Linux. Le host networking n’existe que sous Linux ; voir [Docker Desktop](#docker-desktop-macos-et-windows) plus bas.
 
-Pas besoin d’une toolchain Rust. Le `src/wasm/casthop_media.wasm` précompilé est dans le git, donc le serveur de développement démarre sans Rust. Recompilez-le seulement si vous changez le crate (il faut rustc 1.100+ et la cible `wasm32-unknown-unknown`).
+Pas besoin de chaîne d’outils Rust. Le `src/wasm/casthop_media.wasm` précompilé est versionné dans le dépôt, donc le serveur de développement démarre sans Rust. Recompilez-le seulement si vous changez le crate (il faut rustc 1.100+ et la cible `wasm32-unknown-unknown`).
 
 ## Le lancer
 
@@ -35,10 +35,10 @@ Le site que vous lisez est un paquet à part dans `site/` (`cd site && bun insta
 ## Votre première émission
 
 1. Ouvrez [http://127.0.0.1:5173](http://127.0.0.1:5173).
-2. Entrez votre e-mail pour recevoir un magic link. En local, le Worker imprime le lien dans sa console ; copiez-le depuis le terminal où tourne `bun run dev`.
+2. Entrez votre e-mail pour recevoir un magic link. En local, le Worker affiche le lien dans sa console ; copiez-le depuis le terminal où tourne `bun run dev`.
 3. Ouvrez un studio.
 4. Copiez le lien invité et envoyez-le à ceux qui doivent rejoindre. Voir [Invités](/docs/guests).
-5. Faites monter les gens sur scène. Jusqu’à six.
+5. Ajoutez les gens à la scène. Jusqu’à six.
 6. Appuyez sur **Passer en direct**, choisissez les destinations dans la boîte de dialogue, et confirmez. La pastille Live reste sur Démarrage tant qu’Egress ne produit pas de sortie. Chaque destination du panneau affiche son propre statut RTMP.
 
 Par défaut, les destinations sont des substituts locaux MediaMTX pour YouTube, LinkedIn et X. Voir [Destinations](/docs/destinations) pour les regarder et pointer vers un ingest réel.
@@ -62,7 +62,7 @@ Le host networking n’existe que sous Linux. Sur Docker Desktop, il faut retire
 ## Vérifier que ça marche
 
 - Santé : [http://127.0.0.1:5173/api/health](http://127.0.0.1:5173/api/health)
-- Probe de latence (dev seulement) : [http://127.0.0.1:5173/internal/probe](http://127.0.0.1:5173/internal/probe)
+- Sonde de latence (dev seulement) : [http://127.0.0.1:5173/internal/probe](http://127.0.0.1:5173/internal/probe)
 - Mesure de charge avec 2, 4 et 6 publishers : `bun run measure`
 
-Les tests, le gate perf, et comment ouvrir une PR : [CONTRIBUTING.md](https://github.com/casthop/casthop/blob/main/CONTRIBUTING.md) dans le dépôt.
+Les tests, le contrôle de performance, et comment ouvrir une PR : [CONTRIBUTING.md](https://github.com/casthop/casthop/blob/main/CONTRIBUTING.md) dans le dépôt.

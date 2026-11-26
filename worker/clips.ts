@@ -1,5 +1,13 @@
 import type { Account, ClipRecord, Env, LivePhase, PublicClip } from "./types";
-import { canViewReplay, hlsContentType, hlsFilenamesInPlaylist, HLS_INDEX, isHlsFilename, playlistError } from "./replays";
+import {
+  canViewReplay,
+  hlsContentType,
+  hlsFilenamesInPlaylist,
+  HLS_INDEX,
+  isHlsFilename,
+  MAX_FILE_BYTES,
+  playlistError,
+} from "./replays";
 import { randomId } from "./security";
 
 export const CLIP_SECONDS = [30, 60] as const;
@@ -186,7 +194,7 @@ export async function putLiveHlsFile(
   if (!isHlsFilename(file)) {
     throw Object.assign(new Error("invalid filename"), { status: 400 });
   }
-  if (bytes.byteLength === 0) {
+  if (bytes.byteLength === 0 || bytes.byteLength > MAX_FILE_BYTES) {
     throw Object.assign(new Error("invalid file size"), { status: 400 });
   }
   if (file === HLS_INDEX) {

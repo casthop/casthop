@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { app, StudioDurableObject } from "../worker/index.ts";
-import { LIVE_HLS_MAX_FILES, MAX_CLIPS_PER_STUDIO, parseClipSeconds, sliceHlsPlaylist } from "../worker/clips.ts";
-import { HLS_INDEX, isHlsFilename } from "../worker/replays.ts";
+import {
+  LIVE_HLS_MAX_FILES,
+  MAX_CLIPS_PER_STUDIO,
+  parseClipSeconds,
+  putLiveHlsFile,
+  sliceHlsPlaylist,
+} from "../worker/clips.ts";
+import { HLS_INDEX, isHlsFilename, MAX_FILE_BYTES } from "../worker/replays.ts";
 import { insertClip, LIST_CLIPS_PER_STUDIO } from "../worker/db.ts";
 import { mintParticipantToken, signLivekitWebhook } from "../worker/livekit.ts";
 import { redactStreamKey } from "../worker/egress.ts";
@@ -405,6 +411,26 @@ test("compositor JWT can write live HLS while the host cannot when idle", async 
     env,
   );
   assert.equal(put.status, 200, await put.clone().text());
+});
+
+test("live HLS PUT caps size after reading, not only from Content-Length", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "owner@example.com");
+  const { id } = await createStudio(env, cookie);
+  await goLive(env, cookie, id);
+  const huge = new Uint8Array(MAX_FILE_BYTES + 1);
+  huge.fill(1);
+  await assert.rejects(
+    () => putLiveHlsFile(env, id, "seg000.webm", huge),
+    (err: unknown) => err instanceof Error && err.message === "invalid file size",
+  );
+  const req = new Request(`https://casthop.test/api/studios/${id}/live-hls/seg000.webm`, {
+    method: "PUT",
+    headers: { Cookie: cookie, "Content-Length": "4" },
+    body: huge,
+  });
+  const over = await app.request(req, undefined, env);
+  assert.equal(over.status, 400, await over.clone().text());
 });
 
 test("studio list keeps the latest 20 clips per studio", async () => {

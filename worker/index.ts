@@ -518,6 +518,7 @@ app.put("/api/studios/:id/live-hls/:file", async (c) => {
     return c.json({ error: "invalid file size" }, 400);
   }
   const bytes = new Uint8Array(await c.req.arrayBuffer());
+  if (bytes.byteLength > MAX_FILE_BYTES) return c.json({ error: "invalid file size" }, 400);
   try {
     await putLiveHlsFile(c.env, id, file, bytes);
     return c.json({ ok: true });

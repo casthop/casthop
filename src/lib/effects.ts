@@ -1,7 +1,9 @@
 import workletUrl from "../worklets/denoise-processor.js?url";
+import { fxFromSearch, type FxBackend } from "./fx";
 import { loadWasmBytes } from "./wasm";
 
-export type FxBackend = "wasm" | "js" | "off";
+export type { FxBackend };
+export { fxFromSearch, fxBackendForDenoise } from "./fx";
 
 export type MediaPipeline = {
   process(stream: MediaStream): Promise<MediaStream>;
@@ -14,12 +16,6 @@ export type Meter = {
 };
 
 const liveContexts: AudioContext[] = [];
-
-export function fxFromSearch(search = location.search): FxBackend {
-  const v = new URLSearchParams(search).get("fx");
-  if (v === "js" || v === "off" || v === "wasm") return v;
-  return "wasm";
-}
 
 export const passthroughPipeline: MediaPipeline = {
   async process(stream) {

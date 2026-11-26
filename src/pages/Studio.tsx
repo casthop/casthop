@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   ConnectionState,
   LocalParticipant,
@@ -9,7 +9,7 @@ import {
   Track,
   VideoPresets,
 } from "livekit-client";
-import { Aperture, Mic, MicOff, MonitorUp, UserPlus, Video, VideoOff } from "lucide-react";
+import { Aperture, AudioLines, Mic, MicOff, MonitorUp, UserPlus, Video, VideoOff } from "lucide-react";
 import { Logo } from "../components/Logo";
 import { VideoTile } from "../components/VideoTile";
 import {
@@ -31,9 +31,13 @@ import {
 } from "../lib/api";
 import { loadBlurPref, saveBlurPrefPair } from "../lib/blur-prefs";
 import { startCameraBlur, type CameraBlurHandle } from "../lib/camera-blur";
-import { mediaPipeline } from "../lib/effects";
+import { loadDenoisePref, saveDenoisePrefPair } from "../lib/denoise-prefs";
+import { processWithPipeline } from "../lib/effects";
+import { fxBackendForDenoise } from "../lib/fx";
 import { hueFor, openUserMedia } from "../lib/media";
+import { backstageCount } from "../lib/participants";
 import { loadSession, saveSession } from "../lib/session";
+import { canConnectToStudio } from "../lib/studio-entry";
 import { isHostIdentity } from "../../worker/security";
 import type { LayoutId, ParticipantInfo, PublicDestination } from "../../worker/types";
 
@@ -88,18 +92,29 @@ function DestBadge({ kind }: { kind: string }) {
 
 export function Studio() {
   const { id = "" } = useParams();
+  const navigate = useNavigate();
   const publishingRef = useRef(false);
   const studioLiveRef = useRef(true);
 
   const [studio, setStudio] = useState<StudioView | null>(null);
   const isHost = studio?.viewerRole === "owner" || studio?.viewerRole === "cohost";
+  const [entry, setEntry] = useState<"pending" | "ok" | "gate">("pending");
+  const [entryId, setEntryId] = useState(id);
+  if (entryId !== id) {
+    setEntryId(id);
+    setEntry("pending");
+  }
   const [room, setRoom] = useState<Room | null>(null);
   const [peers, setPeers] = useState<(RemoteParticipant | LocalParticipant)[]>([]);
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
   const [blurOn, setBlurOn] = useState(false);
   const [blurBusy, setBlurBusy] = useState(false);
+  const [denoiseOn, setDenoiseOn] = useState(true);
+  const [denoiseBusy, setDenoiseBusy] = useState(false);
   const originalVideoRef = useRef<MediaStreamTrack | null>(null);
+  const originalAudioRef = useRef<MediaStreamTrack | null>(null);
+  const processedAudioRef = useRef<MediaStreamTrack | null>(null);
   const blurHandleRef = useRef<CameraBlurHandle | null>(null);
   const [error, setError] = useState("");
   const [chatDraft, setChatDraft] = useState("");
@@ -119,6 +134,7 @@ export function Studio() {
   useEffect(() => {
     const saved = loadSession(id);
     setBlurOn(loadBlurPref(saved?.cameraId ?? ""));
+    setDenoiseOn(loadDenoisePref(saved?.micId ?? ""));
   }, [id]);
 
   useEffect(() => {
@@ -156,7 +172,10 @@ export function Studio() {
     };
     connect();
     getStudio(id)
-      .then((s) => apply(s, s.viewerRole))
+      .then((s) => {
+        apply(s, s.viewerRole);
+        setEntry(canConnectToStudio(s.viewerRole, loadSession(id)) ? "ok" : "gate");
+      })
       .catch((err) => setError(err.message));
     return () => {
       closed = true;
@@ -166,6 +185,7 @@ export function Studio() {
   }, [id]);
 
   useEffect(() => {
+    if (entry !== "ok") return;
     studioLiveRef.current = true;
     let cancelled = false;
     let current: Room | null = null;
@@ -280,10 +300,14 @@ export function Studio() {
       blurHandleRef.current = null;
       originalVideoRef.current?.stop();
       originalVideoRef.current = null;
+      processedAudioRef.current?.stop();
+      processedAudioRef.current = null;
+      originalAudioRef.current?.stop();
+      originalAudioRef.current = null;
       window.clearTimeout(refreshTimer);
       current?.disconnect();
     };
-  }, [id]);
+  }, [id, entry]);
 
   useEffect(() => {
     if (!room || !studio) return;
@@ -307,6 +331,7 @@ export function Studio() {
   }, [studio, peers]);
 
   const backstage = studio?.participants ?? [];
+  const waiting = backstageCount(backstage);
 
   function studioOpen(lk: Room): boolean {
     return studioLiveRef.current && lk.state !== ConnectionState.Disconnected;
@@ -324,7 +349,12 @@ export function Studio() {
       const saved = loadSession(id);
       raw = await openUserMedia({ cameraId: saved?.cameraId, micId: saved?.micId });
       if (!studioOpen(lk)) return;
-      processed = await mediaPipeline.process(raw);
+      const rawAudio = raw.getAudioTracks()[0] ?? null;
+      originalAudioRef.current = rawAudio;
+      const settingsMic = rawAudio?.getSettings().deviceId ?? "";
+      const wantDenoise = loadDenoisePref(saved?.micId ?? "", settingsMic);
+      setDenoiseOn(wantDenoise);
+      processed = await processWithPipeline(raw, fxBackendForDenoise(wantDenoise));
       if (!studioOpen(lk)) return;
       const video = processed.getVideoTracks()[0];
       if (video) {
@@ -357,6 +387,7 @@ export function Studio() {
       }
       const audio = processed.getAudioTracks()[0];
       if (audio && studioOpen(lk)) {
+        if (audio !== rawAudio) processedAudioRef.current = audio;
         await lk.localParticipant.publishTrack(audio, { source: Track.Source.Microphone });
       }
       published = studioOpen(lk);
@@ -367,6 +398,8 @@ export function Studio() {
         blurHandleRef.current?.stop();
         blurHandleRef.current = null;
         originalVideoRef.current = null;
+        originalAudioRef.current = null;
+        processedAudioRef.current = null;
         processed?.getTracks().forEach((t) => t.stop());
         raw?.getTracks().forEach((t) => t.stop());
       }
@@ -383,6 +416,46 @@ export function Studio() {
     const next = !camOn;
     setCamOn(next);
     await room?.localParticipant.setCameraEnabled(next);
+  }
+
+  async function toggleDenoise() {
+    if (denoiseBusy) return;
+    const next = !denoiseOn;
+    const savedId = loadSession(id)?.micId ?? "";
+    const deviceId = originalAudioRef.current?.getSettings().deviceId ?? savedId;
+    saveDenoisePrefPair(deviceId, savedId, next);
+    setDenoiseOn(next);
+    const local = room?.localParticipant.getTrackPublication(Track.Source.Microphone)?.audioTrack;
+    const original = originalAudioRef.current;
+    if (!local || !original) return;
+    setDenoiseBusy(true);
+    try {
+      if (fxBackendForDenoise(next) === "off") {
+        await local.replaceTrack(original, { userProvidedTrack: true });
+        if (processedAudioRef.current && processedAudioRef.current !== original) {
+          processedAudioRef.current.stop();
+        }
+        processedAudioRef.current = null;
+      } else {
+        const processed = await processWithPipeline(new MediaStream([original]), fxBackendForDenoise(true));
+        const track = processed.getAudioTracks()[0];
+        if (!track || !studioLiveRef.current) {
+          if (track && track !== original) track.stop();
+          return;
+        }
+        await local.replaceTrack(track, { userProvidedTrack: true });
+        if (processedAudioRef.current && processedAudioRef.current !== original) {
+          processedAudioRef.current.stop();
+        }
+        processedAudioRef.current = track === original ? null : track;
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Noise removal failed");
+      setDenoiseOn(!next);
+      saveDenoisePrefPair(deviceId, savedId, !next);
+    } finally {
+      setDenoiseBusy(false);
+    }
   }
 
   async function toggleBlur() {
@@ -518,7 +591,30 @@ export function Studio() {
     }
   }
 
-  if (!studio) {
+  if (entry === "gate") {
+    return (
+      <div className="studio">
+        <header className="topbar">
+          <Logo />
+          <div className="center">Studio{studio ? ` · ${studio.title}` : ""}</div>
+        </header>
+        <div className="panel">
+          <div className="sheet">
+            <h2>Join as a guest</h2>
+            <p>Guests pick a name and check camera and mic before going backstage. Sign in if you host this studio.</p>
+            <button className="btn primary" type="button" onClick={() => navigate(`/join/${id}`)}>
+              Join as guest
+            </button>
+            <button className="btn ghost" type="button" onClick={() => navigate("/")}>
+              Sign in
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!studio || entry !== "ok") {
     return (
       <div className="studio">
         <header className="topbar">
@@ -633,7 +729,7 @@ export function Studio() {
           )}
 
           <section className="backstage">
-            <h3>Backstage · {backstage.length}</h3>
+            <h3>Backstage · {waiting}</h3>
             <div className="back-row">
               {backstage.map((p) => (
                 <button
@@ -660,6 +756,15 @@ export function Studio() {
           <div className="controls">
             <button className={`ctrl ${micOn ? "" : "off"}`} type="button" onClick={toggleMic}>
               {micOn ? <Mic size={16} /> : <MicOff size={16} />} Mic
+            </button>
+            <button
+              className={`ctrl ${denoiseOn ? "" : "off"}`}
+              type="button"
+              onClick={() => void toggleDenoise()}
+              aria-pressed={denoiseOn}
+              disabled={denoiseBusy}
+            >
+              <AudioLines size={16} /> Noise
             </button>
             <button className={`ctrl ${camOn ? "" : "off"}`} type="button" onClick={toggleCam}>
               {camOn ? <Video size={16} /> : <VideoOff size={16} />} Camera

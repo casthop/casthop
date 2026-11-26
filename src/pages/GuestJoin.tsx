@@ -1,11 +1,13 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Aperture, Check, Mic, MicOff, Video, VideoOff } from "lucide-react";
+import { Aperture, AudioLines, Check, Mic, MicOff, Video, VideoOff } from "lucide-react";
 import { Logo } from "../components/Logo";
 import { getHealth, getStudio, mintToken } from "../lib/api";
 import { copyBlurPref, loadBlurPref, saveBlurPrefPair } from "../lib/blur-prefs";
 import { startCameraBlur, type CameraBlurHandle } from "../lib/camera-blur";
+import { copyDenoisePref, loadDenoisePref, saveDenoisePrefPair } from "../lib/denoise-prefs";
 import { attachWorkletMeter } from "../lib/effects";
+import { fxBackendForDenoise } from "../lib/fx";
 import { listDevices, openUserMedia, type DeviceSet } from "../lib/media";
 import { saveSession } from "../lib/session";
 import { LocalPreview } from "../components/VideoTile";
@@ -23,6 +25,7 @@ export function GuestJoin() {
   const [camOn, setCamOn] = useState(true);
   const [micOn, setMicOn] = useState(true);
   const [blurOn, setBlurOn] = useState(false);
+  const [denoiseOn, setDenoiseOn] = useState(true);
   const [level, setLevel] = useState(0);
   const [camOk, setCamOk] = useState(false);
   const [micOk, setMicOk] = useState(false);
@@ -32,6 +35,7 @@ export function GuestJoin() {
   const [error, setError] = useState("");
   // Canvas preview tracks have no deviceId; keep the real camera's.
   const rawCameraIdRef = useRef("");
+  const rawMicIdRef = useRef("");
 
   useEffect(() => {
     getStudio(id)
@@ -51,6 +55,11 @@ export function GuestJoin() {
   }, [cameraId]);
 
   useEffect(() => {
+    if (micId) copyDenoisePref("", micId);
+    setDenoiseOn(loadDenoisePref(micId));
+  }, [micId]);
+
+  useEffect(() => {
     let stopMeter = () => undefined;
     let cancelled = false;
     let blurHandle: CameraBlurHandle | null = null;
@@ -65,6 +74,8 @@ export function GuestJoin() {
       const videoTrack = media.getVideoTracks()[0];
       const rawId = videoTrack?.getSettings().deviceId ?? "";
       if (rawId) rawCameraIdRef.current = rawId;
+      const rawMic = media.getAudioTracks()[0]?.getSettings().deviceId ?? "";
+      if (rawMic) rawMicIdRef.current = rawMic;
       if (blurOn && videoTrack) {
         try {
           blurHandle = await startCameraBlur(videoTrack);
@@ -84,7 +95,7 @@ export function GuestJoin() {
       setResLabel(settings?.height ? `${settings.height}p` : "720p");
       const audio = media.getAudioTracks()[0];
       setMicOk(Boolean(audio));
-      const meter = await attachWorkletMeter(media);
+      const meter = await attachWorkletMeter(media, fxBackendForDenoise(denoiseOn));
       if (cancelled) {
         meter.stop();
         return;
@@ -106,7 +117,7 @@ export function GuestJoin() {
       stopMeter();
       media?.getTracks().forEach((t) => t.stop());
     };
-  }, [cameraId, micId, blurOn]);
+  }, [cameraId, micId, blurOn, denoiseOn]);
 
   useEffect(() => {
     stream?.getVideoTracks().forEach((t) => {
@@ -159,6 +170,19 @@ export function GuestJoin() {
             <div className="cam-tools">
               <button type="button" aria-label={micOn ? "Mute microphone" : "Unmute microphone"} onClick={() => setMicOn((v) => !v)}>
                 {micOn ? <Mic size={16} /> : <MicOff size={16} />}
+              </button>
+              <button
+                type="button"
+                className={denoiseOn ? "on" : undefined}
+                aria-label="Noise removal"
+                aria-pressed={denoiseOn}
+                onClick={() => {
+                  const next = !denoiseOn;
+                  saveDenoisePrefPair(micId, rawMicIdRef.current, next);
+                  setDenoiseOn(next);
+                }}
+              >
+                <AudioLines size={16} />
               </button>
               <button type="button" aria-label={camOn ? "Turn camera off" : "Turn camera on"} onClick={() => setCamOn((v) => !v)}>
                 {camOn ? <Video size={16} /> : <VideoOff size={16} />}

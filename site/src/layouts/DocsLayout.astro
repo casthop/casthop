@@ -3,6 +3,7 @@ import Base from "./Base.astro";
 import Logo from "../components/Logo.astro";
 import ExtLink from "../components/ExtLink.astro";
 import LanguageSwitcher from "../components/LanguageSwitcher.astro";
+import NavMore from "../components/NavMore.astro";
 import { GITHUB } from "../lib/site";
 import { docsFor, groupDocs, parseDocId, plainText, type Doc } from "../lib/docs";
 import { t, withLocale, type Locale } from "../i18n";
@@ -43,8 +44,16 @@ const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
         <a href={withLocale(locale, "/docs/")} aria-current="page">{t(locale, "docsNav")}</a>
         <ExtLink href={GITHUB}>{t(locale, "navGithub")}</ExtLink>
       </nav>
+      <NavMore label={t(locale, "navMenu")} id="docs-nav-more">
+        <a href={withLocale(locale, "/docs/")}>{t(locale, "docsNav")}</a>
+        <ExtLink href={GITHUB}>{t(locale, "navGithub")}</ExtLink>
+      </NavMore>
       <button type="button" class="search-btn" id="search-open" aria-label={t(locale, "searchDocs")} aria-keyshortcuts="Control+K Meta+K">
-        <span>{t(locale, "searchDocs")}</span><kbd>Ctrl K</kbd>
+        <svg class="search-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5" />
+          <path d="M10.5 10.5 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+        </svg>
+        <span class="search-label">{t(locale, "searchDocs")}</span><kbd>Ctrl K</kbd>
       </button>
       <LanguageSwitcher locale={locale} path={path} label={t(locale, "language")} />
     </div>

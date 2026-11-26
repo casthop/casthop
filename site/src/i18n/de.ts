@@ -7,6 +7,7 @@ const de: SiteMessages = {
   navDocs: "Dokumentation",
   navGithub: "GitHub",
   navGetStarted: "Loslegen",
+  navMenu: "Menü",
   language: "Sprache",
 
   metaTitle: "Casthop — Open-Source-Livestudio im Browser",

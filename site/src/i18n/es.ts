@@ -7,6 +7,7 @@ const es: SiteMessages = {
   navDocs: "Documentación",
   navGithub: "GitHub",
   navGetStarted: "Empezar",
+  navMenu: "Menú",
   language: "Idioma",
 
   metaTitle: "Casthop — estudio en vivo de código abierto en el navegador",

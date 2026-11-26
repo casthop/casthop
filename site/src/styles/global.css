@@ -86,15 +86,15 @@ a { color: inherit; }
 
 /* Docs */
 .dtop { position: sticky; top: 0; z-index: 20; background: rgba(252, 252, 252, 0.92); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
-.dtop-in { max-width: 90rem; margin: 0 auto; padding: 0.9rem 1.5rem; display: flex; align-items: center; gap: 2rem; }
+.dtop-in { max-width: 90rem; width: 100%; min-width: 0; margin: 0 auto; padding: 0.9rem 1.5rem; display: flex; align-items: center; gap: 2rem; }
 .tabs { display: flex; gap: 1.25rem; font-size: 0.92rem; flex: 1; }
-.tabs a { text-decoration: none; color: var(--muted); padding: 0.3rem 0; }
+.tabs a { text-decoration: none; color: var(--muted); padding: 0.3rem 0; white-space: nowrap; }
 .tabs a[aria-current] { color: var(--fg); box-shadow: 0 2px 0 0 var(--accent-b); }
 .tabs a:hover { color: var(--fg); }
 .search-btn { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; min-width: 14rem; padding: 0.45rem 0.7rem; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--muted); font: inherit; font-size: 0.88rem; cursor: pointer; }
 .search-btn:hover { border-color: #c9c9ce; }
 kbd { font-family: var(--mono); font-size: 0.72rem; border: 1px solid var(--line); border-radius: 4px; padding: 0.05rem 0.35rem; background: var(--code-bg); }
-.dshell { max-width: 90rem; margin: 0 auto; display: grid; grid-template-columns: 16rem minmax(0, 1fr) 14rem; gap: 3rem; padding: 0 1.5rem; }
+.dshell { max-width: 90rem; margin: 0 auto; display: grid; grid-template-columns: 16rem minmax(0, 1fr) 14rem; gap: 3rem; padding: 0 1.5rem; min-width: 0; }
 .dside, .dtoc { position: sticky; top: 4rem; align-self: start; max-height: calc(100vh - 4rem); overflow: auto; padding: 2rem 0; }
 .dgroup { margin-bottom: 1.75rem; }
 .dgroup-t { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em; color: var(--fg); margin-bottom: 0.65rem; padding: 0 0.75rem; }
@@ -103,16 +103,16 @@ kbd { font-family: var(--mono); font-size: 0.72rem; border: 1px solid var(--line
 .dside a:hover, .dtoc a:hover { color: var(--fg); background: #f1f1f3; }
 .dside a[aria-current="page"] { color: var(--accent-b); font-weight: 500; background: #f3effe; }
 .dtoc li.sub a { padding-left: 1.5rem; }
-.dmain { padding: 2.5rem 0 5rem; min-width: 0; max-width: 46rem; }
+.dmain { padding: 2.5rem 0 5rem; min-width: 0; max-width: 46rem; overflow-wrap: anywhere; }
 .crumb { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.75rem; }
-.prose h1 { font-family: var(--display); font-weight: 600; font-size: 2.6rem; line-height: 1.1; color: var(--fg); letter-spacing: -0.03em; }
+.prose h1 { font-family: var(--display); font-weight: 600; font-size: 2.6rem; line-height: 1.1; color: var(--fg); letter-spacing: -0.03em; overflow-wrap: break-word; }
 .prose p.dlede { font-size: 1.15rem; line-height: 1.6; color: var(--muted); margin: 1.15rem 0 2rem; }
 .prose h2 { font-family: var(--display); font-size: 1.4rem; color: var(--fg); margin: 2.75rem 0 0.85rem; font-weight: 600; letter-spacing: -0.02em; }
 .prose p, .prose ul, .prose ol { margin: 0 0 1.1rem; }
 .prose li { margin-bottom: 0.35rem; }
-.prose a { color: var(--link); text-underline-offset: 3px; }
+.prose a { color: var(--link); text-underline-offset: 3px; overflow-wrap: anywhere; }
 .prose code { font-family: var(--mono); font-size: 0.86em; background: var(--code-bg); border: 1px solid var(--line); padding: 0.1rem 0.35rem; border-radius: 5px; color: var(--fg); }
-.prose pre { background: #0d0d10 !important; border-radius: 10px; padding: 1rem 1.2rem; overflow-x: auto; margin: 0 0 1.4rem; font-size: 0.85rem; line-height: 1.55; }
+.prose pre { background: #0d0d10 !important; border-radius: 10px; padding: 1rem 1.2rem; overflow-x: auto; margin: 0 0 1.4rem; font-size: 0.85rem; line-height: 1.55; max-width: 100%; }
 .prose pre code { background: none; border: 0; padding: 0; color: inherit; font-size: inherit; }
 .prose table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin: 0 0 1.5rem; display: block; overflow-x: auto; }
 .prose th, .prose td { text-align: left; padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--line); vertical-align: top; }
@@ -121,7 +121,7 @@ kbd { font-family: var(--mono); font-size: 0.72rem; border: 1px solid var(--line
 .prose em { color: var(--muted); }
 .note { padding: 0.9rem 1.1rem; border-left: 3px solid var(--accent-b); background: #f7f5fe; border-radius: 0 8px 8px 0; }
 .pager { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 4rem; }
-.pager a { display: flex; flex-direction: column; padding: 1rem 1.2rem; border: 1px solid var(--line); border-radius: 10px; text-decoration: none; color: var(--fg); transition: border-color 0.2s; }
+.pager a { display: flex; flex-direction: column; padding: 1rem 1.2rem; border: 1px solid var(--line); border-radius: 10px; text-decoration: none; color: var(--fg); transition: border-color 0.2s; overflow-wrap: anywhere; }
 .pager a:hover { border-color: #b9b9c2; }
 .pager-next { text-align: right; align-items: flex-end; }
 
@@ -143,14 +143,24 @@ kbd { font-family: var(--mono); font-size: 0.72rem; border: 1px solid var(--line
   .hero { padding-top: 3rem; }
   .oss-cols, .footer-in { grid-template-columns: 1fr; gap: 1.25rem; }
   .feature { grid-template-columns: 1fr; gap: 0.25rem; }
-  .dshell { grid-template-columns: 1fr; gap: 0; }
+  .dshell { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .dside { position: static; max-height: none; padding: 1.25rem 0 0; border-bottom: 1px solid var(--line); }
-  .dnav { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0 1rem; }
+  .dnav { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(9rem, 100%), 1fr)); gap: 0 1rem; }
   .dtop-in { gap: 1rem; flex-wrap: wrap; }
   .search-btn { min-width: 0; }
   .search-btn kbd { display: none; }
   .nav-links { gap: 1rem; }
   .pager { grid-template-columns: 1fr; }
+}
+@media (max-width: 720px) {
+  .dtop .tabs { display: none; }
+  .dtop-in { flex-wrap: nowrap; gap: 0.5rem; padding: 0.75rem 1rem; }
+  .search-label { display: none; }
+  .search-icon { display: block; }
+  .search-btn { width: 2.25rem; height: 2.25rem; padding: 0; justify-content: center; gap: 0; flex-shrink: 0; }
+}
+@media (max-width: 380px) {
+  .dtop-in { padding: 0.7rem 0.6rem; }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }

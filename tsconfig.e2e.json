@@ -14,5 +14,5 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["e2e.config.ts", "e2e/**/*.ts", "tests/studio/**/*.ts"]
+  "include": ["e2e.config.ts", "e2e/**/*.ts", "tests/studio/**/*.ts", "tests/site/**/*.ts"]
 }

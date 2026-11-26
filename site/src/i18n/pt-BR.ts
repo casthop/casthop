@@ -7,6 +7,7 @@ const ptBR: SiteMessages = {
   navDocs: "Documentação",
   navGithub: "GitHub",
   navGetStarted: "Começar",
+  navMenu: "Menu",
   language: "Idioma",
 
   metaTitle: "Casthop — estúdio ao vivo open source no navegador",

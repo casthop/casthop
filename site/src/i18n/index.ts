@@ -50,6 +50,7 @@ export {
   htmlLang,
   isLocale,
   localeNativeName,
+  localeShortCode,
   matchLocale,
   otherLocales,
   stripLocale,

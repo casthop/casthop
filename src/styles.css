@@ -450,6 +450,19 @@ a {
   flex: 1;
 }
 
+.studio .clip-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 12px;
+}
+
+.studio .seg.clip-len button {
+  width: auto;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
 .studio .status {
   display: flex;
   align-items: center;

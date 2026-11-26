@@ -27,6 +27,12 @@ where
             let dst = args.next();
             hls(src.as_deref(), dst.as_deref())
         }
+        "clip" => {
+            let src = args.next();
+            let dst = args.next();
+            let seconds = args.next();
+            clip_cmd(src.as_deref(), dst.as_deref(), seconds.as_deref())
+        }
         "help" | "-h" | "--help" => {
             help();
             0
@@ -47,10 +53,12 @@ fn help() {
            casthop-post inspect <file.mp4>\n\
            casthop-post normalize <in.mp4> <out.mp4>\n\
            casthop-post hls <in.mp4> <out-dir>\n\
+           casthop-post clip <hls-dir> <out-dir> <seconds>\n\
          \n\
          inspect prints JSON (size, duration, codec) via ffprobe when present,\n\
          else a size-only fallback. normalize remuxes to a faststart MP4.\n\
-         hls remuxes a VOD playlist (fMP4, {HLS_TIME_SEC}s targets) for the R2 replay viewer."
+         hls remuxes a VOD playlist (fMP4, {HLS_TIME_SEC}s targets) for the R2 replay viewer.\n\
+         clip copies the last 30 or 60 seconds of an HLS directory."
     );
 }
 
@@ -120,6 +128,149 @@ fn normalize(src: Option<&str>, dst: Option<&str>) -> i32 {
             1
         }
     }
+}
+
+fn clip_cmd(src: Option<&str>, dst: Option<&str>, seconds: Option<&str>) -> i32 {
+    let (Some(src), Some(dst), Some(seconds)) = (src, dst, seconds) else {
+        eprintln!("clip: need <hls-dir> <out-dir> <seconds>");
+        return 2;
+    };
+    let secs: u32 = match seconds.parse::<u32>() {
+        Ok(n) if n == 30 || n == 60 => n,
+        _ => {
+            eprintln!("clip: seconds must be 30 or 60");
+            return 2;
+        }
+    };
+    match clip_hls_dir(Path::new(src), Path::new(dst), secs) {
+        Ok(summary) => {
+            println!("{summary}");
+            0
+        }
+        Err(err) => {
+            eprintln!("{err}");
+            1
+        }
+    }
+}
+
+/// Copy the last `seconds` of an HLS VOD/EVENT directory (playlist + listed files).
+pub fn clip_hls_dir(src: &Path, dst: &Path, seconds: u32) -> Result<String, String> {
+    let playlist_path = src.join("index.m3u8");
+    let text = fs::read_to_string(&playlist_path).map_err(|err| err.to_string())?;
+    let sliced = slice_hls_playlist(&text, seconds)?;
+    fs::create_dir_all(dst).map_err(|err| err.to_string())?;
+    for name in &sliced.files {
+        if name == "index.m3u8" {
+            continue;
+        }
+        let from = src.join(name);
+        if !from.is_file() {
+            return Err(format!("missing {name}"));
+        }
+        fs::copy(&from, dst.join(name)).map_err(|err| err.to_string())?;
+    }
+    fs::write(dst.join("index.m3u8"), sliced.playlist).map_err(|err| err.to_string())?;
+    summarize_hls_dir(dst)
+}
+
+struct HlsSlice {
+    playlist: String,
+    files: Vec<String>,
+}
+
+fn slice_hls_playlist(text: &str, seconds: u32) -> Result<HlsSlice, String> {
+    if !text.starts_with("#EXTM3U") {
+        return Err("playlist must start with #EXTM3U".into());
+    }
+    let mut segments: Vec<(f64, String)> = Vec::new();
+    let mut map_uri: Option<String> = None;
+    let mut target: u32 = HLS_TIME_SEC;
+    let mut version = "7".to_string();
+    let mut pending: Option<f64> = None;
+    for raw in text.lines() {
+        let line = raw.trim();
+        if let Some(rest) = line.strip_prefix("#EXT-X-VERSION:") {
+            let v = rest.trim();
+            if !v.is_empty() {
+                version = v.to_string();
+            }
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("#EXT-X-TARGETDURATION:") {
+            if let Ok(n) = rest.trim().parse::<u32>() {
+                if n > 0 {
+                    target = n;
+                }
+            }
+            continue;
+        }
+        if line.starts_with("#EXT-X-MAP:") {
+            if let Some(start) = line.find("URI=\"") {
+                let rest = &line[start + 5..];
+                if let Some(end) = rest.find('"') {
+                    map_uri = Some(rest[..end].to_string());
+                }
+            }
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("#EXTINF:") {
+            let n = rest.split(',').next().unwrap_or("").parse::<f64>();
+            pending = n.ok().filter(|v| *v > 0.0);
+            continue;
+        }
+        if !line.is_empty() && !line.starts_with('#') {
+            if let Some(dur) = pending.take() {
+                segments.push((dur, line.to_string()));
+            }
+        }
+    }
+    if segments.is_empty() {
+        return Err("no program yet".into());
+    }
+    let mut acc = 0.0;
+    let mut kept: Vec<(f64, String)> = Vec::new();
+    for (dur, uri) in segments.into_iter().rev() {
+        kept.push((dur, uri));
+        acc += dur;
+        if acc >= f64::from(seconds) {
+            break;
+        }
+    }
+    kept.reverse();
+    let mut max_target = target;
+    for (dur, _) in &kept {
+        let ceil = dur.ceil() as u32;
+        if ceil > max_target {
+            max_target = ceil;
+        }
+    }
+    let mut lines = vec![
+        "#EXTM3U".into(),
+        format!("#EXT-X-VERSION:{version}"),
+        format!("#EXT-X-TARGETDURATION:{max_target}"),
+        "#EXT-X-PLAYLIST-TYPE:VOD".into(),
+        "#EXT-X-INDEPENDENT-SEGMENTS".into(),
+    ];
+    let mut files = Vec::new();
+    if let Some(map) = &map_uri {
+        lines.push(format!("#EXT-X-MAP:URI=\"{map}\""));
+        files.push(map.clone());
+    }
+    for (dur, uri) in &kept {
+        lines.push(format!("#EXTINF:{dur:.1},"));
+        lines.push(uri.clone());
+        if !files.iter().any(|f| f == uri) {
+            files.push(uri.clone());
+        }
+    }
+    files.push("index.m3u8".into());
+    lines.push("#EXT-X-ENDLIST".into());
+    lines.push(String::new());
+    Ok(HlsSlice {
+        playlist: lines.join("\n"),
+        files,
+    })
 }
 
 fn hls(src: Option<&str>, dst: Option<&str>) -> i32 {
@@ -348,6 +499,38 @@ mod tests {
     #[test]
     fn hls_usage() {
         assert_eq!(hls(None, None), 2);
+    }
+
+    #[test]
+    fn clip_usage() {
+        assert_eq!(clip_cmd(None, None, None), 2);
+        assert_eq!(clip_cmd(Some("/tmp"), Some("/tmp/out"), Some("15")), 2);
+    }
+
+    #[test]
+    fn clip_slices_last_segments() {
+        let dir = unique_temp("clip-in");
+        let _ = fs::create_dir_all(&dir);
+        let mut playlist = String::from(
+            "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:4\n#EXT-X-PLAYLIST-TYPE:EVENT\n#EXT-X-INDEPENDENT-SEGMENTS\n#EXT-X-MAP:URI=\"init.mp4\"\n",
+        );
+        fs::write(dir.join("init.mp4"), b"init").unwrap();
+        for i in 0..16 {
+            playlist.push_str(&format!("#EXTINF:4.0,\nseg{i}.m4s\n"));
+            fs::write(dir.join(format!("seg{i}.m4s")), format!("seg{i}")).unwrap();
+        }
+        fs::write(dir.join("index.m3u8"), playlist).unwrap();
+        let out = unique_temp("clip-out");
+        let summary = clip_hls_dir(&dir, &out, 30).expect("clip");
+        assert!(summary.contains("\"ok\":true"), "{summary}");
+        let cut = fs::read_to_string(out.join("index.m3u8")).unwrap();
+        assert!(cut.contains("#EXT-X-ENDLIST"));
+        assert!(cut.contains("seg15.m4s"));
+        assert!(cut.contains("seg8.m4s"));
+        assert!(!cut.contains("seg7.m4s"));
+        assert!(out.join("init.mp4").is_file());
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&out);
     }
 
     #[test]

@@ -28,13 +28,14 @@ export type ReplayFileInput = {
 export function isHlsFilename(name: string): boolean {
   if (!name || name.length > 80) return false;
   if (name.includes("/") || name.includes("\\") || name.includes("..")) return false;
-  return /^[A-Za-z0-9][A-Za-z0-9._-]*\.(m3u8|m4s|ts|mp4)$/.test(name);
+  return /^[A-Za-z0-9][A-Za-z0-9._-]*\.(m3u8|m4s|ts|mp4|webm)$/.test(name);
 }
 
 export function hlsContentType(name: string): string {
   if (name.endsWith(".m3u8")) return "application/vnd.apple.mpegurl";
   if (name.endsWith(".m4s")) return "video/iso.segment";
   if (name.endsWith(".ts")) return "video/MP2T";
+  if (name.endsWith(".webm")) return "video/webm";
   return "video/mp4";
 }
 

@@ -1,4 +1,4 @@
-import type { Account, MemberRole, ReplayRecord, ReplayVisibility, StudioMember, StudioRecord } from "./types";
+import type { Account, ClipRecord, MemberRole, ReplayRecord, ReplayVisibility, StudioMember, StudioRecord } from "./types";
 import { SIGNIN_WINDOW_MS } from "./security";
 
 export const SCHEMA = [
@@ -68,9 +68,22 @@ export const SCHEMA = [
     files INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS replays_studio ON replays(studio_id, created_at)`,
+  `CREATE TABLE IF NOT EXISTS clips (
+    id TEXT PRIMARY KEY,
+    studio_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    visibility TEXT NOT NULL,
+    duration_ms INTEGER,
+    seconds INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    bytes INTEGER NOT NULL,
+    files INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS clips_studio ON clips(studio_id, created_at)`,
 ] as const;
 
 export const LIST_REPLAYS_PER_STUDIO = 20;
+export const LIST_CLIPS_PER_STUDIO = 20;
 
 export const Q = {
   insertAccount: "INSERT INTO accounts (id, email, name, github_id, created_at) VALUES (?, ?, ?, ?, ?)",
@@ -120,6 +133,15 @@ export const Q = {
   addReplayUsage: "UPDATE replays SET bytes = MAX(0, bytes + ?), files = MAX(0, files + ?) WHERE id = ? RETURNING bytes, files",
   addReplayUsageIfUnderCap:
     "UPDATE replays SET bytes = MAX(0, bytes + ?), files = MAX(0, files + ?) WHERE id = ? AND bytes + ? <= ? AND files + ? <= ? RETURNING bytes, files",
+  insertClip:
+    "INSERT INTO clips (id, studio_id, title, visibility, duration_ms, seconds, created_at, bytes, files) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  clipById:
+    "SELECT id, studio_id, title, visibility, duration_ms, seconds, created_at, bytes, files FROM clips WHERE id = ?",
+  listClipsByStudio:
+    "SELECT id, studio_id, title, visibility, duration_ms, seconds, created_at, bytes, files FROM clips WHERE studio_id = ? ORDER BY created_at DESC",
+  listClipsForAccount: `SELECT id, studio_id, title, visibility, duration_ms, seconds, created_at, bytes, files FROM (SELECT c.id, c.studio_id, c.title, c.visibility, c.duration_ms, c.seconds, c.created_at, c.bytes, c.files, ROW_NUMBER() OVER (PARTITION BY c.studio_id ORDER BY c.created_at DESC) AS rn FROM clips c INNER JOIN studio_members m ON m.studio_id = c.studio_id WHERE m.account_id = ?) WHERE rn <= ${LIST_CLIPS_PER_STUDIO} ORDER BY studio_id, created_at DESC`,
+  updateClipVisibility: "UPDATE clips SET visibility = ? WHERE id = ?",
+  countClipsByStudio: "SELECT COUNT(*) AS n FROM clips WHERE studio_id = ?",
 } as const;
 
 const migrated = new WeakSet<object>();
@@ -173,6 +195,15 @@ function mapReplay(row: ReplayRow): ReplayRecord {
     createdAt: row.created_at,
     bytes: row.bytes,
     files: row.files ?? 0,
+  };
+}
+
+type ClipRow = ReplayRow & { seconds: number };
+
+function mapClip(row: ClipRow): ClipRecord {
+  return {
+    ...mapReplay(row),
+    seconds: row.seconds === 30 ? 30 : 60,
   };
 }
 
@@ -322,12 +353,20 @@ export async function studioById(db: D1Database, id: string): Promise<{ id: stri
 export async function listStudiosFor(db: D1Database, accountId: string): Promise<StudioRecord[]> {
   const rows = await all<{ id: string; title: string; owner_id: string; created_at: number; role: MemberRole }>(db, Q.listStudios, accountId);
   const replayRows = await all<ReplayRow>(db, Q.listReplaysForAccount, accountId);
+  const clipRows = await all<ClipRow>(db, Q.listClipsForAccount, accountId);
   const byStudio = new Map<string, ReplayRecord[]>();
   for (const row of replayRows) {
     const list = byStudio.get(row.studio_id) ?? [];
     if (list.length >= LIST_REPLAYS_PER_STUDIO) continue;
     list.push(mapReplay(row));
     byStudio.set(row.studio_id, list);
+  }
+  const clipsByStudio = new Map<string, ClipRecord[]>();
+  for (const row of clipRows) {
+    const list = clipsByStudio.get(row.studio_id) ?? [];
+    if (list.length >= LIST_CLIPS_PER_STUDIO) continue;
+    list.push(mapClip(row));
+    clipsByStudio.set(row.studio_id, list);
   }
   return rows.map((r) => ({
     id: r.id,
@@ -336,6 +375,7 @@ export async function listStudiosFor(db: D1Database, accountId: string): Promise
     createdAt: r.created_at,
     role: r.role,
     replays: byStudio.get(r.id) ?? [],
+    clips: clipsByStudio.get(r.id) ?? [],
   }));
 }
 
@@ -463,4 +503,39 @@ export async function addReplayUsageIfUnderCap(
     filesDelta,
     maxFiles,
   );
+}
+
+export async function insertClip(db: D1Database, row: ClipRecord): Promise<void> {
+  await run(
+    db,
+    Q.insertClip,
+    row.id,
+    row.studioId,
+    row.title,
+    row.visibility,
+    row.durationMs,
+    row.seconds,
+    row.createdAt,
+    row.bytes,
+    row.files,
+  );
+}
+
+export async function clipById(db: D1Database, id: string): Promise<ClipRecord | null> {
+  const row = await first<ClipRow>(db, Q.clipById, id);
+  return row ? mapClip(row) : null;
+}
+
+export async function listClipsForStudio(db: D1Database, studioId: string): Promise<ClipRecord[]> {
+  const rows = await all<ClipRow>(db, Q.listClipsByStudio, studioId);
+  return rows.map(mapClip);
+}
+
+export async function countClipsForStudio(db: D1Database, studioId: string): Promise<number> {
+  const row = await first<{ n: number }>(db, Q.countClipsByStudio, studioId);
+  return Number(row?.n ?? 0);
+}
+
+export async function updateClipVisibility(db: D1Database, id: string, visibility: ReplayVisibility): Promise<void> {
+  await run(db, Q.updateClipVisibility, visibility, id);
 }

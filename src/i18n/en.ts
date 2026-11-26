@@ -34,6 +34,14 @@ export const en = {
   roleCohost: "Co-host",
   replayPublic: "Public",
   replayPrivate: "Private",
+  clip: "Clip",
+  clipLength: "Clip length",
+  clipSeconds: "{seconds}s",
+  clipLast: "Clip last {seconds}s",
+  clipHint: "Clip last {seconds}s (C)",
+  clipSaving: "Saving clip…",
+  clipSaved: "Clip saved",
+  clipDownload: "Download",
   memberLine: "{name} · {role}",
   pendingLine: "{email} · pending",
 
@@ -171,6 +179,7 @@ export const en = {
   errPin: "Pin failed",
   errStage: "Stage update failed",
   errSave: "Save failed",
+  errClip: "Could not save clip",
 } as const;
 
 export type MessageKey = keyof typeof en;

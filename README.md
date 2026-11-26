@@ -16,7 +16,8 @@ In this tree:
 - **Camera blur and noise suppression.** Background blur uses MediaPipe Selfie Segmenter on-device (loads only when blur is on, from this origin). RNNoise runs in an AudioWorklet before LiveKit publish.
 - **One encode, several RTMP destinations.** LiveKit Egress transcodes once and fans out. Default local stand-ins for YouTube, LinkedIn, and X; custom `rtmp:` URLs are allowed. Per-destination status, crash retry with backoff.
 - **Live waits for real output.** The studio pill stays on Starting until Egress is producing (stream bytes/duration, or a short settle after RTMP `started_at`). It is not Live just because the compositor process exists.
-- **Recording and replay.** Egress writes an MP4 of the composite (`data/recordings/` locally). Package it with `casthop-post hls` and `POST /api/studios/:id/replays` to store HLS on R2. Private replays are owner/co-host only; public ones play at `/watch/:id`.
+- **Recording and replay.** Egress writes an MP4 of the composite (`data/recordings/` locally). Package it with `casthop-post hls` and `POST /api/studios/:id/replays` to store HLS on R2. Private replays are owner/co-host only; public ones play at `/watch/:id`. While live, Clip (C) saves the last 30 or 60 seconds from that program buffer; clips list next to the replay with a download.
+
 - **Studio chat and YouTube Live chat.** People in the room can chat. While live, the Worker can poll YouTube `liveChatMessages.list` and show those comments in the studio panel. Hosts and co-hosts can pin one onto the compositor overlay. Needs Worker secrets (`YOUTUBE_API_KEY` plus a live chat or video id, or a YouTube OAuth refresh token). Unset, the feature stays hidden and the studio does not error. X and LinkedIn comment APIs are not wired.
 - **Co-hosts.** The owner can invite co-hosts by email.
 

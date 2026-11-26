@@ -36,6 +36,14 @@ const ja: Messages = {
   roleCohost: "共同ホスト",
   replayPublic: "公開",
   replayPrivate: "非公開",
+  clip: "クリップ",
+  clipLength: "クリップの長さ",
+  clipSeconds: "{seconds}秒",
+  clipLast: "直近{seconds}秒をクリップ",
+  clipHint: "直近{seconds}秒をクリップ（C）",
+  clipSaving: "クリップを保存中…",
+  clipSaved: "クリップを保存しました",
+  clipDownload: "ダウンロード",
   memberLine: "{name} · {role}",
   pendingLine: "{email} · 招待中",
 
@@ -173,6 +181,7 @@ const ja: Messages = {
   errPin: "ピン留めに失敗しました",
   errStage: "ステージを更新できませんでした",
   errSave: "保存に失敗しました",
+  errClip: "クリップを保存できませんでした",
 };
 
 export default ja;

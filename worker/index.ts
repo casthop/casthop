@@ -384,8 +384,8 @@ app.post("/api/studios/:id/stage", async (c) => {
       await updateParticipantPublish(c.env, id, body.identity, Boolean(body.on));
     } catch (err) {
       if (!isParticipantMissingError(err)) {
-        // Stage is already stored; tell the host so a real LiveKit failure is not silent.
-        return c.json({ error: publishPermissionError(err) }, 502);
+        const state = (await res.json()) as PublicStudio;
+        return c.json({ ...state, warning: publishPermissionError(err) });
       }
       const identity = body.identity;
       waitUntil(c, () =>

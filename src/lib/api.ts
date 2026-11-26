@@ -99,8 +99,10 @@ export function mintToken(
   }>(`/api/studios/${id}/token`, { method: "POST", body: JSON.stringify(body) });
 }
 
+export type StageResult = PublicStudio & { warning?: string };
+
 export function setStage(id: string, identity: string, on: boolean) {
-  return api<PublicStudio>(`/api/studios/${id}/stage`, {
+  return api<StageResult>(`/api/studios/${id}/stage`, {
     method: "POST",
     body: JSON.stringify({ identity, on }),
   });

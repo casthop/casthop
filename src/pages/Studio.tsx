@@ -762,7 +762,10 @@ export function Studio() {
       return;
     }
     try {
-      await setStage(id, identity, on);
+      const next = await setStage(id, identity, on);
+      const { warning, ...state } = next;
+      setStudio((prev) => mergeStudio(prev, state, prev?.viewerRole ?? "guest"));
+      setError(warning ?? "");
       const payload = new TextEncoder().encode(JSON.stringify({ type: "publish", on }));
       await room?.localParticipant.publishData(payload, { destinationIdentities: [identity] });
     } catch (err) {

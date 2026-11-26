@@ -734,9 +734,10 @@ test("staging surfaces LiveKit permission errors that are not a missing particip
       },
       env,
     );
-    assert.equal(res.status, 502);
-    const body = await json<{ error: string }>(res);
-    assert.match(body.error, /internal error/i);
+    assert.equal(res.status, 200, await res.clone().text());
+    const body = await json<PublicStudio & { warning?: string }>(res);
+    assert.match(body.warning ?? "", /internal error/i);
+    assert.equal(body.participants.find((p) => p.identity === guest.identity)?.onStage, true);
   } finally {
     updateParticipantStatus = 200;
   }

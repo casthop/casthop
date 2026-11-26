@@ -9,7 +9,8 @@ order: 6
 Browser (host + guests)  TypeScript UI
     │  WebRTC simulcast
     │  Rust/WASM in AudioWorklet: RNNoise + VAD/meters
-    │  Rust/WASM layout; Canvas2D (default) / WebGPU / WASM-CPU compositor
+    │  WASM layout; Canvas2D Worker + OffscreenCanvas (default)
+    │  optional: ?compose=wasm / webgpu / webgpu-ts
     ▼
 LiveKit SFU (Go)  ─────────────────────────────────────────┐
     │                                                      │
@@ -32,8 +33,10 @@ LiveKit Egress (custom /egress-template)             Durable Object
 The UI is TypeScript. Media hot paths are Rust compiled to WebAssembly in `crates/casthop-media`, with no JS imports so it is safe in an AudioWorklet.
 
 - **Audio:** RNNoise noise suppression and VAD/meters run in an AudioWorklet before the mic is published to LiveKit. `?fx=js` or `?fx=off` lets you compare.
-- **Layout and compositing:** WASM computes the layout. The compositor page draws it with Canvas2D by default. `?compose=wasm` uses the CPU compositor and `?compose=webgpu` the GPU path.
+- **Layout and compositing:** WASM computes the layout. The live compositor is Canvas2D on a dedicated Worker with OffscreenCanvas when WebCodecs is present (`?thread=main` forces the old main-thread path). `?compose=wasm` is the CPU blit, `?compose=webgpu` the Rust GPU path, `?compose=webgpu-ts` the TypeScript GPU path. Canvas2D stays default; GPU did not win on the bench.
 - **Camera blur:** uses MediaPipe Selfie Segmenter. `@mediapipe/tasks-vision` and its model load only when blur is on, from this origin, with no CDN.
+
+CI job `perf` compares compositor main vs worker in Chrome (`PERF=1 bun run test:perf`). Numbers: [`MEASUREMENTS.md`](https://github.com/casthop/casthop/blob/main/MEASUREMENTS.md).
 
 ## LiveKit stays the SFU
 
@@ -45,7 +48,11 @@ Cloudflare Stream Live needs a Cloudflare account with Stream enabled, and Strea
 
 ## Control plane
 
-The app is a Hono Worker with one Durable Object per studio (stage, layout, chat, destinations) and D1 for the studio index. R2 is bound as a seam for replays, and version 0 recordings stay on the Egress volume. Hot Worker endpoints stay TypeScript; a workers-rs port was measured and did not win (see `MEASUREMENTS.md`).
+The app is a Hono Worker with one Durable Object per studio (stage, layout, chat, destinations) and D1 for the studio index. R2 is bound as a seam for replays, and recordings stay on the Egress volume for now. Hot Worker endpoints stay TypeScript; a workers-rs port was measured (`bun run bench:worker`) and did not win on CPU, cold start, or bundle size.
+
+## Live badge
+
+The studio pill is `live` only when Egress is producing output: stream bytes or duration, or a short settle after RTMP `started_at` (LiveKit can report a start before MediaMTX has the stream). Until then the pill stays on Starting. If the compositor Chrome dies, the heartbeat drops Live and the studio retries with backoff.
 
 ## casthop-post
 

@@ -21,9 +21,11 @@ Out of the box, the destinations are MediaMTX stand-ins for YouTube, LinkedIn an
 
 For production, replace these with real YouTube, LinkedIn and X ingest URLs. Casthop validates destinations: only `rtmp:` URLs are accepted from clients, and private-network (RFC 1918) targets are rejected.
 
-## Status and recovery
+## Status, Live, and recovery
 
-Each destination row shows its own RTMP status. If Egress or a stream drops, the studio retries with backoff. This relies on signed LiveKit webhooks, see [Self-hosting](/docs/self-hosting).
+Each destination row shows its own RTMP status (`connecting`, `live`, `retrying`, `failed`). The studio Live pill stays on Starting until Egress is producing: stream bytes or duration, or a short settle after RTMP `started_at`. It does not flip to Live just because the compositor process exists.
+
+If Egress or a stream drops, the studio retries with backoff. This relies on signed LiveKit webhooks, see [Self-hosting](/docs/self-hosting).
 
 ## Recordings
 
@@ -45,3 +47,7 @@ To check that a recording is not silent, run `bash scripts/check-silent-audio.sh
 - **Owners and co-hosts** receive full destination URLs when signed in (session cookie).
 - **Guests and public requests** get a masked suffix only, and a `hasKey` flag. This applies to `GET /api/studios/:id` and the WebSocket `state` frame.
 - Stream keys are stored in Durable Object storage, not in the repo.
+
+## Chat
+
+Studio chat (people in the room) works. Destination comment ingest — YouTube liveChat, LinkedIn, X — is not shipped. The chat panel placeholder says so.

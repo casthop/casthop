@@ -9,11 +9,11 @@ Linux with Docker host networking is the supported local path. Docker uses host 
 
 ## Before you start
 
-- [Bun](https://bun.sh) (the repo pins `packageManager` to Bun).
+- [Bun](https://bun.com) 1.4+ (the repo pins `packageManager` to Bun). Do not use npm.
 - Docker with Compose.
 - A Linux host. Host networking is Linux-only, see [Docker Desktop](#docker-desktop-macos-and-windows) below.
 
-You do not need a Rust toolchain. A prebuilt `src/wasm/casthop_media.wasm` is committed, so the dev server works without one. Rebuild it only if you change the Rust crate (needs rustc 1.83+ and the `wasm32-unknown-unknown` target).
+You do not need a Rust toolchain. Prebuilt `src/wasm/casthop_media.wasm` is committed, so the dev server works without one. Rebuild it only if you change the Rust crate (needs rustc 1.83+ and the `wasm32-unknown-unknown` target).
 
 ## Run it
 
@@ -39,7 +39,7 @@ The website you are reading is a separate package in `site/` (`cd site && bun in
 3. Open a studio.
 4. Copy the guest link and send it to anyone who should join. See [Guests](/docs/guests).
 5. Bring people on stage. Up to six can be on stage.
-6. Press **Go Live**. Each destination row shows its own RTMP status.
+6. Press **Go Live**. The Live pill stays on Starting until Egress output is flowing. Each destination row shows its own RTMP status.
 
 By default the destinations are local MediaMTX stand-ins for YouTube, LinkedIn and X. See [Destinations](/docs/destinations) to watch them and to point at real ingest.
 
@@ -58,5 +58,7 @@ Host networking is Linux-only. On Docker Desktop you need to drop `network_mode:
 ## Check that it works
 
 - Health: [http://127.0.0.1:5173/api/health](http://127.0.0.1:5173/api/health)
-- Latency probe: [http://127.0.0.1:5173/internal/probe](http://127.0.0.1:5173/internal/probe)
+- Latency probe (dev only): [http://127.0.0.1:5173/internal/probe](http://127.0.0.1:5173/internal/probe)
 - Load measurement with 2, 4 and 6 publishers: `bun run measure`
+
+Tests, the perf gate, and how to open a PR: [CONTRIBUTING.md](https://github.com/casthop/casthop/blob/main/CONTRIBUTING.md) in the repo.

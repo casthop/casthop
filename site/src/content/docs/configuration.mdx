@@ -5,7 +5,7 @@ group: Operate
 order: 4
 ---
 
-Copy `.env.example` to `.env` for docker compose, and `.dev.vars.example` to `.dev.vars` for the Worker. In production, set the Worker values as Worker secrets or vars instead.
+Copy `.env.example` to `.env` for docker compose, and `.dev.vars.example` to `.dev.vars` for the Worker. In production, set the Worker values as Worker secrets or vars instead. Both example files list every variable the app reads, with a one-line comment.
 
 <p class="note">The <code>casthop_dev_secret_…</code> value in the example files is a documented local default. It is public, so it is not for production. Generate your own keys with <code>lk generate-keys</code>.</p>
 
@@ -24,7 +24,7 @@ The Worker returns 503 if `devkey` is used with a non-loopback LiveKit URL. `CAS
 
 | Name | Purpose | Local default |
 |---|---|---|
-| `EGRESS_OUTPUT_DIR` | Where Egress writes recordings inside its container. | `/out` (mapped to `./data/recordings`) |
+| `EGRESS_OUTPUT_DIR` | Path inside the egress container. Compose mounts `./data/recordings` here. Not a Worker var. | `/out` |
 | `EGRESS_TEMPLATE_URL` | The compositor page Egress opens. | `http://127.0.0.1:5173/egress-template` |
 
 ## Destinations
@@ -45,6 +45,18 @@ These are local MediaMTX stand-ins. Replace them with real ingest URLs when you 
 | `PUBLIC_ORIGIN` | Public site URL for magic-link mail, co-host invites and GitHub OAuth. | unset (loopback Host is used) |
 | `CASTHOP_TRUST_FORWARDED` | Set to `1` to trust `CF-Connecting-IP` and `X-Forwarded-For` behind a reverse proxy. | unset |
 | `CASTHOP_ALLOW_DEV_KEYS` | Allow the published dev keypair with a non-loopback LiveKit. Tests only. | unset |
+
+## Timing overrides
+
+Optional. Unset means the code defaults in `worker/egress.ts`. Tests set some of these to `0` or a few milliseconds.
+
+| Name | Purpose | Default |
+|---|---|---|
+| `CASTHOP_EMPTY_GRACE_MS` | End live after the studio has been empty this long. | `45000` |
+| `CASTHOP_COMPOSITOR_GRACE_MS` | Wait for compositor Chrome to join after StartRoomComposite. | `15000` |
+| `CASTHOP_RECOVERY_MS` | Give up restarting a dead compositor; host can Retry. | `30000` |
+| `CASTHOP_HEARTBEAT_MS` | Compositor beat is stale after this (the page posts every 1 s). | `3000` |
+| `CASTHOP_BACKOFF_MS` | Override RTMP retry backoff. Unset = 1 s, 2 s, 4 s, 8 s, 16 s, 30 s. `0` for tests. | unset |
 
 ## Sign-in
 

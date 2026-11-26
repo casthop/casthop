@@ -2,20 +2,23 @@
 
 Open-source browser live studio. TypeScript UI + Cloudflare Worker / Durable Objects / D1; LiveKit + Egress for the SFU and RTMP composite; Rust compiled to WASM (`crates/casthop-media`) for denoise, VAD/meters, and layout. TypeScript stays on UI and Worker glue. Do not replace LiveKit.
 
-This file is the source of truth. Nested `AGENTS.md` files add tree-specific rules; the closest one wins. Pointers: `CLAUDE.md`, `.cursor/rules/casthop.mdc`, `.github/copilot-instructions.md`.
+This file is the source of truth for coding agents. Nested `AGENTS.md` files add tree-specific rules; the closest one wins. Humans: [CONTRIBUTING.md](CONTRIBUTING.md). Pointers: `CLAUDE.md`, `.cursor/rules/casthop.mdc`, `.github/copilot-instructions.md`.
 
 ## Layout
 
-- `src/` — React UI, AudioWorklets, WASM loader
+- `src/` — React UI, AudioWorklets, WASM loader, OffscreenCanvas compose worker
 - `worker/` — Hono Worker, studio Durable Object, LiveKit tokens, Egress
 - `crates/casthop-media` — WASM media (C ABI, zero JS imports)
 - `crates/casthop-post` — inspect / remux recordings
 - `crates/casthop-hot` — workers-rs bench Worker (JWT CPU vs TS; not on the live path)
+- `site/` — Astro marketing site and MDX docs (`site/src/content/docs/`)
+- `docs/screenshots/` — studio / guest / home captures used by the README and site
 - `tests/auth.test.ts` — owner / co-host / guest / signed-out / expired session matrix for every Worker route
-- `tests/egress.test.ts` — start/stop, crash retry, RTMP dest status, empty-studio cleanup
+- `tests/egress.test.ts` — start/stop, crash retry, RTMP dest status, Live-when-producing, empty-studio cleanup
 - `tests/studio/*.e2e.ts` — studio UI flows (e2e / Playwright locators; no model)
 - `MEASUREMENTS.md` — recorded numbers; update on hot-path changes
 - `PRODUCT.md` — product intent
+- `CHANGELOG.md` — user-facing changes; keep Unreleased current
 
 ## Commands
 
@@ -69,6 +72,15 @@ TypeScript: `strict` on. No `any`, no `as any`, no `as unknown as`. No unused lo
 
 Rust: see `crates/AGENTS.md`. No `unwrap` / `expect` / `panic!` outside tests.
 
+## Do not commit
+
+- Secrets, stream keys, full destination URLs with keys, `.env`, `.dev.vars`
+- `LIVEKIT_API_SECRET`, `HOST_KEY_SECRET`, `GITHUB_CLIENT_SECRET`, `MAIL_WEBHOOK_TOKEN` (Worker secrets only)
+- Recordings under `data/`
+- `node_modules`, `dist`, `.wrangler`, crate `target/` directories
+
+The published `devkey` pair in the example files is a public local default. It is loopback-only.
+
 ## Performance
 
 Budgets from `MEASUREMENTS.md`. Beat them, or record why not:
@@ -83,7 +95,11 @@ Budgets from `MEASUREMENTS.md`. Beat them, or record why not:
 | Durable Object write | < 50 ms | stage / live / destinations |
 | Glass-to-glass (loopback) | p50 < 80 ms | 45 ms |
 
-Hot-path change: measure before and after (`bun run bench:wasm`, `/internal/bench`, `/internal/probe`, or `bun run measure`). Put both numbers in `MEASUREMENTS.md` in the same PR. No allocations in audio/video loops. Use Rust/WASM or GPU only when it measurably wins; keep the JS fallback (`?fx=js`, `?compose=wasm` / `?compose=webgpu` / `?compose=webgpu-ts`).
+Live compose is Canvas2D on a dedicated Worker with OffscreenCanvas (`?thread=main` to force the old path). The CI `perf` job is a gate: do not regress worker vs main (see `tests/perf-baseline.json` and `src/lib/perf-gate.ts`) without numbers in `MEASUREMENTS.md` in the same PR.
+
+Hot-path change: measure before and after (`bun run bench:wasm`, `/internal/bench`, `/internal/probe`, or `bun run measure`). Put both numbers in `MEASUREMENTS.md` in the same PR. No allocations in audio/video loops. Use Rust/WASM or GPU only when it measurably wins; keep the JS fallback (`?fx=js`, `?compose=wasm` / `?compose=webgpu` / `?compose=webgpu-ts`). Canvas2D stays the live default. workers-rs was measured for hot `/api` and did not win; keep TypeScript.
+
+The Live badge is `live` only when Egress is producing output (bytes/duration, or settle after RTMP `started_at`). Do not flip it on merely because the compositor process exists.
 
 ## Security
 
@@ -92,6 +108,8 @@ Hot-path change: measure before and after (`bun run bench:wasm`, `/internal/benc
 - Validate input (names, layout, RTMP URLs). Reject non-`rtmp:` and RFC1918 destinations from clients.
 - Secrets live in `.dev.vars` / Worker secrets. Never in git, client bundles, or logs. Default `devkey` is loopback-only.
 - `LIVEKIT_API_SECRET` is never sent to the browser.
+
+Vulnerabilities: [SECURITY.md](SECURITY.md) (GitHub private reporting). Do not put them in public issues.
 
 ## Tests
 
@@ -109,7 +127,7 @@ Never force-push. Never delete source. Never commit secrets. Never add a paid se
 
 ## Writing
 
-Code comments, PR descriptions, and reviews: brief, clear, human words. Write for someone who did not see the chat.
+Code comments, PR descriptions, and reviews: brief, clear, human words. Write for someone who did not see the chat. No marketing filler. Do not list roadmap items as shipped. Do not invent user counts, benchmarks, or features.
 
 ## Code Review Rules
 
@@ -121,4 +139,4 @@ When reviewing a PR:
 
 ## Design
 
-Modern, minimal, lots of whitespace, few elements per screen. Restrained palette (`src/styles.css`: dark booth `#121316`, accent `#6d64f7`, light guest/home). No AI-looking template copy. Host studio is the dark booth; guest join is light until they enter.
+Modern, minimal, lots of whitespace, few elements per screen. Restrained palette (`src/styles.css`: dark booth `#121316`, accent `#6d64f7`, light guest/home). No AI-looking template copy. Host studio is the dark booth; guest join is light until they enter. Do not restyle the Astro site unless the task is the site.

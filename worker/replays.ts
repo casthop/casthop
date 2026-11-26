@@ -1,5 +1,5 @@
 import type { Account, Env, PublicReplay, ReplayRecord, ReplayVisibility } from "./types";
-import { addReplayUsage } from "./db";
+import { addReplayUsage, addReplayUsageIfUnderCap } from "./db";
 import { asName, randomId } from "./security";
 import { hostAuth } from "./auth";
 
@@ -9,6 +9,7 @@ export const MAX_FILE_BYTES = 12 * 1024 * 1024;
 export const MAX_INGEST_BYTES = 32 * 1024 * 1024;
 export const MAX_REPLAY_BYTES = 2 * 1024 * 1024 * 1024;
 export const MAX_REPLAY_OBJECTS = 4096;
+export const MAX_REPLAYS_PER_STUDIO = 100;
 const R2_LIST_LIMIT = 1000;
 const MAX_PLAYLIST_BYTES = 256 * 1024;
 
@@ -139,6 +140,22 @@ function latestReplayFiles(files: { name: string; bytes: Uint8Array }[]): { name
   return [...latest].map(([name, bytes]) => ({ name, bytes }));
 }
 
+export async function replayUsageDelta(
+  env: Env,
+  studioId: string,
+  replayId: string,
+  files: { name: string; bytes: Uint8Array }[],
+): Promise<{ bytes: number; files: number }> {
+  let bytes = 0;
+  let added = 0;
+  for (const file of latestReplayFiles(files)) {
+    const prev = await env.RECORDINGS.head(replayObjectKey(studioId, replayId, file.name));
+    if (!prev) added += 1;
+    bytes += file.bytes.byteLength - (prev?.size ?? 0);
+  }
+  return { bytes, files: added };
+}
+
 export async function replayWouldExceedQuota(
   env: Env,
   studioId: string,
@@ -146,16 +163,15 @@ export async function replayWouldExceedQuota(
   current: { bytes: number; files: number },
   files: { name: string; bytes: Uint8Array }[],
 ): Promise<string | null> {
-  let nextCount = current.files;
-  let nextBytes = current.bytes;
-  for (const file of latestReplayFiles(files)) {
-    const prev = await env.RECORDINGS.head(replayObjectKey(studioId, replayId, file.name));
-    if (!prev) nextCount += 1;
-    nextBytes += file.bytes.byteLength - (prev?.size ?? 0);
-  }
-  if (nextCount > MAX_REPLAY_OBJECTS) return "too many files";
-  if (nextBytes > MAX_REPLAY_BYTES) return "replay too large";
+  const extra = await replayUsageDelta(env, studioId, replayId, files);
+  if (current.files + extra.files > MAX_REPLAY_OBJECTS) return "too many files";
+  if (current.bytes + extra.bytes > MAX_REPLAY_BYTES) return "replay too large";
   return null;
+}
+
+export function replayUsageCapError(current: { bytes: number; files: number }, extra: { bytes: number; files: number }): string {
+  if (current.files + extra.files > MAX_REPLAY_OBJECTS) return "too many files";
+  return "replay too large";
 }
 
 export async function putReplayFiles(
@@ -242,7 +258,8 @@ export function ingestFilesFromBody(
     if (!bytes) return { error: "invalid file", status: 400 };
     files.push({ name: file.name, bytes });
   }
-  if (files.length > 0 && !files.some((f) => f.name === HLS_INDEX)) {
+  if (files.length === 0) return { error: "files required", status: 400 };
+  if (!files.some((f) => f.name === HLS_INDEX)) {
     return { error: "index.m3u8 required", status: 400 };
   }
   let durationMs: number | null = null;
@@ -264,6 +281,15 @@ export async function applyReplayUsage(
   filesDelta: number,
 ): Promise<{ bytes: number; files: number }> {
   return addReplayUsage(env.DB, replayId, bytesDelta, filesDelta);
+}
+
+export async function applyReplayUsageIfUnderCap(
+  env: Env,
+  replayId: string,
+  bytesDelta: number,
+  filesDelta: number,
+): Promise<{ bytes: number; files: number } | null> {
+  return addReplayUsageIfUnderCap(env.DB, replayId, bytesDelta, filesDelta, MAX_REPLAY_BYTES, MAX_REPLAY_OBJECTS);
 }
 
 function jsonError(error: string, status: 400 | 404): Response {

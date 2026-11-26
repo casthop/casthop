@@ -45,6 +45,7 @@ import {
   insertStudioRow,
   insertReplay,
   invitesForStudio,
+  countReplaysForStudio,
   listReplaysForStudio,
   listStudiosFor,
   memberFor,
@@ -71,6 +72,7 @@ import {
 import { destChatConfigured } from "./chat-ingest";
 import {
   applyReplayUsage,
+  applyReplayUsageIfUnderCap,
   canViewReplay,
   contentLengthOver,
   deleteReplayPrefix,
@@ -78,10 +80,13 @@ import {
   isHlsFilename,
   MAX_FILE_BYTES,
   MAX_INGEST_BYTES,
+  MAX_REPLAYS_PER_STUDIO,
   newReplayId,
   parseVisibility,
   publicReplay,
   putReplayFiles,
+  replayUsageCapError,
+  replayUsageDelta,
   replayWouldExceedQuota,
   serveReplayObject,
 } from "./replays";
@@ -287,17 +292,13 @@ app.post("/api/studios/:id/replays", async (c) => {
   }
   const ingested = ingestFilesFromBody(await c.req.json().catch(() => ({})));
   if ("error" in ingested) return c.json({ error: ingested.error }, ingested.status);
+  const existing = await countReplaysForStudio(c.env.DB, id);
+  if (existing >= MAX_REPLAYS_PER_STUDIO) return c.json({ error: "too many replays" }, 400);
   const replayId = newReplayId();
   try {
-    let bytes = 0;
-    let files = 0;
-    if (ingested.files.length) {
-      const quota = await replayWouldExceedQuota(c.env, id, replayId, { bytes: 0, files: 0 }, ingested.files);
-      if (quota) return c.json({ error: quota }, 400);
-      const written = await putReplayFiles(c.env, id, replayId, ingested.files);
-      bytes = written.bytes;
-      files = written.files;
-    }
+    const quota = await replayWouldExceedQuota(c.env, id, replayId, { bytes: 0, files: 0 }, ingested.files);
+    if (quota) return c.json({ error: quota }, 400);
+    const written = await putReplayFiles(c.env, id, replayId, ingested.files);
     const row: ReplayRecord = {
       id: replayId,
       studioId: id,
@@ -305,8 +306,8 @@ app.post("/api/studios/:id/replays", async (c) => {
       visibility: ingested.visibility,
       durationMs: ingested.durationMs,
       createdAt: Date.now(),
-      bytes,
-      files,
+      bytes: written.bytes,
+      files: written.files,
     };
     await insertReplay(c.env.DB, row);
     return c.json(publicReplay(row, true));
@@ -350,13 +351,14 @@ app.put("/api/studios/:id/replays/:rid/hls/:file", async (c) => {
   }
   const bytes = new Uint8Array(await c.req.arrayBuffer());
   const files = [{ name: file, bytes }];
-  const quota = await replayWouldExceedQuota(c.env, id, rid, replay, files);
-  if (quota) return c.json({ error: quota }, 400);
+  const delta = await replayUsageDelta(c.env, id, rid, files);
+  const reserved = await applyReplayUsageIfUnderCap(c.env, rid, delta.bytes, delta.files);
+  if (!reserved) return c.json({ error: replayUsageCapError(replay, delta) }, 400);
   try {
-    const written = await putReplayFiles(c.env, id, rid, files);
-    const next = await applyReplayUsage(c.env, rid, written.bytes, written.files);
-    return c.json(publicReplay({ ...replay, bytes: next.bytes, files: next.files }, true));
+    await putReplayFiles(c.env, id, rid, files);
+    return c.json(publicReplay({ ...replay, bytes: reserved.bytes, files: reserved.files }, true));
   } catch (err) {
+    await applyReplayUsage(c.env, rid, -delta.bytes, -delta.files);
     const status = errorStatus(err);
     if (status === 400) return c.json({ error: err instanceof Error ? err.message : "invalid file" }, 400);
     throw err;

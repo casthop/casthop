@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { app, StudioDurableObject } from "../worker/index.ts";
-import { addReplayBytes, addReplayUsage, LIST_REPLAYS_PER_STUDIO } from "../worker/db.ts";
+import {
+  addReplayBytes,
+  addReplayUsage,
+  addReplayUsageIfUnderCap,
+  insertReplay,
+  LIST_REPLAYS_PER_STUDIO,
+} from "../worker/db.ts";
 import {
   contentLengthOver,
   durationFromPlaylist,
@@ -11,7 +17,9 @@ import {
   MAX_INGEST_BYTES,
   MAX_REPLAY_BYTES,
   MAX_REPLAY_OBJECTS,
+  MAX_REPLAYS_PER_STUDIO,
   playlistError,
+  replayObjectKey,
 } from "../worker/replays.ts";
 import { DEV_API_KEY, DEV_API_SECRET, SESSION_COOKIE } from "../worker/security.ts";
 import type { Env, PublicReplay } from "../worker/types.ts";
@@ -303,7 +311,7 @@ test("studio list keeps the latest 20 replays per studio", async () => {
   const { id } = await createStudio(env, cookie, "One");
   for (let i = 0; i < LIST_REPLAYS_PER_STUDIO + 1; i++) {
     const created = await json<PublicReplay>(
-      await postReplay(env, cookie, id, { title: `Cut ${String(i).padStart(2, "0")}` }),
+      await postReplay(env, cookie, id, { title: `Cut ${String(i).padStart(2, "0")}`, files: hlsFiles() }),
     );
     assert.equal(created.title, `Cut ${String(i).padStart(2, "0")}`);
   }
@@ -444,7 +452,7 @@ test("PATCH null JSON does not 500", async () => {
   const env = makeEnv();
   const cookie = await signIn(env, "owner@example.com");
   const { id } = await createStudio(env, cookie);
-  const created = await json<PublicReplay>(await postReplay(env, cookie, id, { title: "Cut" }));
+  const created = await json<PublicReplay>(await postReplay(env, cookie, id, { title: "Cut", files: hlsFiles() }));
   const patched = await app.request(
     `https://casthop.test/api/studios/${id}/replays/${created.id}`,
     {
@@ -475,6 +483,7 @@ test("PUT rejects a replay over the byte or object cap", async () => {
     env,
   );
   assert.equal(tooBig.status, 400);
+  assert.equal(await env.RECORDINGS.head(replayObjectKey(id, created.id, "seg1.m4s")), null);
 
   const other = await json<PublicReplay>(
     await postReplay(env, cookie, id, { title: "Many files", files: hlsFiles() }),
@@ -502,4 +511,63 @@ test("PUT rejects a replay over the byte or object cap", async () => {
     env,
   );
   assert.equal(tooMany.status, 400);
+  assert.equal(await env.RECORDINGS.head(replayObjectKey(id, other.id, "seg99.m4s")), null);
+});
+
+test("ingest requires files and caps replays per studio", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "owner@example.com");
+  const { id } = await createStudio(env, cookie);
+  const empty = await postReplay(env, cookie, id, { title: "Empty" });
+  assert.equal(empty.status, 400);
+  const emptyBody = await json<{ error: string }>(empty);
+  assert.equal(emptyBody.error, "files required");
+
+  for (let i = 0; i < MAX_REPLAYS_PER_STUDIO; i++) {
+    await insertReplay(env.DB, {
+      id: `cap${String(i).padStart(3, "0")}`,
+      studioId: id,
+      title: `Cap ${i}`,
+      visibility: "private",
+      durationMs: null,
+      createdAt: Date.now() + i,
+      bytes: 0,
+      files: 0,
+    });
+  }
+  const blocked = await postReplay(env, cookie, id, { title: "One more", files: hlsFiles() });
+  assert.equal(blocked.status, 400);
+  const blockedBody = await json<{ error: string }>(blocked);
+  assert.equal(blockedBody.error, "too many replays");
+  const leftover = await env.RECORDINGS.list({ prefix: `replays/${id}/` });
+  assert.equal(leftover.objects.length, 0);
+});
+
+test("replay usage cap is enforced in one UPDATE", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "owner@example.com");
+  const { id } = await createStudio(env, cookie);
+  const created = await json<PublicReplay>(
+    await postReplay(env, cookie, id, { title: "Cuts", files: hlsFiles() }),
+  );
+  await addReplayUsage(env.DB, created.id, 0, MAX_REPLAY_OBJECTS - created.files - 1);
+  const first = await addReplayUsageIfUnderCap(
+    env.DB,
+    created.id,
+    4,
+    1,
+    MAX_REPLAY_BYTES,
+    MAX_REPLAY_OBJECTS,
+  );
+  assert.ok(first);
+  assert.equal(first.files, MAX_REPLAY_OBJECTS);
+  const second = await addReplayUsageIfUnderCap(
+    env.DB,
+    created.id,
+    4,
+    1,
+    MAX_REPLAY_BYTES,
+    MAX_REPLAY_OBJECTS,
+  );
+  assert.equal(second, null);
 });

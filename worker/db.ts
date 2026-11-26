@@ -116,7 +116,10 @@ export const Q = {
     "SELECT id, studio_id, title, visibility, duration_ms, created_at, bytes, files FROM replays WHERE studio_id = ? ORDER BY created_at DESC",
   listReplaysForAccount: `SELECT id, studio_id, title, visibility, duration_ms, created_at, bytes, files FROM (SELECT r.id, r.studio_id, r.title, r.visibility, r.duration_ms, r.created_at, r.bytes, r.files, ROW_NUMBER() OVER (PARTITION BY r.studio_id ORDER BY r.created_at DESC) AS rn FROM replays r INNER JOIN studio_members m ON m.studio_id = r.studio_id WHERE m.account_id = ?) WHERE rn <= ${LIST_REPLAYS_PER_STUDIO} ORDER BY studio_id, created_at DESC`,
   updateReplayVisibility: "UPDATE replays SET visibility = ? WHERE id = ?",
+  countReplaysByStudio: "SELECT COUNT(*) AS n FROM replays WHERE studio_id = ?",
   addReplayUsage: "UPDATE replays SET bytes = MAX(0, bytes + ?), files = MAX(0, files + ?) WHERE id = ? RETURNING bytes, files",
+  addReplayUsageIfUnderCap:
+    "UPDATE replays SET bytes = MAX(0, bytes + ?), files = MAX(0, files + ?) WHERE id = ? AND bytes + ? <= ? AND files + ? <= ? RETURNING bytes, files",
 } as const;
 
 const migrated = new WeakSet<object>();
@@ -418,6 +421,11 @@ export async function listReplaysForStudio(db: D1Database, studioId: string): Pr
   return rows.map(mapReplay);
 }
 
+export async function countReplaysForStudio(db: D1Database, studioId: string): Promise<number> {
+  const row = await first<{ n: number }>(db, Q.countReplaysByStudio, studioId);
+  return Number(row?.n ?? 0);
+}
+
 export async function updateReplayVisibility(db: D1Database, id: string, visibility: ReplayVisibility): Promise<void> {
   await run(db, Q.updateReplayVisibility, visibility, id);
 }
@@ -434,4 +442,25 @@ export async function addReplayUsage(
 
 export async function addReplayBytes(db: D1Database, id: string, delta: number): Promise<number> {
   return (await addReplayUsage(db, id, delta, 0)).bytes;
+}
+
+export async function addReplayUsageIfUnderCap(
+  db: D1Database,
+  id: string,
+  bytesDelta: number,
+  filesDelta: number,
+  maxBytes: number,
+  maxFiles: number,
+): Promise<{ bytes: number; files: number } | null> {
+  return first<{ bytes: number; files: number }>(
+    db,
+    Q.addReplayUsageIfUnderCap,
+    bytesDelta,
+    filesDelta,
+    id,
+    bytesDelta,
+    maxBytes,
+    filesDelta,
+    maxFiles,
+  );
 }

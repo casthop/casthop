@@ -318,10 +318,24 @@ export class FakeD1 implements D1Database {
       }
       return { results: [], changes: 1 };
     }
+    if (q === norm(Q.countReplaysByStudio)) {
+      const n = this.rows("replays").filter((r) => r.studio_id === binds[0]).length;
+      return { results: [{ n }], changes: 0 };
+    }
     if (q === norm(Q.addReplayUsage)) {
       const [bytesDelta, filesDelta, id] = binds;
       const row = this.rows("replays").find((r) => r.id === id);
       if (!row) return { results: [], changes: 0 };
+      row.bytes = Math.max(0, Number(row.bytes) + Number(bytesDelta));
+      row.files = Math.max(0, Number(row.files ?? 0) + Number(filesDelta));
+      return { results: [{ bytes: row.bytes, files: row.files }], changes: 1 };
+    }
+    if (q === norm(Q.addReplayUsageIfUnderCap)) {
+      const [bytesDelta, filesDelta, id, bytesCheck, maxBytes, filesCheck, maxFiles] = binds;
+      const row = this.rows("replays").find((r) => r.id === id);
+      if (!row) return { results: [], changes: 0 };
+      if (Number(row.bytes) + Number(bytesCheck) > Number(maxBytes)) return { results: [], changes: 0 };
+      if (Number(row.files ?? 0) + Number(filesCheck) > Number(maxFiles)) return { results: [], changes: 0 };
       row.bytes = Math.max(0, Number(row.bytes) + Number(bytesDelta));
       row.files = Math.max(0, Number(row.files ?? 0) + Number(filesDelta));
       return { results: [{ bytes: row.bytes, files: row.files }], changes: 1 };

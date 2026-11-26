@@ -103,6 +103,19 @@ test("host publicState includes destination urls", () => {
   assert.equal(json.includes("eg_1"), true);
 });
 
+test("publicState omits destChat cursor and includes pinnedChat", () => {
+  const raw = {
+    ...state(secretUrl),
+    destChat: { youtube: { liveChatId: "LC_secret", pageToken: "tok", nextPollAt: 9 } },
+    pinnedChat: { id: "c1", name: "Ada", text: "hi", source: "youtube" as const },
+  };
+  const json = JSON.stringify(publicState(raw, { includeUrls: false }));
+  assert.equal(json.includes("destChat"), false);
+  assert.equal(json.includes("LC_secret"), false);
+  const pub = publicState(raw, { includeUrls: false });
+  assert.equal(pub.pinnedChat?.text, "hi");
+});
+
 test("parseRtmpUrl accepts rtmp/rtmps and rejects junk / private hosts", () => {
   assert.equal(parseRtmpUrl("rtmp://127.0.0.1:1935/live/youtube", { allowLoopback: true }), "rtmp://127.0.0.1:1935/live/youtube");
   assert.equal(parseRtmpUrl("rtmp://127.0.0.1:1935/live/youtube", { allowLoopback: false }), null);

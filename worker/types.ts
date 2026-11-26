@@ -52,6 +52,19 @@ export type ChatMessage = {
   source: "studio" | "youtube" | "linkedin" | "x";
 };
 
+export type PinnedChat = {
+  id: string;
+  name: string;
+  text: string;
+  source: ChatMessage["source"];
+};
+
+export type DestChatState = {
+  liveChatId?: string;
+  pageToken?: string;
+  nextPollAt: number;
+};
+
 export type StudioState = {
   id: string;
   title: string;
@@ -83,6 +96,9 @@ export type StudioState = {
   /** Identities removed from the studio; join rejects them until they are a member again. */
   kickedIdentities?: string[];
   chat: ChatMessage[];
+  pinnedChat?: PinnedChat | null;
+  /** Internal YouTube poll cursor. Not public. */
+  destChat?: { youtube?: DestChatState };
   createdAt: number;
 };
 
@@ -112,6 +128,12 @@ export type Env = {
   GITHUB_CLIENT_SECRET?: string;
   MAIL_WEBHOOK_URL?: string;
   MAIL_WEBHOOK_TOKEN?: string;
+  YOUTUBE_API_KEY?: string;
+  YOUTUBE_LIVE_CHAT_ID?: string;
+  YOUTUBE_VIDEO_ID?: string;
+  YOUTUBE_OAUTH_CLIENT_ID?: string;
+  YOUTUBE_OAUTH_CLIENT_SECRET?: string;
+  YOUTUBE_OAUTH_REFRESH_TOKEN?: string;
 };
 
 export type WorkerVars = {
@@ -183,6 +205,7 @@ export type PublicStudio = Omit<
   | "egressHeartbeatAt"
   | "abandonedEgressIds"
   | "egressRecoveringSince"
+  | "destChat"
 > & {
   destinations: PublicDestination[];
   egressId?: string | null;

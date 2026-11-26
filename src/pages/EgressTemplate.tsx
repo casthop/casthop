@@ -103,7 +103,12 @@ export function EgressTemplate() {
       if (!studioId) return;
       void getStudio(studioId).then((s) => {
         const next: LayoutMode = s.layout === "solo" || s.layout === "side" || s.layout === "screen" ? s.layout : "grid";
-        compose?.setMeta(next, s.bannerTitle || s.title || "Casthop", s.bannerSubtitle || "live");
+        compose?.setMeta(
+          next,
+          s.bannerTitle || s.title || "Casthop",
+          s.bannerSubtitle || "live",
+          s.pinnedChat ? { name: s.pinnedChat.name, text: s.pinnedChat.text } : null,
+        );
       });
       if (token && egressId) void sendEgressBeat(studioId, token, egressId).catch(() => undefined);
     };

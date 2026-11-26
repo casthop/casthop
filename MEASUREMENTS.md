@@ -111,7 +111,7 @@ What next (called out by the product-owner Rust/WASM direction, not done in v0):
 
 - Audio **VAD-driven** UI (worklet already posts VAD; studio chrome doesn’t show it yet).
 - Dedicated Rust **RTMP fan-out** if we leave Cloudflare Stream unused in production (`casthop-post` is inspect/remux/HLS).
-- Destination chat ingest, TURN.
+- TURN.
 
 Camera background blur ships: WASM mix + lazy MediaPipe selfie segmenter (toggle in the studio; `?fx=js` for the JS mix). Rust WebGPU compositor ships behind `?compose=webgpu`; Canvas2D stays the live default and runs in a Worker when `OffscreenCanvas` + `MediaStreamTrackProcessor` are present.
 

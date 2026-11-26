@@ -17,6 +17,7 @@ let backend: ComposeBackend = "canvas2d";
 let mode: LayoutMode = "grid";
 let title = "Casthop";
 let subtitle = "live";
+let pin: { name: string; text: string } | null = null;
 let writer: WritableStreamDefaultWriter<VideoFrame> | null = null;
 let busy = false;
 let timer = 0;
@@ -61,6 +62,7 @@ async function composeOnce(): Promise<void> {
     mode,
     title,
     subtitle,
+    pin,
     canvas,
   });
   backend = result.backend;
@@ -173,6 +175,7 @@ self.onmessage = (ev: MessageEvent<ComposeWorkerIn>) => {
     mode = msg.mode;
     title = msg.title;
     subtitle = msg.subtitle;
+    pin = msg.pin ?? null;
     return;
   }
   if (msg.type === "snapshot") {

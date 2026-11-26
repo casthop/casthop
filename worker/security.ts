@@ -147,6 +147,7 @@ export function publicState(state: StudioState, opts: { includeUrls: boolean }):
     destinations: publicDestinations(state.destinations, opts.includeUrls),
     participants: state.participants,
     chat: state.chat,
+    pinnedChat: state.pinnedChat ?? null,
     createdAt: state.createdAt,
   };
 }

@@ -32,7 +32,7 @@ import {
 import { loadBlurPref, saveBlurPrefPair } from "../lib/blur-prefs";
 import { startCameraBlur, type CameraBlurHandle } from "../lib/camera-blur";
 import { loadDenoisePref, saveDenoisePrefPair } from "../lib/denoise-prefs";
-import { processWithPipeline } from "../lib/effects";
+import { processWithPipeline, type PipelineHandle } from "../lib/effects";
 import { fxBackendForDenoise } from "../lib/fx";
 import { hueFor, openUserMedia } from "../lib/media";
 import { backstageCount } from "../lib/participants";
@@ -114,7 +114,7 @@ export function Studio() {
   const [denoiseBusy, setDenoiseBusy] = useState(false);
   const originalVideoRef = useRef<MediaStreamTrack | null>(null);
   const originalAudioRef = useRef<MediaStreamTrack | null>(null);
-  const processedAudioRef = useRef<MediaStreamTrack | null>(null);
+  const denoiseHandleRef = useRef<PipelineHandle | null>(null);
   const blurHandleRef = useRef<CameraBlurHandle | null>(null);
   const [error, setError] = useState("");
   const [chatDraft, setChatDraft] = useState("");
@@ -300,8 +300,8 @@ export function Studio() {
       blurHandleRef.current = null;
       originalVideoRef.current?.stop();
       originalVideoRef.current = null;
-      processedAudioRef.current?.stop();
-      processedAudioRef.current = null;
+      denoiseHandleRef.current?.close();
+      denoiseHandleRef.current = null;
       originalAudioRef.current?.stop();
       originalAudioRef.current = null;
       window.clearTimeout(refreshTimer);
@@ -343,6 +343,7 @@ export function Studio() {
     publishingRef.current = true;
     let raw: MediaStream | null = null;
     let processed: MediaStream | null = null;
+    let pipeline: PipelineHandle | undefined;
     let handle: CameraBlurHandle | undefined;
     let published = false;
     try {
@@ -354,7 +355,8 @@ export function Studio() {
       const settingsMic = rawAudio?.getSettings().deviceId ?? "";
       const wantDenoise = loadDenoisePref(saved?.micId ?? "", settingsMic);
       setDenoiseOn(wantDenoise);
-      processed = await processWithPipeline(raw, fxBackendForDenoise(wantDenoise));
+      pipeline = await processWithPipeline(raw, fxBackendForDenoise(wantDenoise));
+      processed = pipeline.stream;
       if (!studioOpen(lk)) return;
       const video = processed.getVideoTracks()[0];
       if (video) {
@@ -387,8 +389,8 @@ export function Studio() {
       }
       const audio = processed.getAudioTracks()[0];
       if (audio && studioOpen(lk)) {
-        if (audio !== rawAudio) processedAudioRef.current = audio;
         await lk.localParticipant.publishTrack(audio, { source: Track.Source.Microphone });
+        if (audio !== rawAudio) denoiseHandleRef.current = pipeline;
       }
       published = studioOpen(lk);
     } finally {
@@ -399,7 +401,8 @@ export function Studio() {
         blurHandleRef.current = null;
         originalVideoRef.current = null;
         originalAudioRef.current = null;
-        processedAudioRef.current = null;
+        denoiseHandleRef.current = null;
+        pipeline?.close();
         processed?.getTracks().forEach((t) => t.stop());
         raw?.getTracks().forEach((t) => t.stop());
       }
@@ -429,27 +432,27 @@ export function Studio() {
     const original = originalAudioRef.current;
     if (!local || !original) return;
     setDenoiseBusy(true);
+    let pipeline: PipelineHandle | undefined;
     try {
       if (fxBackendForDenoise(next) === "off") {
         await local.replaceTrack(original, { userProvidedTrack: true });
-        if (processedAudioRef.current && processedAudioRef.current !== original) {
-          processedAudioRef.current.stop();
-        }
-        processedAudioRef.current = null;
+        denoiseHandleRef.current?.close();
+        denoiseHandleRef.current = null;
       } else {
-        const processed = await processWithPipeline(new MediaStream([original]), fxBackendForDenoise(true));
-        const track = processed.getAudioTracks()[0];
+        pipeline = await processWithPipeline(new MediaStream([original]), fxBackendForDenoise(true));
+        const track = pipeline.stream.getAudioTracks()[0];
         if (!track || !studioLiveRef.current) {
-          if (track && track !== original) track.stop();
+          pipeline.close();
           return;
         }
         await local.replaceTrack(track, { userProvidedTrack: true });
-        if (processedAudioRef.current && processedAudioRef.current !== original) {
-          processedAudioRef.current.stop();
-        }
-        processedAudioRef.current = track === original ? null : track;
+        const prev = denoiseHandleRef.current;
+        denoiseHandleRef.current = track === original ? null : pipeline;
+        if (track === original) pipeline.close();
+        prev?.close();
       }
     } catch (err) {
+      if (pipeline && denoiseHandleRef.current !== pipeline) pipeline.close();
       setError(err instanceof Error ? err.message : "Noise removal failed");
       setDenoiseOn(!next);
       saveDenoisePrefPair(deviceId, savedId, !next);

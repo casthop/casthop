@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   copyDenoisePref,
   loadDenoisePref,
@@ -7,6 +10,8 @@ import {
   saveDenoisePrefPair,
 } from "../src/lib/denoise-prefs.ts";
 import { fxBackendForDenoise } from "../src/lib/fx.ts";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 function mockStorage(): void {
   const store = new Map<string, string>();
@@ -58,4 +63,14 @@ test("?fx=off forces the pipeline off; the toggle otherwise chooses wasm or off"
   assert.equal(fxBackendForDenoise(false, "?fx=js"), "off");
   assert.equal(fxBackendForDenoise(true, "?fx=off"), "off");
   assert.equal(fxBackendForDenoise(false, "?fx=off"), "off");
+});
+
+test("processWithPipeline returns a close() that drops the AudioContext", () => {
+  const effects = readFileSync(join(root, "src/lib/effects.ts"), "utf8");
+  assert.match(effects, /export type PipelineHandle/);
+  assert.match(effects, /close:\s*\(\)\s*=>/);
+  assert.match(effects, /dropContext\(live\)/);
+  const studio = readFileSync(join(root, "src/pages/Studio.tsx"), "utf8");
+  assert.match(studio, /denoiseHandleRef\.current\?\.close\(\)/);
+  assert.match(studio, /prev\?\.close\(\)/);
 });

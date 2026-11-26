@@ -2,7 +2,8 @@
 /**
  * Headless compositor perf: 6 tiles + overlay for ~30s on main and worker
  * in one Chrome. Worker compose is 30 fps (program output); main is ~60 fps
- * rAF. Fails if worker p50 is more than 15% worse than main (5 ms floor),
+ * rAF. Fails if worker p50 is more than 15% worse than main (5 ms floor,
+ * 14 ms absolute so a fast main 60 fps loop cannot shrink the budget),
  * worker p95 misses the 33 ms 30 fps slot, frames leave 30 fps ±15%,
  * dropped frames exceed main, or long tasks exceed main.
  *

@@ -65,12 +65,22 @@ export function comparePerf(measured: PerfMeasured, baseline: PerfBaseline): { r
   return { rows, ok: rows.filter((r) => r.gate).every((r) => r.ok) };
 }
 
+/** Extra ms allowed above main p50. VideoFrame tax is ~2–3 ms; fast GHA has hit ~4.3. */
+export const WORKER_P50_FLOOR_MS = 5;
+
+/**
+ * Fast GHA main is ~6 ms at 60 fps rAF while worker VideoFrame p50 is ~12 ms at 30 fps.
+ * Do not let a fast main shrink the worker p50 budget below that.
+ */
+export const WORKER_P50_ABS_MS = 14;
+
 export function compareWorkerToMain(worker: PerfMeasured, main: PerfMeasured): { rows: PerfRow[]; ok: boolean } {
   const expectedFrames = WORKER_OUTPUT_FPS * worker.seconds;
   const rows: PerfRow[] = [
     // Typical VideoFrame cost is ~2–3 ms above the <video> path. Fast GHA boxes have
-    // hit ~4.3 ms with no code change. p95 vs main is a different loop (30 vs 60 fps).
-    row("p50 frame ms", worker.p50FrameMs, main.p50FrameMs, 5, true),
+    // hit ~4.3 ms with no code change, and ~5.8 ms when main p50 is 6.2. p95 vs main
+    // is a different loop (30 vs 60 fps).
+    row("p50 frame ms", worker.p50FrameMs, main.p50FrameMs, WORKER_P50_FLOOR_MS, true, WORKER_P50_ABS_MS),
     cap("p95 30fps slot ms", worker.p95FrameMs, WORKER_FRAME_BUDGET_MS, true),
     row("long task total ms", worker.longTaskTotalMs, main.longTaskTotalMs, 50, true),
     band("worker frames", worker.frames, expectedFrames, 0, true),
@@ -82,8 +92,8 @@ export function compareWorkerToMain(worker: PerfMeasured, main: PerfMeasured): {
   return { rows, ok: rows.filter((r) => r.gate).every((r) => r.ok) };
 }
 
-function row(name: string, measured: number, baseline: number, floor: number, gate: boolean): PerfRow {
-  const limit = regressionLimit(baseline, floor);
+function row(name: string, measured: number, baseline: number, floor: number, gate: boolean, minLimit = 0): PerfRow {
+  const limit = Math.max(regressionLimit(baseline, floor), minLimit);
   return { name, measured, baseline, limit, gate, ok: measured <= limit };
 }
 

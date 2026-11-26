@@ -34,6 +34,8 @@ const de: Messages = {
   homeYourStudios: "Deine Studios",
   roleOwner: "Eigentümer",
   roleCohost: "Co-Host",
+  replayPublic: "Öffentlich",
+  replayPrivate: "Privat",
   memberLine: "{name} · {role}",
   pendingLine: "{email} · ausstehend",
 

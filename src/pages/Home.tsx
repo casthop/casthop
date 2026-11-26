@@ -167,10 +167,22 @@ export function Home() {
               <section className="studio-list">
                 <h2>{t("homeYourStudios")}</h2>
                 {studios.map((s) => (
-                  <a className="studio-row" key={s.id} href={`/studio/${s.id}`}>
-                    <b>{s.title}</b>
-                    <span>{s.role === "owner" ? t("roleOwner") : t("roleCohost")}</span>
-                  </a>
+                  <div className="studio-block" key={s.id}>
+                    <a className="studio-row" href={`/studio/${s.id}`}>
+                      <b>{s.title}</b>
+                      <span>{s.role === "owner" ? t("roleOwner") : t("roleCohost")}</span>
+                    </a>
+                    {s.replays?.length ? (
+                      <ul className="replay-list">
+                        {s.replays.map((r) => (
+                          <li className="replay-row" key={r.id}>
+                            <a href={`/watch/${r.id}`}>{r.title}</a>
+                            <span>{r.visibility === "public" ? t("replayPublic") : t("replayPrivate")}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
                 ))}
               </section>
             ) : null}

@@ -32,6 +32,7 @@
     "@fontsource/geist-sans": "^5.3.0",
     "@fontsource/public-sans": "^5.2.7",
     "@mediapipe/tasks-vision": "^1.2.3",
+    "hls.js": "^1.7.4",
     "hono": "^4.9.9",
     "livekit-client": "^2.15.8",
     "lucide-react": "^1.77.0",

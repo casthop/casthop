@@ -587,12 +587,11 @@ export function Studio() {
 
   async function onLayout(layout: LayoutId) {
     if (!isHost) return;
-    if (shot) {
-      setStudio((prev) => (prev ? { ...prev, layout } : prev));
-      return;
-    }
+    setStudio((prev) => (prev ? { ...prev, layout } : prev));
+    if (shot) return;
     try {
-      await setLayout(id, layout);
+      const next = await setLayout(id, layout);
+      setStudio((prev) => mergeStudio(prev, next, prev?.viewerRole ?? "guest"));
     } catch (err) {
       setError(err instanceof Error ? err.message : t("errLayout"));
     }

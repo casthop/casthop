@@ -3,8 +3,10 @@ import { after, before, test } from "node:test";
 import { app, StudioDurableObject } from "../worker/index.ts";
 import { GUEST_TOKEN_TTL_SEC, HOST_TOKEN_TTL_SEC } from "../worker/livekit.ts";
 import { DEV_API_KEY, DEV_API_SECRET, HOST_IDENTITY, SESSION_COOKIE } from "../worker/security.ts";
-import type { Env, PublicStudio } from "../worker/types.ts";
+import type { Env, PublicReplay, PublicStudio, StudioRecord } from "../worker/types.ts";
 import { FakeD1 } from "./fake-d1.ts";
+import { FakeR2 } from "./fake-r2.ts";
+import { hlsFiles } from "./replay-fixture.ts";
 
 const YT = "rtmp://ingest.example.com/live/super-secret-youtube-key";
 const LI = "rtmp://ingest.example.com/live/super-secret-linkedin-key";
@@ -72,7 +74,7 @@ function makeEnv(overrides: Partial<Env> = {}): Env & { _db: FakeD1 } {
     CASTHOP_TRUST_FORWARDED: "1",
     PUBLIC_ORIGIN: "https://casthop.test",
     ASSETS: { fetch: async () => new Response("ok") },
-    RECORDINGS: {},
+    RECORDINGS: new FakeR2(),
     DB: db,
     ...overrides,
   } as Env & { _db: FakeD1 };
@@ -230,6 +232,41 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
 
   const outsiderCookie = await signIn(env, "other@example.com");
 
+  const privateReplayBody = JSON.stringify({ title: "Private cut", visibility: "private", files: hlsFiles() });
+  const publicReplayBody = JSON.stringify({ title: "Public cut", visibility: "public", files: hlsFiles() });
+  const privateReplay = await json<PublicReplay>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/replays`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: ownerCookie,
+          "Content-Length": String(new TextEncoder().encode(privateReplayBody).length),
+        },
+        body: privateReplayBody,
+      },
+      env,
+    ),
+  );
+  const publicReplay = await json<PublicReplay>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/replays`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: ownerCookie,
+          "Content-Length": String(new TextEncoder().encode(publicReplayBody).length),
+        },
+        body: publicReplayBody,
+      },
+      env,
+    ),
+  );
+  assert.ok(privateReplay.id);
+  assert.ok(publicReplay.id);
+
   const guestMint = await json<{ token: string; identity: string; guestSecret: string; canPublish: boolean; expiresIn: number }>(
     await app.request(
       `https://casthop.test/api/studios/${id}/token`,
@@ -364,6 +401,14 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
       path: "/api/studios",
       init: {},
       expect: { owner: 200, cohost: 200, guest: 401, signedOut: 401, expired: 401, outsider: 200 },
+      check: (who, body) => {
+        if (who !== "owner" && who !== "cohost") return;
+        const studios = (body as { studios: StudioRecord[] }).studios;
+        const mine = studios.find((s) => s.id === id);
+        assert.ok(mine);
+        assert.ok(mine.replays.some((r) => r.id === privateReplay.id && r.visibility === "private"));
+        assert.ok(mine.replays.some((r) => r.id === publicReplay.id && r.visibility === "public"));
+      },
     },
     {
       name: "POST studios",
@@ -472,6 +517,77 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
       path: `/api/studios/${id}/egress-beat`,
       init: { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
       expect: { owner: 401, cohost: 401, guest: 401, signedOut: 401, expired: 401, outsider: 401 },
+    },
+    {
+      name: "GET studio replays",
+      path: `/api/studios/${id}/replays`,
+      init: {},
+      expect: { owner: 200, cohost: 200, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
+    },
+    {
+      name: "POST studio replay",
+      path: `/api/studios/${id}/replays`,
+      init: (() => {
+        const body = JSON.stringify({ title: "Matrix cut", visibility: "private", files: hlsFiles() });
+        return {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": String(new TextEncoder().encode(body).length),
+          },
+          body,
+        };
+      })(),
+      expect: { owner: 200, cohost: 200, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
+    },
+    {
+      name: "PATCH replay visibility",
+      path: `/api/studios/${id}/replays/${privateReplay.id}`,
+      init: {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visibility: "private" }),
+      },
+      expect: { owner: 200, cohost: 200, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
+    },
+    {
+      name: "PUT replay HLS file",
+      path: `/api/studios/${id}/replays/${privateReplay.id}/hls/init.mp4`,
+      init: { method: "PUT", headers: { "Content-Length": "4" }, body: "init" },
+      expect: { owner: 200, cohost: 200, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
+    },
+    {
+      name: "GET private replay",
+      path: `/api/replays/${privateReplay.id}`,
+      init: {},
+      expect: { owner: 200, cohost: 200, guest: 401, signedOut: 401, expired: 404, outsider: 403 },
+    },
+    {
+      name: "GET public replay",
+      path: `/api/replays/${publicReplay.id}`,
+      init: {},
+      expect: { owner: 200, cohost: 200, guest: 200, signedOut: 200, expired: 404, outsider: 200 },
+      check: (who, body, status) => {
+        if (status !== 200) return;
+        const row = body as PublicReplay;
+        if (who === "owner" || who === "cohost") {
+          assert.equal(row.studioId, id);
+          return;
+        }
+        assert.equal(row.studioId, undefined);
+      },
+    },
+    {
+      name: "GET private replay HLS",
+      path: `/api/replays/${privateReplay.id}/hls/index.m3u8`,
+      init: {},
+      expect: { owner: 200, cohost: 200, guest: 401, signedOut: 401, expired: 404, outsider: 403 },
+    },
+    {
+      name: "GET public replay HLS",
+      path: `/api/replays/${publicReplay.id}/hls/index.m3u8`,
+      init: {},
+      expect: { owner: 200, cohost: 200, guest: 200, signedOut: 200, expired: 404, outsider: 200 },
     },
     {
       name: "GET cohosts",

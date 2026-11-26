@@ -9,12 +9,13 @@ This file is the source of truth for coding agents. Nested `AGENTS.md` files add
 - `src/` — React UI, AudioWorklets, WASM loader, OffscreenCanvas compose worker
 - `worker/` — Hono Worker, studio Durable Object, LiveKit tokens, Egress, YouTube chat ingest
 - `crates/casthop-media` — WASM media (C ABI, zero JS imports)
-- `crates/casthop-post` — inspect / remux recordings
+- `crates/casthop-post` — inspect / remux / HLS package recordings
 - `crates/casthop-hot` — workers-rs bench Worker (JWT CPU vs TS; not on the live path)
 - `site/` — Astro marketing site and MDX docs (`site/src/content/docs/`)
 - `docs/screenshots/` — studio / guest / home captures used by the README and site
 - `tests/auth.test.ts` — owner / co-host / guest / signed-out / expired session matrix for every Worker route
 - `tests/egress.test.ts` — start/stop, crash retry, RTMP dest status, Live-when-producing, empty-studio cleanup
+- `tests/replays.test.ts` — R2 HLS ingest, playlist safety, private/public access (mocked R2)
 - `tests/chat-ingest.test.ts` — YouTube live chat polling (mocked) and pin overlay auth
 - `tests/studio/*.e2e.ts` — studio UI flows (e2e / Playwright locators; no model)
 - `MEASUREMENTS.md` — recorded numbers; update on hot-path changes
@@ -59,6 +60,7 @@ bun run bench:worker        # wrangler TS vs workers-rs JWT CPU (Node fetch)
 bun run measure             # load + silent-audio check
 bash scripts/check-silent-audio.sh data/recordings/<file>.mp4
 cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
+cargo run -p casthop-post -- hls data/recordings/<file>.mp4 /tmp/replay-hls
 E2E=1 bun run test:e2e      # headless Go Live → MediaMTX, audio not silent
 bun run test:e2e-ui         # studio UI flows (e2e, locators, --strict-cache, no model)
 PERF=1 bun run test:perf    # headless main vs worker p95 / long tasks (~30 s each)

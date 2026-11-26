@@ -63,6 +63,7 @@ import {
   loadSession,
   startGithub,
 } from "./auth";
+import { destChatConfigured } from "./chat-ingest";
 
 export { StudioDurableObject };
 
@@ -118,6 +119,7 @@ app.get("/api/config", async (c) => {
     maxOnStage: MAX_ON_STAGE,
     github: githubConfigured(c.env),
     signedIn: Boolean(sess),
+    destinationChat: destChatConfigured(c.env),
   });
 });
 
@@ -397,6 +399,17 @@ app.post("/api/studios/:id/banner", async (c) => {
   if (!host) return c.json({ error: "host access required" }, 403);
   const body = await c.req.json().catch(() => ({}));
   const res = await doAction(c.env, id, "banner", { ...(body as object), hostKey: host.hostKey });
+  return new Response(res.body, { status: res.status, headers: res.headers });
+});
+
+app.post("/api/studios/:id/pin", async (c) => {
+  const id = c.req.param("id");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (!host) return c.json({ error: "host access required" }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as { chatId?: unknown };
+  const res = await doAction(c.env, id, "pin", { chatId: body.chatId ?? null, hostKey: host.hostKey });
   return new Response(res.body, { status: res.status, headers: res.headers });
 });
 

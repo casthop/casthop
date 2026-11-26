@@ -1909,7 +1909,21 @@ test("portrait destinations are rejected when the Egress template is unset", asy
   const studio = await json<PublicStudio>(
     await app.request(`https://casthop.test/api/studios/${id}`, { headers: { Cookie: cookie } }, env),
   );
-  const patched = await app.request(
+  const enabled = await app.request(
+    `https://casthop.test/api/studios/${id}/destinations`,
+    {
+      method: "POST",
+      headers: liveHeaders(cookie),
+      body: JSON.stringify({
+        destinations: studio.destinations.map((d) =>
+          d.id === "custom" ? { ...d, aspect: "portrait", enabled: true } : d,
+        ),
+      }),
+    },
+    env,
+  );
+  assert.equal(enabled.status, 400);
+  const disabled = await app.request(
     `https://casthop.test/api/studios/${id}/destinations`,
     {
       method: "POST",
@@ -1920,7 +1934,10 @@ test("portrait destinations are rejected when the Egress template is unset", asy
     },
     env,
   );
-  assert.equal(patched.status, 400);
+  assert.equal(disabled.status, 200, await disabled.clone().text());
+  const saved = await json<PublicStudio>(disabled);
+  assert.equal(saved.destinations.find((d) => d.id === "custom")?.aspect, "portrait");
+  assert.equal(saved.destinations.find((d) => d.id === "custom")?.enabled, false);
 });
 
 test("overlapping 9:16 starts share one compositor", async () => {

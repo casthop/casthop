@@ -171,6 +171,14 @@ test("sanitizeDestinations keeps a 9:16 aspect and defaults omitted to landscape
     ),
     null,
   );
+  const disabledPortrait = sanitizeDestinations(
+    [{ id: "youtube", kind: "youtube", label: "YouTube", detail: "", enabled: false, aspect: "portrait" }],
+    existing,
+    { allowLoopback: false },
+  );
+  assert.ok(disabledPortrait);
+  assert.equal(disabledPortrait[0]?.aspect, "portrait");
+  assert.equal(disabledPortrait[0]?.enabled, false);
   const omitted = sanitizeDestinations(
     [{ id: "youtube", kind: "youtube", label: "YouTube", detail: "", enabled: true }],
     existing,

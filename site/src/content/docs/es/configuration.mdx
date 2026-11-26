@@ -52,7 +52,7 @@ Opcional. Sin valor, rigen los del código en `worker/egress.ts`. Las pruebas po
 
 | Nombre | Función | Valor |
 |---|---|---|
-| `CASTHOP_EMPTY_GRACE_MS` | Terminar el vivo cuando el estudio lleva vacío este tiempo. | `45000` |
+| `CASTHOP_EMPTY_GRACE_MS` | Terminar la transmisión cuando el estudio lleva vacío este tiempo. | `45000` |
 | `CASTHOP_COMPOSITOR_GRACE_MS` | Esperar a que el Chrome del compositor entre tras StartRoomComposite. | `15000` |
 | `CASTHOP_RECOVERY_MS` | Dejar de reiniciar un compositor muerto; el anfitrión puede Reintentar. | `30000` |
 | `CASTHOP_HEARTBEAT_MS` | El beat del compositor caduca después de esto (la página publica cada 1 s). | `3000` |
@@ -68,14 +68,14 @@ Opcional. Sin valor, rigen los del código en `worker/egress.ts`. Las pruebas po
 
 ## Chat en vivo de YouTube
 
-Los comentarios de la emisión de YouTube aparecen en el panel de chat del estudio mientras el programa está en vivo. El anfitrión puede fijar uno en el overlay del compositor. Sin credenciales, esto se oculta; el estudio no falla.
+Los comentarios de la transmisión de YouTube aparecen en el panel de chat del estudio mientras el programa está en vivo. El anfitrión puede fijar uno en el overlay del compositor. Sin credenciales, esto se oculta; el estudio no falla.
 
 | Nombre | Función | Valor local |
 |---|---|---|
 | `YOUTUBE_API_KEY` | Clave de YouTube Data API para `liveChatMessages.list` público. | unset |
 | `YOUTUBE_LIVE_CHAT_ID` | Saltar la búsqueda y sondear este live chat. | unset |
-| `YOUTUBE_VIDEO_ID` | Resolver `activeLiveChatId` a partir de un vídeo. | unset |
-| `YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN` | Encontrar la emisión activa del dueño (`liveBroadcasts.list?mine=true`). | unset |
+| `YOUTUBE_VIDEO_ID` | Resolver `activeLiveChatId` a partir de un video. | unset |
+| `YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN` | Encontrar la transmisión activa del dueño (`liveBroadcasts.list?mine=true`). | unset |
 
 Hace falta una API key más un live chat o video id, o el trío de refresh OAuth. El sondeo usa el `pollingIntervalMillis` de la API. La API de X pide un plan de pago, y los comentarios de LinkedIn piden API de partner; esos destinos no se ingieren.
 

@@ -1,6 +1,6 @@
 ---
 title: Primeros pasos
-description: Corre Casthop en tu máquina con Docker y sal en vivo a los destinos RTMP locales.
+description: Corre Casthop en tu máquina con Docker y transmite en vivo a los destinos RTMP locales.
 group: Empezar
 order: 1
 ---
@@ -13,7 +13,7 @@ Linux con Docker en host networking es el camino local soportado. Docker usa la 
 - Docker con Compose.
 - Un host Linux. Host networking es solo en Linux; mira [Docker Desktop](#docker-desktop-macos-y-windows) más abajo.
 
-No hace falta una toolchain de Rust. El `src/wasm/casthop_media.wasm` precompilado está en el git, así que el servidor de desarrollo arranca sin Rust. Recompílalo solo si cambias el crate (hace falta rustc 1.100+ y el target `wasm32-unknown-unknown`).
+No hace falta una toolchain de Rust. El `src/wasm/casthop_media.wasm` precompilado está en el repositorio, así que el servidor de desarrollo arranca sin Rust. Recompílalo solo si cambias el crate (hace falta rustc 1.100+ y el target `wasm32-unknown-unknown`).
 
 ## Arrancarlo
 
@@ -32,14 +32,14 @@ El sitio que estás leyendo es un paquete aparte en `site/` (`cd site && bun ins
 
 `docker compose up -d` levanta Redis, LiveKit, LiveKit Egress y MediaMTX. LiveKit, Redis y MediaMTX escuchan en `127.0.0.1`, así que el `devkey` publicado no queda al alcance de tu LAN.
 
-## Tu primera emisión
+## Tu primera transmisión
 
 1. Abre [http://127.0.0.1:5173](http://127.0.0.1:5173).
-2. Introduce tu correo para recibir un magic link. En local, el Worker imprime el enlace en su consola; cópialo del terminal donde corre `bun run dev`.
+2. Ingresa tu correo para recibir un magic link. En local, el Worker imprime el enlace en su consola; cópialo del terminal donde corre `bun run dev`.
 3. Abre un estudio.
 4. Copia el enlace de invitado y envíalo a quien deba entrar. Mira [Invitados](/docs/guests).
-5. Sube a la gente a escena. Caben hasta seis.
-6. Pulsa **Salir en vivo**, elige destinos en el diálogo y confirma. La pastilla Live se queda en Iniciando hasta que Egress esté generando salida. Cada destino del panel muestra su propio estado RTMP.
+5. Agrega a la gente a escena. Caben hasta seis.
+6. Haz clic en **Transmitir en vivo**, elige destinos en el diálogo y confirma. La pastilla Live se queda en Iniciando hasta que Egress esté generando salida. Cada destino del panel muestra su propio estado RTMP.
 
 Por defecto los destinos son sustitutos locales de MediaMTX para YouTube, LinkedIn y X. Mira [Destinos](/docs/destinations) para verlos y apuntar a ingest de verdad.
 

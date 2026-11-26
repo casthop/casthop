@@ -1154,6 +1154,32 @@ a {
   align-content: start;
 }
 
+.studio .rec-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.studio .rec-row .t b {
+  display: block;
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--tx);
+}
+
+.studio .rec-row .t small {
+  color: var(--mu2);
+  font-size: 12px;
+}
+
+.studio .rec-dl {
+  flex: none;
+  text-decoration: none;
+  font-size: 12px;
+}
+
 .studio .panel-body.stack label,
 .studio .dest .t label {
   display: grid;

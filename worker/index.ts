@@ -4,6 +4,7 @@ import { MAX_ON_STAGE } from "./types";
 import { StudioDurableObject } from "./studio";
 import {
   asEmail,
+  asIdentity,
   asName,
   clearCookie,
   devKeyGuardError,
@@ -67,6 +68,19 @@ import {
   startGithub,
 } from "./auth";
 import { destChatConfigured } from "./chat-ingest";
+import {
+  concatChunkStream,
+  downloadChunkKeys,
+  downloadName,
+  ISO_CHUNK_MAX,
+  ISO_CHUNK_MAX_BYTES,
+  ISO_CHUNK_WINDOW_MS,
+  isoChunkKey,
+  isoPrefix,
+  listIsoChunkKeys,
+  parseChunkIndex,
+} from "./iso";
+import type { IsoTrack } from "./types";
 
 export { StudioDurableObject };
 
@@ -495,6 +509,123 @@ app.post("/api/studios/:id/egress-beat", async (c) => {
   const res = await doAction(c.env, id, "egress-beat", { identity: claims.identity, egressId });
   if (res.status === 404) return c.json({ error: "Studio not found" }, 404);
   return new Response(res.body, { status: res.status, headers: res.headers });
+});
+
+async function isoCaller(
+  c: Context<AppEnv>,
+  id: string,
+  body?: { identity?: unknown; guestSecret?: unknown },
+): Promise<{ identity: string; guestSecret?: string; hostKey?: string } | Response> {
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (host) return { identity: host.identity, hostKey: host.hostKey };
+  const identity = asIdentity(body?.identity ?? c.req.header("x-casthop-identity"));
+  const guestSecret =
+    (typeof body?.guestSecret === "string" ? body.guestSecret : "") || c.req.header("x-casthop-guest-secret") || "";
+  if (!identity || !guestSecret) return c.json({ error: "iso auth required" }, 403);
+  if (isHostIdentity(identity)) return c.json({ error: "host identity reserved" }, 403);
+  if (!(await guestSecretOk(c.env, id, identity, guestSecret))) return c.json({ error: "iso auth required" }, 403);
+  return { identity, guestSecret };
+}
+
+app.post("/api/studios/:id/iso-pref", async (c) => {
+  const id = c.req.param("id");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (!host) return c.json({ error: "host access required" }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as { separateRecordings?: unknown };
+  const res = await doAction(c.env, id, "iso-pref", { separateRecordings: body.separateRecordings, hostKey: host.hostKey });
+  return new Response(res.body, { status: res.status, headers: res.headers });
+});
+
+app.post("/api/studios/:id/iso", async (c) => {
+  const id = c.req.param("id");
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const who = await isoCaller(c, id, body);
+  if (who instanceof Response) return who;
+  const res = await doAction(c.env, id, "iso-start", {
+    ...body,
+    identity: who.identity,
+    guestSecret: who.guestSecret,
+    hostKey: who.hostKey,
+  });
+  return new Response(res.body, { status: res.status, headers: res.headers });
+});
+
+app.put("/api/studios/:id/iso/:trackId/chunks/:index", async (c) => {
+  const id = c.req.param("id");
+  const trackId = c.req.param("trackId");
+  const index = parseChunkIndex(c.req.param("index"));
+  if (index === null) return c.json({ error: "chunk required" }, 400);
+  const who = await isoCaller(c, id);
+  if (who instanceof Response) return who;
+  const declared = Number(c.req.header("content-length") ?? "0");
+  if (declared > ISO_CHUNK_MAX_BYTES) return c.json({ error: "chunk too large" }, 413);
+  if (!(await allowRate(c.env.DB, `iso:${id}:${who.identity}`, ISO_CHUNK_MAX, ISO_CHUNK_WINDOW_MS))) {
+    return c.json({ error: "too many uploads" }, 429);
+  }
+  const buf = await c.req.arrayBuffer();
+  if (buf.byteLength > ISO_CHUNK_MAX_BYTES) return c.json({ error: "chunk too large" }, 413);
+  if (buf.byteLength < 1) return c.json({ error: "empty chunk" }, 400);
+  const res = await doAction(c.env, id, "iso-chunk", {
+    identity: who.identity,
+    guestSecret: who.guestSecret,
+    hostKey: who.hostKey,
+    trackId,
+    index,
+    bytes: buf.byteLength,
+  });
+  if (!res.ok) return new Response(res.body, { status: res.status, headers: res.headers });
+  await c.env.RECORDINGS.put(isoChunkKey(id, trackId, index), buf);
+  return new Response(res.body, { status: res.status, headers: res.headers });
+});
+
+app.post("/api/studios/:id/iso/:trackId/complete", async (c) => {
+  const id = c.req.param("id");
+  const trackId = c.req.param("trackId");
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const who = await isoCaller(c, id, body);
+  if (who instanceof Response) return who;
+  const res = await doAction(c.env, id, "iso-complete", {
+    identity: who.identity,
+    guestSecret: who.guestSecret,
+    hostKey: who.hostKey,
+    trackId,
+  });
+  return new Response(res.body, { status: res.status, headers: res.headers });
+});
+
+app.get("/api/studios/:id/recordings", async (c) => {
+  const id = c.req.param("id");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (!host) return c.json({ error: "host access required" }, 403);
+  const res = await doAction(c.env, id, "iso-list", { hostKey: host.hostKey });
+  return new Response(res.body, { status: res.status, headers: res.headers });
+});
+
+app.get("/api/studios/:id/recordings/iso/:trackId", async (c) => {
+  const id = c.req.param("id");
+  const trackId = c.req.param("trackId");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (!host) return c.json({ error: "host access required" }, 403);
+  const res = await doAction(c.env, id, "iso-get", { hostKey: host.hostKey, trackId });
+  if (!res.ok) return new Response(res.body, { status: res.status, headers: res.headers });
+  const data = (await res.json()) as { track: IsoTrack };
+  const keys = downloadChunkKeys(await listIsoChunkKeys(c.env.RECORDINGS, id, trackId), isoPrefix(id, trackId), data.track.chunks);
+  if (!keys.length) return c.json({ error: "track not found" }, 404);
+  const filename = downloadName(data.track);
+  return new Response(concatChunkStream(c.env.RECORDINGS, keys), {
+    headers: {
+      "Content-Type": data.track.mimeType.split(";")[0]?.trim() || "application/octet-stream",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+    },
+  });
 });
 
 app.post("/api/studios/:id/live", async (c) => {

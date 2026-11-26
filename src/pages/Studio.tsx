@@ -24,8 +24,12 @@ import {
   setLayout,
   setBanner,
   setLive,
+  setSeparateRecordings,
   setStage,
+  isoDownloadPath,
+  listRecordings,
   type PublicStudio,
+  type RecordingList,
   type StudioMember,
   type StudioView,
 } from "../lib/api";
@@ -38,10 +42,11 @@ import { openUserMedia } from "../lib/media";
 import { loadSession, saveSession } from "../lib/session";
 import { canConnectToStudio } from "../lib/studio-entry";
 import { SHOT_LIVE_MS, shotFromUrl, shotStudio } from "../lib/studio-shot";
+import { IsoRecorder } from "../lib/iso-recorder";
 import { isHostIdentity } from "../../worker/security";
-import type { LayoutId, ParticipantInfo, PublicDestination } from "../../worker/types";
+import type { IsoTrack, LayoutId, ParticipantInfo, PublicDestination } from "../../worker/types";
 
-type PanelId = "chat" | "destinations" | "lower-third" | "settings";
+type PanelId = "chat" | "destinations" | "lower-third" | "settings" | "recordings";
 type Translate = (key: MessageKey, vars?: Record<string, string | number>) => string;
 
 function destStatusLabel(
@@ -190,6 +195,48 @@ export function Studio() {
       .then((cfg) => setYoutubeChat(cfg.destinationChat.youtube))
       .catch(() => setYoutubeChat(false));
   }, [shot]);
+
+  const isoOnStage = Boolean(studio?.participants.some((p) => p.identity === identityRef.current && p.onStage));
+  const isoActive = Boolean(
+    studio?.separateRecordings &&
+      studio.isoSessionId &&
+      isoOnStage &&
+      (studio.livePhase === "starting" || studio.livePhase === "live" || studio.livePhase === "retrying"),
+  );
+
+  useEffect(() => {
+    if (shot || !isoActive || !room || !studio?.isoSessionId) return;
+    const sessionId = studio.isoSessionId;
+    let cancelled = false;
+    let rec: IsoRecorder | null = null;
+    let interval = 0;
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      const saved = loadSession(id);
+      rec = new IsoRecorder(
+        id,
+        sessionId,
+        {
+          identity: identityRef.current,
+          name: nameRef.current,
+          guestSecret: saved?.guestSecret,
+        },
+        () => setError(t("errIsoUpload")),
+      );
+      const tick = () => {
+        if (cancelled) return;
+        void rec?.sync(localIsoStreams(room, originalVideoRef.current, originalAudioRef.current));
+      };
+      tick();
+      interval = window.setInterval(tick, 2000);
+    }, 50);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      window.clearInterval(interval);
+      void rec?.stop();
+    };
+  }, [shot, id, isoActive, room, studio?.isoSessionId, t]);
 
   useEffect(() => {
     if (shot) return;
@@ -598,6 +645,20 @@ export function Studio() {
     }
   }
 
+  async function onToggleIso() {
+    if (!isHost || !studio) return;
+    const next = !studio.separateRecordings;
+    setStudio((prev) => (prev ? { ...prev, separateRecordings: next } : prev));
+    if (shot) return;
+    try {
+      const saved = await setSeparateRecordings(id, next);
+      setStudio((prev) => mergeStudio(prev, saved, prev?.viewerRole ?? "guest"));
+    } catch (err) {
+      setStudio((prev) => (prev ? { ...prev, separateRecordings: !next } : prev));
+      setError(err instanceof Error ? err.message : t("errIso"));
+    }
+  }
+
   async function persistDestinations(next: PublicDestination[]) {
     if (!studio) return;
     if (shot) {
@@ -666,6 +727,7 @@ export function Studio() {
       return;
     }
     try {
+      await setSeparateRecordings(id, studio.separateRecordings);
       await setLive(id, true);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("errLive"));
@@ -957,7 +1019,10 @@ export function Studio() {
                 ))}
               </div>
             ) : (
-              <p className="guest-note">{meOnStage ? t("onStage") : t("waitingHost")}</p>
+              <p className="guest-note">
+                {meOnStage ? t("onStage") : t("waitingHost")}
+                {isoActive ? ` · ${t("isoGuestNote")}` : ""}
+              </p>
             )}
           </div>
           <div className="dock">
@@ -1091,6 +1156,7 @@ export function Studio() {
               }}
             />
           ) : null}
+          {panel === "recordings" && isHost ? <RecordingsPanel studioId={shot ? studio.id : id} /> : null}
           {panel === "settings" && isHost ? (
             <SettingsPanel
               studioId={shot ? studio.id : id}
@@ -1148,6 +1214,19 @@ export function Studio() {
             onClick={() => togglePanel("lower-third")}
           >
             <TypeIcon />
+          </button>
+        ) : null}
+        {isHost ? (
+          <button
+            type="button"
+            className={panel === "recordings" ? "on" : undefined}
+            data-testid="rail-recordings"
+            title={t("panelRecordings")}
+            aria-label={t("panelRecordings")}
+            aria-pressed={panel === "recordings"}
+            onClick={() => togglePanel("recordings")}
+          >
+            <RecordingsIcon />
           </button>
         ) : null}
         <span className="grow" />
@@ -1233,6 +1312,19 @@ export function Studio() {
                 </button>
               </form>
             ) : null}
+            <div className="dest">
+              <div className="t">
+                <b>{t("isoSeparate")}</b>
+                <small>{t("isoSeparateLead")}</small>
+              </div>
+              <button
+                type="button"
+                className={`sw${studio.separateRecordings ? " on" : ""}`}
+                aria-pressed={studio.separateRecordings}
+                aria-label={studio.separateRecordings ? t("isoSeparateOff") : t("isoSeparateOn")}
+                onClick={() => void onToggleIso()}
+              />
+            </div>
             <footer>
               <button className="add" type="button" onClick={() => setAddRtmp(true)}>
                 {t("destAddRtmp")}
@@ -1491,6 +1583,81 @@ function LowerThirdPanel({
   );
 }
 
+function RecordingsPanel({ studioId }: { studioId: string }) {
+  const { t, formatDateTime } = useI18n();
+  const [data, setData] = useState<RecordingList | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      listRecordings(studioId)
+        .then((next) => {
+          if (!cancelled) setData(next);
+        })
+        .catch(() => undefined);
+    };
+    load();
+    const timer = window.setInterval(load, 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [studioId]);
+
+  const tracks = [...(data?.tracks ?? [])].sort((a, b) => b.startedAt - a.startedAt);
+  const empty = !data?.mixed && tracks.length === 0;
+
+  return (
+    <div className="panel-body stack rec-list">
+      {empty ? <p className="empty-chat">{t("isoEmpty")}</p> : null}
+      {data?.mixed?.filename ? (
+        <div className="rec-row">
+          <div className="t">
+            <b>{t("isoMixed")}</b>
+            <small>{t("isoMixedHint", { path: data.mixed.filename })}</small>
+          </div>
+        </div>
+      ) : null}
+      {tracks.map((track) => (
+        <IsoTrackRow key={track.id} studioId={studioId} track={track} t={t} formatDateTime={formatDateTime} />
+      ))}
+    </div>
+  );
+}
+
+function IsoTrackRow({
+  studioId,
+  track,
+  t,
+  formatDateTime,
+}: {
+  studioId: string;
+  track: IsoTrack;
+  t: Translate;
+  formatDateTime: (value: number | Date) => string;
+}) {
+  const kind = track.kind === "screen" ? t("isoKindScreen") : t("isoKindCamera");
+  const mb = Math.max(0.1, Math.round((track.bytes / (1024 * 1024)) * 10) / 10);
+  return (
+    <div className="rec-row">
+      <div className="t">
+        <b>{t("isoTrackLine", { name: track.name, kind })}</b>
+        <small>
+          {formatDateTime(track.startedAt)}
+          {" · "}
+          {t("isoSizeMb", { n: mb })}
+          {track.complete ? "" : ` · ${t("isoIncomplete")}`}
+        </small>
+      </div>
+      {track.chunks > 0 ? (
+        <a className="btn ghost rec-dl" href={isoDownloadPath(studioId, track.id)}>
+          {t("isoDownload")}
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
 function SettingsPanel({
   studioId,
   studio,
@@ -1582,6 +1749,7 @@ function panelLabel(panel: PanelId, t: Translate): string {
   if (panel === "lower-third") return t("panelLowerThird");
   if (panel === "destinations") return t("panelDestinations");
   if (panel === "settings") return t("panelSettings");
+  if (panel === "recordings") return t("panelRecordings");
   return t("panelChat");
 }
 
@@ -1626,6 +1794,30 @@ function mergeStudio(
   };
 }
 
+function localIsoStreams(
+  room: Room,
+  originalVideo: MediaStreamTrack | null,
+  originalAudio: MediaStreamTrack | null,
+): { camera: MediaStream | null; screen: MediaStream | null } {
+  const camera = new MediaStream();
+  const video =
+    originalVideo ?? room.localParticipant.getTrackPublication(Track.Source.Camera)?.track?.mediaStreamTrack ?? null;
+  const audio =
+    originalAudio ?? room.localParticipant.getTrackPublication(Track.Source.Microphone)?.track?.mediaStreamTrack ?? null;
+  if (video && video.readyState === "live") camera.addTrack(video);
+  if (audio && audio.readyState === "live") camera.addTrack(audio);
+  const screen = new MediaStream();
+  const share = room.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track?.mediaStreamTrack ?? null;
+  const shareAudio =
+    room.localParticipant.getTrackPublication(Track.Source.ScreenShareAudio)?.track?.mediaStreamTrack ?? null;
+  if (share && share.readyState === "live") screen.addTrack(share);
+  if (shareAudio && shareAudio.readyState === "live") screen.addTrack(shareAudio);
+  return {
+    camera: camera.getTracks().length ? camera : null,
+    screen: screen.getTracks().length ? screen : null,
+  };
+}
+
 function ChatIcon() {
   return (
     <svg className="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
@@ -1652,6 +1844,15 @@ function TypeIcon() {
       <path d="M12 4v16" />
       <path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2" />
       <path d="M9 20h6" />
+    </svg>
+  );
+}
+
+function RecordingsIcon() {
+  return (
+    <svg className="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+      <circle cx="12" cy="12" r="3" />
+      <rect x="3" y="5" width="18" height="14" rx="2" />
     </svg>
   );
 }

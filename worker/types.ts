@@ -65,6 +65,28 @@ export type DestChatState = {
   nextPollAt: number;
 };
 
+export type IsoTrackKind = "camera" | "screen";
+
+/** One MediaRecorder run for a person, stored as numbered R2 chunks. */
+export type IsoTrack = {
+  id: string;
+  sessionId: string;
+  identity: string;
+  name: string;
+  kind: IsoTrackKind;
+  mimeType: string;
+  startedAt: number;
+  endedAt: number | null;
+  bytes: number;
+  chunks: number;
+  complete: boolean;
+};
+
+export type RecordingList = {
+  mixed: { filename: string; startedAt: number | null } | null;
+  tracks: IsoTrack[];
+};
+
 export type StudioState = {
   id: string;
   title: string;
@@ -89,6 +111,12 @@ export type StudioState = {
   emptySince: number | null;
   egressId: string | null;
   recordingPath: string | null;
+  /** Host opted into per-person browser recordings for the next live. */
+  separateRecordings: boolean;
+  /** Current live session id for ISO tracks. Public so each browser can start. */
+  isoSessionId: string | null;
+  /** Per-person tracks. Hosts list these on GET recordings; never on public state. */
+  isoTracks: IsoTrack[];
   bannerTitle: string;
   bannerSubtitle: string;
   destinations: Destination[];
@@ -188,6 +216,7 @@ export type PublicStudio = Omit<
   | "abandonedEgressIds"
   | "egressRecoveringSince"
   | "destChat"
+  | "isoTracks"
 > & {
   destinations: PublicDestination[];
   egressId?: string | null;

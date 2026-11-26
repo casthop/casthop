@@ -1,8 +1,10 @@
 import { DEST_CHAT_BACKOFF_MS, destChatProviders, type YoutubeTokenCache } from "./chat-ingest";
-import { defaultDestinations, MAX_ON_STAGE, type Env, type LayoutId, type StudioState } from "./types";
+import { defaultDestinations, MAX_ON_STAGE, type Env, type IsoTrack, type LayoutId, type StudioState } from "./types";
+import { ISO_CHUNK_MAX_BYTES, isoKindOk, isoMimeOk, mixedFilename, parseChunkIndex } from "./iso";
 import {
   asIdentity,
   asName,
+  randomId,
   CHAT_MAX,
   CHAT_WINDOW_MS,
   claimIsHeld,
@@ -115,6 +117,9 @@ export class StudioDurableObject {
         emptySince: null,
         egressId: null,
         recordingPath: null,
+        separateRecordings: false,
+        isoSessionId: null,
+        isoTracks: [],
         bannerTitle: body.title,
         bannerSubtitle: "Building in public, episode 1",
         destinations: defaultDestinations(this.env),
@@ -272,6 +277,97 @@ export class StudioDurableObject {
       state.title = asName(body.title, state.title);
       await this.putState(state);
       return json(publicState(state, { includeUrls: true }));
+    }
+
+    if (action === "iso-pref") {
+      if (!isHost) return json({ error: "host key required" }, 403);
+      if (typeof body.separateRecordings !== "boolean") return json({ error: "separateRecordings required" }, 400);
+      const phaseLive = state.wantLive || state.live;
+      if (phaseLive && body.separateRecordings !== Boolean(state.separateRecordings)) {
+        return json({ error: "cannot change while live" }, 409);
+      }
+      state.separateRecordings = body.separateRecordings;
+      await this.putState(state);
+      return json(publicState(state, { includeUrls: true }));
+    }
+
+    if (action === "iso-start") {
+      const person = await this.isoAuthor(state, body, isHost);
+      if (!person) return json({ error: "iso auth required" }, 403);
+      if (!state.separateRecordings || !state.isoSessionId) return json({ error: "not recording" }, 409);
+      const sessionId = typeof body.sessionId === "string" ? body.sessionId : "";
+      if (sessionId !== state.isoSessionId) return json({ error: "not recording" }, 409);
+      const kind = body.kind;
+      if (!isoKindOk(kind)) return json({ error: "kind required" }, 400);
+      const mimeType = typeof body.mimeType === "string" ? body.mimeType.trim().slice(0, 80) : "";
+      if (!isoMimeOk(mimeType)) return json({ error: "mimeType required" }, 400);
+      const startedAt = typeof body.startedAt === "number" && Number.isFinite(body.startedAt) ? body.startedAt : Date.now();
+      const track: IsoTrack = {
+        id: randomId(8).toLowerCase(),
+        sessionId: state.isoSessionId,
+        identity: person.identity,
+        name: person.name,
+        kind,
+        mimeType,
+        startedAt,
+        endedAt: null,
+        bytes: 0,
+        chunks: 0,
+        complete: false,
+      };
+      state.isoTracks = [...(state.isoTracks ?? []), track];
+      await this.putState(state);
+      return json({ track });
+    }
+
+    if (action === "iso-chunk") {
+      const person = await this.isoAuthor(state, body, isHost);
+      if (!person) return json({ error: "iso auth required" }, 403);
+      const trackId = typeof body.trackId === "string" ? body.trackId : "";
+      const index = parseChunkIndex(String(body.index ?? ""));
+      const bytes = typeof body.bytes === "number" && Number.isFinite(body.bytes) ? body.bytes : -1;
+      if (!trackId || index === null) return json({ error: "chunk required" }, 400);
+      if (bytes < 0 || bytes > ISO_CHUNK_MAX_BYTES) return json({ error: "chunk too large" }, 400);
+      const track = (state.isoTracks ?? []).find((row) => row.id === trackId);
+      if (!track || track.identity !== person.identity) return json({ error: "track not found" }, 404);
+      if (track.complete) return json({ error: "track complete" }, 409);
+      if (index > track.chunks) return json({ error: "chunk required" }, 400);
+      if (index === track.chunks) {
+        track.bytes += bytes;
+        track.chunks = index + 1;
+      }
+      await this.putState(state);
+      return json({ track });
+    }
+
+    if (action === "iso-complete") {
+      const person = await this.isoAuthor(state, body, isHost);
+      if (!person) return json({ error: "iso auth required" }, 403);
+      const trackId = typeof body.trackId === "string" ? body.trackId : "";
+      const track = (state.isoTracks ?? []).find((row) => row.id === trackId);
+      if (!track || track.identity !== person.identity) return json({ error: "track not found" }, 404);
+      track.complete = true;
+      track.endedAt = Date.now();
+      await this.putState(state);
+      return json({ track });
+    }
+
+    if (action === "iso-list") {
+      if (!isHost) return json({ error: "host key required" }, 403);
+      return json({
+        mixed: state.recordingPath
+          ? { filename: mixedFilename(state.recordingPath), startedAt: state.liveStartedAt }
+          : null,
+        tracks: [...(state.isoTracks ?? [])],
+      });
+    }
+
+    if (action === "iso-get") {
+      if (!isHost) return json({ error: "host key required" }, 403);
+      const trackId = typeof body.trackId === "string" ? body.trackId : "";
+      const track = (state.isoTracks ?? []).find((row) => row.id === trackId);
+      if (!track) return json({ error: "track not found" }, 404);
+      return json({ track });
     }
 
     if (action === "egress-beat") {
@@ -450,11 +546,17 @@ export class StudioDurableObject {
     }
   }
 
+  private beginIsoSession(state: StudioState): void {
+    if (!state.separateRecordings) return;
+    if (!state.isoSessionId) state.isoSessionId = randomId(8).toLowerCase();
+  }
+
   private async runStartLive(state: StudioState, fromWatch = false): Promise<Response> {
     state.wantLive = true;
     state.liveFailed = false;
     if (!fromWatch) state.egressRecoveringSince = null;
     state.liveStartingAt = Date.now();
+    this.beginIsoSession(state);
     await this.putState(state);
 
     let listed: ReturnType<typeof parseEgressList> = [];
@@ -579,6 +681,7 @@ export class StudioDurableObject {
     latest.liveStartedAt = null;
     latest.liveStartingAt = undefined;
     latest.egressId = null;
+    latest.isoSessionId = null;
     latest.liveError = reason === "stopped" ? null : reason;
     latest.egressRetryCount = 0;
     latest.egressRetryAt = null;
@@ -1002,6 +1105,14 @@ export class StudioDurableObject {
     } catch {
       /* tests stub storage without alarms */
     }
+  }
+
+  private async isoAuthor(
+    state: StudioState,
+    body: Record<string, unknown>,
+    isHost: boolean,
+  ): Promise<{ identity: string; name: string } | null> {
+    return this.chatAuthor(state, body, isHost);
   }
 
   private async chatAuthor(

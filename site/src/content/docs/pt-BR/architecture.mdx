@@ -22,7 +22,7 @@ LiveKit Egress (custom /egress-template)             Durable Object
     ▼              ▼              ▼
  MediaMTX       MediaMTX       MediaMTX              Cloudflare Worker
  youtube        linkedin       x                     + D1 (studio index)
-    │              │              │                  + R2 seam (replays)
+    │              │              │                  + R2 ISO tracks
     ▼              ▼              ▼                  Rust casthop-post
  local RTMP    local RTMP     local RTMP             (inspect / remux)
  + Egress MP4 at ./data/recordings
@@ -48,7 +48,7 @@ Cloudflare Stream Live precisa de uma conta Cloudflare com Stream ligado, e o ar
 
 ## Plano de controle
 
-O app é um Hono Worker com um Durable Object por estúdio (palco, layout, chat, destinos) e D1 para o índice de estúdios. O R2 está bound como encaixe para replays, e as gravações ficam no volume do Egress por enquanto. Os endpoints quentes do Worker ficam em TypeScript; um port workers-rs foi medido (`bun run bench:worker`) e não ganhou em CPU, cold start nem tamanho de bundle.
+O app é um Hono Worker com um Durable Object por estúdio (palco, layout, chat, destinos) e D1 para o índice de estúdios. O R2 guarda os chunks ISO de cada pessoa, enviados do browser durante o programa. O MP4 mixado continua no volume do Egress. Os endpoints quentes do Worker ficam em TypeScript; um port workers-rs foi medido (`bun run bench:worker`) e não ganhou em CPU, cold start nem tamanho de bundle.
 
 ## Chat de destino
 

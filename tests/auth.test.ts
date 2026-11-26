@@ -5,6 +5,7 @@ import { GUEST_TOKEN_TTL_SEC, HOST_TOKEN_TTL_SEC } from "../worker/livekit.ts";
 import { DEV_API_KEY, DEV_API_SECRET, HOST_IDENTITY, SESSION_COOKIE } from "../worker/security.ts";
 import type { Env, PublicStudio } from "../worker/types.ts";
 import { FakeD1 } from "./fake-d1.ts";
+import { FakeR2 } from "./fake-r2.ts";
 
 const YT = "rtmp://ingest.example.com/live/super-secret-youtube-key";
 const LI = "rtmp://ingest.example.com/live/super-secret-linkedin-key";
@@ -72,7 +73,7 @@ function makeEnv(overrides: Partial<Env> = {}): Env & { _db: FakeD1 } {
     CASTHOP_TRUST_FORWARDED: "1",
     PUBLIC_ORIGIN: "https://casthop.test",
     ASSETS: { fetch: async () => new Response("ok") },
-    RECORDINGS: {},
+    RECORDINGS: new FakeR2() as unknown as R2Bucket,
     DB: db,
     ...overrides,
   } as Env & { _db: FakeD1 };
@@ -466,6 +467,61 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
       path: `/api/studios/${id}/live`,
       init: { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ live: false }) },
       expect: { owner: 200, cohost: 200, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
+    },
+    {
+      name: "POST iso-pref",
+      path: `/api/studios/${id}/iso-pref`,
+      init: { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ separateRecordings: true }) },
+      expect: { owner: 200, cohost: 200, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
+    },
+    {
+      name: "POST iso start",
+      path: `/api/studios/${id}/iso`,
+      init: {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          identity: guestMint.identity,
+          guestSecret: guestMint.guestSecret,
+          kind: "camera",
+          mimeType: "video/webm",
+          sessionId: "none",
+          startedAt: 1,
+        }),
+      },
+      expect: { owner: 409, cohost: 409, guest: 409, signedOut: 409, expired: 403, outsider: 409 },
+    },
+    {
+      name: "PUT iso chunk",
+      path: `/api/studios/${id}/iso/missing/chunks/0`,
+      init: {
+        method: "PUT",
+        headers: { "Content-Type": "application/octet-stream", "X-Casthop-Identity": guestMint.identity, "X-Casthop-Guest-Secret": guestMint.guestSecret },
+        body: new Uint8Array([1, 2, 3]),
+      },
+      expect: { owner: 404, cohost: 404, guest: 404, signedOut: 404, expired: 403, outsider: 404 },
+    },
+    {
+      name: "POST iso complete",
+      path: `/api/studios/${id}/iso/missing/complete`,
+      init: {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identity: guestMint.identity, guestSecret: guestMint.guestSecret }),
+      },
+      expect: { owner: 404, cohost: 404, guest: 404, signedOut: 404, expired: 403, outsider: 404 },
+    },
+    {
+      name: "GET recordings",
+      path: `/api/studios/${id}/recordings`,
+      init: {},
+      expect: { owner: 200, cohost: 200, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
+    },
+    {
+      name: "GET iso download",
+      path: `/api/studios/${id}/recordings/iso/missing`,
+      init: {},
+      expect: { owner: 404, cohost: 404, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
     },
     {
       name: "POST egress-beat",

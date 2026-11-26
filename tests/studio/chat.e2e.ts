@@ -12,6 +12,7 @@ describe("studio chat", { session: "host" }, () => {
     await screen.getByRole("button", "Send chat").click();
     await expect(screen.getByText("hello booth")).toBeVisible();
 
+    await screen.getByText("hello booth").hover();
     await screen.getByRole("button", "Pin this comment").click();
     await expect(screen.getByRole("button", "Unpin comment")).toBeVisible();
     await expect(screen.getByRole("status", "Pinned comment from Host")).toBeVisible();

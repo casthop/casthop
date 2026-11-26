@@ -133,12 +133,30 @@ export type Account = {
 
 export type MemberRole = "owner" | "cohost";
 
+export type ReplayVisibility = "private" | "public";
+
+export type ReplayRecord = {
+  id: string;
+  studioId: string;
+  title: string;
+  visibility: ReplayVisibility;
+  durationMs: number | null;
+  createdAt: number;
+  bytes: number;
+};
+
+export type PublicReplay = ReplayRecord & {
+  playlistUrl: string;
+  viewerCanEdit: boolean;
+};
+
 export type StudioRecord = {
   id: string;
   title: string;
   ownerId: string;
   createdAt: number;
   role: MemberRole;
+  replays: ReplayRecord[];
 };
 
 export type StudioMember = {

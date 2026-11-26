@@ -1,4 +1,4 @@
-import type { Account, MemberRole, StudioMember, StudioRecord } from "./types";
+import type { Account, MemberRole, ReplayRecord, ReplayVisibility, StudioMember, StudioRecord } from "./types";
 import { SIGNIN_WINDOW_MS } from "./security";
 
 export const SCHEMA = [
@@ -57,6 +57,16 @@ export const SCHEMA = [
     count INTEGER NOT NULL,
     window_start INTEGER NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS replays (
+    id TEXT PRIMARY KEY,
+    studio_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    visibility TEXT NOT NULL,
+    duration_ms INTEGER,
+    created_at INTEGER NOT NULL,
+    bytes INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS replays_studio ON replays(studio_id, created_at)`,
 ] as const;
 
 export const Q = {
@@ -96,6 +106,13 @@ export const Q = {
   deleteInvite: "DELETE FROM studio_invites WHERE studio_id = ? AND email = ?",
   bumpRate:
     "INSERT INTO rate_limits (key, count, window_start) VALUES (?, 1, ?) ON CONFLICT(key) DO UPDATE SET count = CASE WHEN ? - window_start > ? THEN 1 ELSE count + 1 END, window_start = CASE WHEN ? - window_start > ? THEN ? ELSE window_start END RETURNING count",
+  insertReplay:
+    "INSERT INTO replays (id, studio_id, title, visibility, duration_ms, created_at, bytes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  replayById: "SELECT id, studio_id, title, visibility, duration_ms, created_at, bytes FROM replays WHERE id = ?",
+  listReplaysByStudio:
+    "SELECT id, studio_id, title, visibility, duration_ms, created_at, bytes FROM replays WHERE studio_id = ? ORDER BY created_at DESC",
+  updateReplayVisibility: "UPDATE replays SET visibility = ? WHERE id = ?",
+  updateReplayBytes: "UPDATE replays SET bytes = ? WHERE id = ?",
 } as const;
 
 const migrated = new WeakSet<object>();
@@ -127,6 +144,28 @@ type MagicRow = {
   consumed_at: number | null;
   created_at: number;
 };
+
+type ReplayRow = {
+  id: string;
+  studio_id: string;
+  title: string;
+  visibility: ReplayVisibility;
+  duration_ms: number | null;
+  created_at: number;
+  bytes: number;
+};
+
+function mapReplay(row: ReplayRow): ReplayRecord {
+  return {
+    id: row.id,
+    studioId: row.studio_id,
+    title: row.title,
+    visibility: row.visibility,
+    durationMs: row.duration_ms,
+    createdAt: row.created_at,
+    bytes: row.bytes,
+  };
+}
 
 function mapAccount(row: AccountRow): Account {
   return {
@@ -268,13 +307,18 @@ export async function studioById(db: D1Database, id: string): Promise<{ id: stri
 
 export async function listStudiosFor(db: D1Database, accountId: string): Promise<StudioRecord[]> {
   const rows = await all<{ id: string; title: string; owner_id: string; created_at: number; role: MemberRole }>(db, Q.listStudios, accountId);
-  return rows.map((r) => ({
-    id: r.id,
-    title: r.title,
-    ownerId: r.owner_id,
-    createdAt: r.created_at,
-    role: r.role,
-  }));
+  const studios: StudioRecord[] = [];
+  for (const r of rows) {
+    studios.push({
+      id: r.id,
+      title: r.title,
+      ownerId: r.owner_id,
+      createdAt: r.created_at,
+      role: r.role,
+      replays: await listReplaysForStudio(db, r.id),
+    });
+  }
+  return studios;
 }
 
 export async function insertMember(db: D1Database, studioId: string, accountId: string, role: MemberRole, createdAt: number): Promise<void> {
@@ -332,4 +376,26 @@ export async function applyInvites(db: D1Database, account: Account): Promise<vo
 export async function allowRate(db: D1Database, key: string, max: number, windowMs: number, now = Date.now()): Promise<boolean> {
   const row = await first<{ count: number }>(db, Q.bumpRate, key, now, now, windowMs, now, windowMs, now);
   return (row?.count ?? 0) <= max;
+}
+
+export async function insertReplay(db: D1Database, row: ReplayRecord): Promise<void> {
+  await run(db, Q.insertReplay, row.id, row.studioId, row.title, row.visibility, row.durationMs, row.createdAt, row.bytes);
+}
+
+export async function replayById(db: D1Database, id: string): Promise<ReplayRecord | null> {
+  const row = await first<ReplayRow>(db, Q.replayById, id);
+  return row ? mapReplay(row) : null;
+}
+
+export async function listReplaysForStudio(db: D1Database, studioId: string): Promise<ReplayRecord[]> {
+  const rows = await all<ReplayRow>(db, Q.listReplaysByStudio, studioId);
+  return rows.map(mapReplay);
+}
+
+export async function updateReplayVisibility(db: D1Database, id: string, visibility: ReplayVisibility): Promise<void> {
+  await run(db, Q.updateReplayVisibility, visibility, id);
+}
+
+export async function updateReplayBytes(db: D1Database, id: string, bytes: number): Promise<void> {
+  await run(db, Q.updateReplayBytes, bytes, id);
 }

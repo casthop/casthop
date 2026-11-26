@@ -9,9 +9,10 @@ This file is the source of truth. Nested `AGENTS.md` files add tree-specific rul
 - `src/` — React UI, AudioWorklets, WASM loader
 - `worker/` — Hono Worker, studio Durable Object, LiveKit tokens, Egress
 - `crates/casthop-media` — WASM media (C ABI, zero JS imports)
-- `crates/casthop-post` — inspect / remux recordings
+- `crates/casthop-post` — inspect / remux / HLS package recordings
 - `tests/auth.test.ts` — owner / co-host / guest / signed-out / expired session matrix for every Worker route
 - `tests/egress.test.ts` — start/stop, crash retry, RTMP dest status, empty-studio cleanup
+- `tests/replays.test.ts` — R2 HLS ingest, playlist safety, private/public access (mocked R2)
 - `tests/studio/*.e2e.ts` — studio UI flows (e2e / Playwright locators; no model)
 - `MEASUREMENTS.md` — recorded numbers; update on hot-path changes
 - `PRODUCT.md` — product intent
@@ -49,6 +50,7 @@ bun run bench:wasm          # Bun WASM vs JS
 bun run measure             # load + silent-audio check
 bash scripts/check-silent-audio.sh data/recordings/<file>.mp4
 cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
+cargo run -p casthop-post -- hls data/recordings/<file>.mp4 /tmp/replay-hls
 E2E=1 bun run test:e2e      # headless Go Live → MediaMTX, audio not silent
 bun run test:e2e-ui         # studio UI flows (e2e, locators, --strict-cache, no model)
 PERF=1 bun run test:perf    # headless main vs worker p95 / long tasks (~30 s each)

@@ -3,7 +3,11 @@ name = "casthop-post"
 version = "0.1.0"
 edition = "2021"
 license = "AGPL-3.0-only"
-description = "Recording/egress post-processing helper (inspect, remux, optional RTMP copy)."
+description = "Recording/egress post-processing helper (inspect, remux, HLS for R2 replay)."
+
+[lib]
+name = "casthop_post"
+path = "src/lib.rs"
 
 [[bin]]
 name = "casthop-post"

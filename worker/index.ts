@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { AppEnv, Env, PublicStudio } from "./types";
+import type { AppEnv, Env, PublicStudio, ReplayRecord } from "./types";
 import { MAX_ON_STAGE } from "./types";
 import { StudioDurableObject } from "./studio";
 import {
@@ -43,10 +43,15 @@ import {
   insertInvite,
   insertMember,
   insertStudioRow,
+  insertReplay,
   invitesForStudio,
+  listReplaysForStudio,
   listStudiosFor,
   memberFor,
   membersOf,
+  replayById,
+  studioById,
+  updateReplayVisibility,
 } from "./db";
 import { MailSendError, mailerFor } from "./mail";
 import {
@@ -63,6 +68,17 @@ import {
   loadSession,
   startGithub,
 } from "./auth";
+import {
+  applyReplayBytes,
+  canViewReplay,
+  ingestFilesFromBody,
+  isHlsFilename,
+  newReplayId,
+  parseVisibility,
+  publicReplay,
+  putReplayFiles,
+  serveReplayObject,
+} from "./replays";
 
 export { StudioDurableObject };
 
@@ -239,6 +255,116 @@ app.post("/api/studios", async (c) => {
     hostUrl: `${origin}/studio/${id}`,
     guestUrl: `${origin}/join/${id}`,
   });
+});
+
+app.get("/api/studios/:id/replays", async (c) => {
+  const id = c.req.param("id");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (!host) return c.json({ error: "host access required" }, 403);
+  const replays = await listReplaysForStudio(c.env.DB, id);
+  return c.json({ replays: replays.map((row) => publicReplay(row, true)) });
+});
+
+app.post("/api/studios/:id/replays", async (c) => {
+  const id = c.req.param("id");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (!host) return c.json({ error: "host access required" }, 403);
+  const studio = await studioById(c.env.DB, id);
+  if (!studio) return c.json({ error: "Studio not found" }, 404);
+  const ingested = ingestFilesFromBody(await c.req.json().catch(() => ({})));
+  if ("error" in ingested) return c.json({ error: ingested.error }, ingested.status);
+  const replayId = newReplayId();
+  let bytes = 0;
+  if (ingested.files.length) {
+    try {
+      bytes = await putReplayFiles(c.env, id, replayId, ingested.files);
+    } catch (err) {
+      const status = errorStatus(err);
+      if (status === 400) return c.json({ error: err instanceof Error ? err.message : "invalid files" }, 400);
+      throw err;
+    }
+  }
+  const row: ReplayRecord = {
+    id: replayId,
+    studioId: id,
+    title: ingested.title ?? asName(studio.title, "Replay"),
+    visibility: ingested.visibility,
+    durationMs: ingested.durationMs,
+    createdAt: Date.now(),
+    bytes,
+  };
+  await insertReplay(c.env.DB, row);
+  return c.json(publicReplay(row, true));
+});
+
+app.patch("/api/studios/:id/replays/:rid", async (c) => {
+  const id = c.req.param("id");
+  const rid = c.req.param("rid");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (!host) return c.json({ error: "host access required" }, 403);
+  const replay = await replayById(c.env.DB, rid);
+  if (!replay || replay.studioId !== id) return c.json({ error: "not found" }, 404);
+  const body = (await c.req.json().catch(() => ({}))) as { visibility?: unknown };
+  const visibility = parseVisibility(body.visibility, replay.visibility);
+  if (!visibility || body.visibility === undefined) return c.json({ error: "visibility must be private or public" }, 400);
+  if (visibility !== replay.visibility) await updateReplayVisibility(c.env.DB, rid, visibility);
+  return c.json(publicReplay({ ...replay, visibility }, true));
+});
+
+app.put("/api/studios/:id/replays/:rid/hls/:file", async (c) => {
+  const id = c.req.param("id");
+  const rid = c.req.param("rid");
+  const file = c.req.param("file");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (!host) return c.json({ error: "host access required" }, 403);
+  const replay = await replayById(c.env.DB, rid);
+  if (!replay || replay.studioId !== id) return c.json({ error: "not found" }, 404);
+  if (!isHlsFilename(file)) return c.json({ error: "invalid filename" }, 400);
+  const bytes = new Uint8Array(await c.req.arrayBuffer());
+  try {
+    const delta = await putReplayFiles(c.env, id, rid, [{ name: file, bytes }]);
+    const nextBytes = await applyReplayBytes(c.env, rid, delta, replay.bytes);
+    return c.json(publicReplay({ ...replay, bytes: nextBytes }, true));
+  } catch (err) {
+    const status = errorStatus(err);
+    if (status === 400) return c.json({ error: err instanceof Error ? err.message : "invalid file" }, 400);
+    throw err;
+  }
+});
+
+app.get("/api/replays/:rid", async (c) => {
+  const rid = c.req.param("rid");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const replay = await replayById(c.env.DB, rid);
+  if (!replay) return c.json({ error: "not found" }, 404);
+  const access = await canViewReplay(c.env, replay, sess?.account);
+  if (!access.ok) {
+    return c.json({ error: access.status === 401 ? "sign in required" : "replay is private" }, access.status);
+  }
+  return c.json(publicReplay(replay, access.editor));
+});
+
+app.get("/api/replays/:rid/hls/:file", async (c) => {
+  const rid = c.req.param("rid");
+  const file = c.req.param("file");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const replay = await replayById(c.env.DB, rid);
+  if (!replay) return c.json({ error: "not found" }, 404);
+  const access = await canViewReplay(c.env, replay, sess?.account);
+  if (!access.ok) {
+    return c.json({ error: access.status === 401 ? "sign in required" : "replay is private" }, access.status);
+  }
+  return serveReplayObject(c.env, replay, file);
 });
 
 app.get("/api/studios/:id", async (c) => {

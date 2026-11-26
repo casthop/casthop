@@ -3,6 +3,7 @@ import { after, before, test } from "node:test";
 import { app, StudioDurableObject } from "../worker/index.ts";
 import { DEV_API_KEY, DEV_API_SECRET, SESSION_COOKIE } from "../worker/security.ts";
 import { FakeD1 } from "./fake-d1.ts";
+import { FakeR2 } from "./fake-r2.ts";
 import { mintApiToken, mintParticipantToken, signLivekitWebhook, startRoomComposite } from "../worker/livekit.ts";
 import {
   applyStreamResults,
@@ -93,7 +94,7 @@ function makeEnv(overrides: Partial<Env> = {}): Env {
     CASTHOP_TRUST_FORWARDED: "1",
     PUBLIC_ORIGIN: "https://casthop.test",
     ASSETS: { fetch: async () => new Response("ok") },
-    RECORDINGS: {},
+    RECORDINGS: new FakeR2(),
     DB: db,
     ...overrides,
   } as Env;

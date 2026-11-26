@@ -111,8 +111,8 @@ What next (called out by the product-owner Rust/WASM direction, not done in v0):
 
 - Audio **VAD-driven** UI (worklet already posts VAD; studio chrome doesn’t show it yet).
 - **workers-rs** for hot Worker endpoints (`/api/token`, live start) instead of Hono/TS.
-- Dedicated Rust **RTMP fan-out** if we leave Cloudflare Stream unused in production (`casthop-post` is inspect/remux only).
-- Destination chat ingest, R2 replay viewer, TURN.
+- Dedicated Rust **RTMP fan-out** if we leave Cloudflare Stream unused in production (`casthop-post` is inspect/remux/HLS).
+- Destination chat ingest, TURN.
 
 Camera background blur ships: WASM mix + lazy MediaPipe selfie segmenter (toggle in the studio; `?fx=js` for the JS mix). Rust WebGPU compositor ships behind `?compose=webgpu`; Canvas2D stays the live default and runs in a Worker when `OffscreenCanvas` + `MediaStreamTrackProcessor` are present.
 
@@ -129,3 +129,27 @@ That runs `ffmpeg -af volumedetect` and fails if `mean_volume` is at or below �
 CI asserts the template source attaches audio (`el.muted = false` on `Track.Kind.Audio`) so a regression cannot drop the attach path without failing `bun test`.
 
 Raw command output from `bun run measure` / `bun run bench:wasm` is stored under `data/measure/` (gitignored).
+
+## 8. R2 replay HLS (this PR)
+
+Local Linux VM, 2026-11-26. `casthop-post hls` is ffmpeg `-c copy` into fMP4 VOD (`hls_time` 4). Worker tests use in-memory R2 (same shape as Miniflare). No real bucket.
+
+12 s 1280×720 @ 3 Mbps, GOP 4 s (matches the 4 s HLS target; Egress live H264 is typically 2 s keyframes):
+
+| Object | Size |
+|---|---|
+| `index.m3u8` | **254 B** |
+| `init.mp4` | **1.4 KiB** |
+| `seg000.m4s` … `seg002.m4s` | **365–405 KiB** each (~0.75–0.83 Mb / 4 s) |
+
+Package wall time **95 ms** for that clip. An 8 s encode with the default 8 s GOP packed to **one 758 KiB segment** (`TARGETDURATION` 8) — copy HLS cannot split mid-GOP.
+
+Time to first frame, this machine:
+
+| Path | Result |
+|---|---|
+| Worker `GET` playlist (mocked R2, n=20) | **p50 0.45 ms**, p95 1.5 ms |
+| Worker `GET` first segment 374 KiB (mocked R2, n=20) | **p50 0.51 ms**, p95 1.2 ms |
+| ffmpeg decode first frame from the on-disk playlist | **101 ms** |
+
+Playlist + first segment from the Worker is ~1 ms locally (under the 10 ms HTTP glue budget). Browser MSE / hls.js would add decode on top of the 101 ms ffmpeg number. WASM does not help here: packaging is ffmpeg copy, serving is Worker + R2.

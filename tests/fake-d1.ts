@@ -24,6 +24,7 @@ export class FakeD1 implements D1Database {
       "studio_members",
       "studio_invites",
       "rate_limits",
+      "replays",
     ]) {
       this.tables.set(name, []);
     }
@@ -264,6 +265,35 @@ export class FakeD1 implements D1Database {
         "studio_invites",
         this.rows("studio_invites").filter((r) => !(r.studio_id === binds[0] && r.email === binds[1])),
       );
+      return { results: [], changes: 1 };
+    }
+    if (q === norm(Q.insertReplay)) {
+      const [id, studio_id, title, visibility, duration_ms, created_at, bytes] = binds;
+      this.rows("replays").push({ id, studio_id, title, visibility, duration_ms, created_at, bytes });
+      return { results: [], changes: 1 };
+    }
+    if (q === norm(Q.replayById)) {
+      return { results: this.rows("replays").filter((r) => r.id === binds[0]).map(clone), changes: 0 };
+    }
+    if (q === norm(Q.listReplaysByStudio)) {
+      const results = this.rows("replays")
+        .filter((r) => r.studio_id === binds[0])
+        .map(clone)
+        .sort((a, b) => Number(b.created_at) - Number(a.created_at));
+      return { results, changes: 0 };
+    }
+    if (q === norm(Q.updateReplayVisibility)) {
+      const [visibility, id] = binds;
+      for (const r of this.rows("replays")) {
+        if (r.id === id) r.visibility = visibility;
+      }
+      return { results: [], changes: 1 };
+    }
+    if (q === norm(Q.updateReplayBytes)) {
+      const [bytes, id] = binds;
+      for (const r of this.rows("replays")) {
+        if (r.id === id) r.bytes = bytes;
+      }
       return { results: [], changes: 1 };
     }
     if (q === norm(Q.bumpRate)) {

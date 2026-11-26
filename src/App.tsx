@@ -1,6 +1,7 @@
 import { Route, Routes } from "react-router-dom";
 import { Home } from "./pages/Home";
 import { GuestJoin } from "./pages/GuestJoin";
+import { Watch } from "./pages/Watch";
 import { Studio } from "./pages/Studio";
 import { Probe } from "./pages/Probe";
 import { Bench } from "./pages/Bench";
@@ -12,6 +13,7 @@ export function App() {
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/join/:id" element={<GuestJoin />} />
+      <Route path="/watch/:id" element={<Watch />} />
       <Route path="/studio/:id" element={<Studio />} />
       {import.meta.env.DEV ? (
         <>

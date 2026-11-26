@@ -30,7 +30,7 @@ LiveKit Egress (custom /egress-template)             Durable Object
 
 **Why not Cloudflare Stream Live for fan-out?** Stream Live ingest and simulcast outputs need a Cloudflare account with Stream enabled. Stream storage is prepaid; running out blocks new live inputs. This prototype does not sign up for paid services. Egress already transcodes once and can emit many RTMP URLs from that encode, which is the right self-host path. Hosted Casthop can still put a single RTMP into Stream later if Stream’s delivery math wins; see `MEASUREMENTS.md`.
 
-**Cloudflare pieces in this repo:** the app is a Worker (Hono) with a Durable Object per studio and D1 for the studio index. Local `bun run dev` runs that stack through the Cloudflare Vite plugin. R2 is bound and left as the replay archive seam; v0 recordings stay on the Egress volume. Hot Worker endpoints are still TypeScript; a workers-rs port is a next step.
+**Cloudflare pieces in this repo:** the app is a Worker (Hono) with a Durable Object per studio and D1 for the studio index. Local `bun run dev` runs that stack through the Cloudflare Vite plugin. R2 (`RECORDINGS`) stores HLS replays; Egress still writes the source MP4 to `./data/recordings`. Package with `casthop-post hls`, then `POST /api/studios/:id/replays`. Hot Worker endpoints are still TypeScript; a workers-rs port is a next step.
 
 **LiveKit stays the SFU** (Go). It is already the fast path. The LiveKit Rust SDK is unused in v0.
 
@@ -67,11 +67,14 @@ Default destinations are local MediaMTX stand-ins for YouTube, LinkedIn, and X:
 | LinkedIn stand-in | `rtmp://127.0.0.1:1935/live/linkedin` | same, `/live/linkedin` |
 | X stand-in | `rtmp://127.0.0.1:1935/live/x` | same, `/live/x` |
 
-Recordings land in `data/recordings/` (Egress MP4) and `data/rtmp/` (MediaMTX fMP4). Inspect one with the Rust helper:
+Recordings land in `data/recordings/` (Egress MP4) and `data/rtmp/` (MediaMTX fMP4). Inspect or package HLS with the Rust helper:
 
 ```bash
 cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
+cargo run -p casthop-post -- hls data/recordings/<file>.mp4 /tmp/replay-hls
 ```
+
+`POST /api/studios/:id/replays` archives the playlist and segments to R2. They show on the studio list. Private replays are owner/co-host only; public ones play at `/watch/:id`.
 
 Health: [http://127.0.0.1:5173/api/health](http://127.0.0.1:5173/api/health)
 
@@ -121,7 +124,13 @@ The app falls back to a generated canvas+silent-audio track so a VM without `/de
 2. Worker + D1 + Durable Objects (`wrangler deploy`). Put `LIVEKIT_API_SECRET` and a dedicated `HOST_KEY_SECRET` in Worker secrets, never in git. Host keys fall back to the LiveKit secret if unset; set `HOST_KEY_SECRET` so rotating LiveKit keys does not lock existing studios.
 3. Generate real API keys (`lk generate-keys`) and replace the local defaults in `infra/livekit.yaml` and `infra/egress.yaml`. Point LiveKit `webhook.urls` at `https://<worker>/api/livekit/webhook` so Egress crashes and RTMP drops are signed and applied.
 4. Point destination URLs at real YouTube / LinkedIn / X ingest. Stream keys stay in Durable Object storage (not the repo, and not the guest/public API). `GET /api/studios/:id` and the WebSocket `state` frame return only a masked suffix (`rtmp://…/xxxx`) plus `hasKey`. Owners and co-hosts receive full URLs on a signed-in GET (session cookie). Generate real API keys (`lk generate-keys`); the Worker returns 503 if the published `devkey` is used with a non-loopback LiveKit URL. Sign-in is email magic link (console logger by default, or `MAIL_WEBHOOK_URL`) and optional GitHub OAuth. Set `PUBLIC_ORIGIN` to the public site URL (magic-link mail, co-host invites, GitHub callback). Behind a reverse proxy set `CASTHOP_TRUST_FORWARDED=1` so per-IP sign-in limits use the real client address; without it, every client shares the `local` bucket.
-5. Optional: `casthop-post normalize` then copy finished MP4s to R2 for replay.
+5. After a show, package the Egress MP4 for the replay viewer:
+
+```bash
+cargo run -p casthop-post -- hls data/recordings/<file>.mp4 /tmp/replay-hls
+```
+
+Then `POST /api/studios/:id/replays` as the owner (JSON files: `index.m3u8`, `init.mp4`, `seg*.m4s`). Private replays stay on the studio list for owner/co-hosts. `PATCH` visibility to `public` and share `/watch/:id` — HLS is served from R2, not Stream.
 
 The local compose file is the media plane. The Worker is the control plane. They talk over the LiveKit Twirp API.
 
@@ -144,7 +153,7 @@ Done in this prototype: custom compositor page with WASM layout, RNNoise in an A
 1. Camera background blur ships. WebGPU compositor is in `casthop-media` behind `?compose=webgpu`; Canvas2D stays the live default (see MEASUREMENTS.md).
 2. workers-rs for hot `/api` endpoints.
 3. Destination chat ingest (YouTube liveChat, LinkedIn, X).
-4. R2 replay viewer; HLS from R2 instead of Stream for public VODs.
+4. ~~R2 replay viewer; HLS from R2 instead of Stream for public VODs.~~ Recordings show on the studio list; private replays are owner/co-host only, public ones play from `/watch/:id` as HLS on R2.
 5. ~~Auth (email) and studio list~~ — accounts, magic link, optional GitHub, owner/co-host sessions.
 6. TURN for guests behind strict NAT.
 7. Decide Stream Live vs Egress fan-out with production numbers.

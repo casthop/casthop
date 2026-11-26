@@ -64,8 +64,8 @@ Sign-in is an email magic link. By default the link is logged to the Worker cons
 
 ## 7. Destinations and recordings
 
-Point destination URLs at real YouTube, LinkedIn and X ingest. See [Destinations](/docs/destinations). Optionally, run `casthop-post normalize` and copy finished MP4s to R2 for replay. R2 is bound as a seam for that. Version 0 recordings stay on the Egress volume.
+Point destination URLs at real YouTube, LinkedIn and X ingest. See [Destinations](/docs/destinations). After a show, package the Egress MP4 with `casthop-post hls` and `POST /api/studios/:id/replays`. Private replays are owner/co-host only; public ones play from `/watch/:id` as HLS from R2.
 
 ## What this prototype does not cover
 
-This is a working prototype. TURN, a replay viewer and chat ingest are on the roadmap, not shipped. Measure your own setup before relying on it.
+This is a working prototype. TURN and destination chat ingest are on the roadmap, not shipped. Measure your own setup before relying on it.

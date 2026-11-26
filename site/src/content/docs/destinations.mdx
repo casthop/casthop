@@ -36,7 +36,10 @@ Inspect a recording with the Rust helper:
 
 ```bash
 cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
+cargo run -p casthop-post -- hls data/recordings/<file>.mp4 /tmp/replay-hls
 ```
+
+`hls` remuxes a VOD playlist (fMP4, 4s targets) for the R2 replay viewer. `POST /api/studios/:id/replays` as the owner to archive it. Private replays stay on the studio list; public ones are `/watch/:id`.
 
 To check that a recording is not silent, run `bash scripts/check-silent-audio.sh data/recordings/<file>.mp4`.
 

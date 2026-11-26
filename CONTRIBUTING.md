@@ -19,7 +19,7 @@ bun run dev                 # http://127.0.0.1:5173
 
 Worker secrets live in `.dev.vars` (gitignored). Do not commit `.env`, `.dev.vars`, stream keys, or anything from `data/`.
 
-You do not need a Rust toolchain to run the UI. Prebuilt `src/wasm/casthop_media.wasm` is committed. Rebuild only if you change `crates/casthop-media` (rustc 1.83+ and `wasm32-unknown-unknown`): `bun run build:wasm`.
+You do not need a Rust toolchain to run the UI. Prebuilt `src/wasm/casthop_media.wasm` is committed. Rebuild only if you change `crates/casthop-media` (rustc 1.100+ and `wasm32-unknown-unknown`): `bun run build:wasm`.
 
 Docs site: `cd site && bun install && bun run dev`.
 

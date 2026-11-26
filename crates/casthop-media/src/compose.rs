@@ -37,7 +37,7 @@ impl Compositor {
         let g = ((c >> 16) & 0xff) as u8;
         let b = ((c >> 8) & 0xff) as u8;
         let a = (c & 0xff) as u8;
-        for px in self.pixels.chunks_exact_mut(4) {
+        for px in self.pixels.as_chunks_mut::<4>().0 {
             px[0] = r;
             px[1] = g;
             px[2] = b;

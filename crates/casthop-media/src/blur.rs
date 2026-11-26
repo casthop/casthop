@@ -234,7 +234,7 @@ fn box3_mask(src: &[u8], dst: &mut [u8], w: usize, h: usize) {
                     n += 1;
                 }
             }
-            dst[y * w + x] = if n == 0 { 0 } else { (sum / n) as u8 };
+            dst[y * w + x] = sum.checked_div(n).unwrap_or(0) as u8;
         }
     }
 }
@@ -292,7 +292,7 @@ fn box_blur_h(src: &[u8], dst: &mut [u8], w: usize, h: usize, radius: usize, pre
                 let x1 = (x + radius + 1).min(w);
                 let sum = prefix[x1] - prefix[x0];
                 let n = (x1 - x0) as u32;
-                dst[row + x * 4 + c] = if n == 0 { 0 } else { (sum / n) as u8 };
+                dst[row + x * 4 + c] = sum.checked_div(n).unwrap_or(0) as u8;
             }
         }
         for x in 0..w {
@@ -320,7 +320,7 @@ fn box_blur_v(src: &[u8], dst: &mut [u8], w: usize, h: usize, radius: usize, pre
                 let y1 = (y + radius + 1).min(h);
                 let sum = prefix[y1] - prefix[y0];
                 let n = (y1 - y0) as u32;
-                dst[(y * w + x) * 4 + c] = if n == 0 { 0 } else { (sum / n) as u8 };
+                dst[(y * w + x) * 4 + c] = sum.checked_div(n).unwrap_or(0) as u8;
             }
         }
         for y in 0..h {
@@ -407,7 +407,7 @@ mod tests {
     use super::*;
 
     fn solid(p: &mut Pipeline, r: u8, g: u8, b: u8) {
-        for px in p.frame.chunks_exact_mut(4) {
+        for px in p.frame.as_chunks_mut::<4>().0 {
             px[0] = r;
             px[1] = g;
             px[2] = b;

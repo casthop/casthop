@@ -7,14 +7,14 @@ order: 3
 
 Casthop a deux moitiés qui se parlent via l’API Twirp de LiveKit.
 
-- **Plan média :** LiveKit, Egress, Redis et une bordure RTMP.
+- **Plan média :** LiveKit, Egress, Redis et un relais RTMP.
 - **Plan de contrôle :** un Cloudflare Worker avec Durable Objects et D1.
 
 Le [`docker-compose.yml`](https://github.com/casthop/casthop/blob/main/docker-compose.yml) du dépôt est le plan média pour un usage local. Ses fichiers de config vivent dans [`infra/`](https://github.com/casthop/casthop/tree/main/infra).
 
 ## 1. Plan média
 
-Faites tourner LiveKit, Egress et Redis, plus une bordure RTMP. La bordure peut être MediaMTX (ce que le compose utilise), nginx-rtmp, ou une vraie destination comme YouTube.
+Faites tourner LiveKit, Egress et Redis, plus un relais RTMP. Le relais peut être MediaMTX (ce que le compose utilise), nginx-rtmp, ou une vraie destination comme YouTube.
 
 ## 2. Vraies clés d’API
 
@@ -64,7 +64,7 @@ La connexion est un magic link par e-mail. Par défaut, le lien est écrit dans 
 
 ## 7. Destinations et enregistrements
 
-Pointez les URL de destination vers l’ingest réel YouTube, LinkedIn et X. Voir [Destinations](/docs/destinations). En option, lancez `casthop-post normalize` et copiez les MP4 terminés vers R2 pour le replay. R2 est bound comme jointure pour ça. Pour l’instant, les enregistrements restent sur le volume Egress.
+Pointez les URL de destination vers l’ingest réel YouTube, LinkedIn et X. Voir [Destinations](/docs/destinations). En option, lancez `casthop-post normalize` et copiez les MP4 terminés vers R2 pour le replay. R2 est déjà lié au Worker pour ça. Pour l’instant, les enregistrements restent sur le volume Egress.
 
 ## Ce que cet arbre ne couvre pas
 

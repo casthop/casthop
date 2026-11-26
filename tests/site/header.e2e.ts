@@ -136,6 +136,23 @@ try {
   await page.keyboard.press("Escape");
   assert.equal(await lang.getAttribute("aria-expanded"), "false");
 
+  await open(page, "/pt-BR/docs/getting-started/", 375);
+  const docsMenu = page.locator("header .nav-more-btn");
+  const docsLang = page.locator("header [data-locale-switcher]");
+  await docsMenu.click();
+  assert.equal(await docsMenu.getAttribute("aria-expanded"), "true");
+  await docsLang.click();
+  assert.equal(await docsLang.getAttribute("aria-expanded"), "true");
+  assert.equal(await docsMenu.getAttribute("aria-expanded"), "false", "opening language should close the docs menu");
+  const menuBox = await page.locator("#docs-nav-more").boundingBox();
+  const langBox = await page.locator("#lang-menu").boundingBox();
+  assert.ok(langBox && langBox.height > 0, "language menu should be open");
+  assert.ok(!menuBox || menuBox.height === 0, "docs menu panel should not stay open over the language menu");
+
+  await docsMenu.click();
+  assert.equal(await docsMenu.getAttribute("aria-expanded"), "true");
+  assert.equal(await docsLang.getAttribute("aria-expanded"), "false", "opening the docs menu should close language");
+
   console.log("site header e2e ok");
 } finally {
   await browser.close();

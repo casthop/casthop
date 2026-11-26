@@ -11,7 +11,7 @@ Une destination est une URL RTMP. Casthop envoie le même composite à toutes le
 
 Par défaut, les destinations sont des substituts MediaMTX pour YouTube, LinkedIn et X :
 
-| Destination | Ingest | Visionner |
+| Destination | Ingest | Regarder |
 |---|---|---|
 | Substitut YouTube | `rtmp://127.0.0.1:1935/live/youtube` | `ffprobe rtmp://127.0.0.1:1935/live/youtube` |
 | Substitut LinkedIn | `rtmp://127.0.0.1:1935/live/linkedin` | pareil, `/live/linkedin` |
@@ -32,7 +32,7 @@ Si Egress ou un flux tombe, le studio réessaie avec backoff. Ça s’appuie sur
 | Où | Quoi |
 |---|---|
 | `data/recordings/` | MP4 Egress du composite. |
-| `data/rtmp/` | fMP4 MediaMTX depuis la bordure RTMP locale. |
+| `data/rtmp/` | fMP4 MediaMTX depuis le relais RTMP local. |
 
 Inspectez un enregistrement avec l’outil Rust :
 

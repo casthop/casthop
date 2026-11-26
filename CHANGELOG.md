@@ -23,6 +23,11 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 - Astro marketing site and docs in `site/`.
 - `casthop-post` CLI to inspect / remux recordings.
 
+### Fixed
+
+- Studio tiles attach camera video when the track arrives after the first render.
+- Adding a guest to stage before they connect applies once they join LiveKit. Permission errors show in the studio.
+
 ### Changed
 
 - Host studio UI matches the approved dark booth: Geist, a right icon rail, Go live in the top bar, and destination switches in the Go live dialog.

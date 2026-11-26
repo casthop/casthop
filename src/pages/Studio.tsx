@@ -279,6 +279,11 @@ export function Studio() {
       lk.on(RoomEvent.LocalTrackUnpublished, bump);
       lk.on(RoomEvent.TrackMuted, bump);
       lk.on(RoomEvent.TrackUnmuted, bump);
+      lk.on(RoomEvent.ParticipantPermissionsChanged, () => {
+        if (!lk.localParticipant.permissions?.canPublish) return;
+        if (lk.localParticipant.videoTrackPublications.size > 0) return;
+        void publishLocal(lk);
+      });
       lk.on(RoomEvent.DataReceived, (payload, participant) => {
         try {
           if (!participant?.identity || !isHostIdentity(participant.identity)) return;
@@ -354,9 +359,10 @@ export function Studio() {
   useEffect(() => {
     if (!room || !studio || shot) return;
     const me = studio.participants.find((p) => p.identity === identityRef.current);
-    if (me?.onStage && room.localParticipant.videoTrackPublications.size === 0) {
-      void publishLocal(room);
-    }
+    if (!me?.onStage) return;
+    if (room.localParticipant.videoTrackPublications.size > 0) return;
+    if (room.localParticipant.permissions?.canPublish === false) return;
+    void publishLocal(room);
   }, [studio, room, shot]);
 
   useEffect(() => {
@@ -756,7 +762,10 @@ export function Studio() {
       return;
     }
     try {
-      await setStage(id, identity, on);
+      const next = await setStage(id, identity, on);
+      const { warning, ...state } = next;
+      setStudio((prev) => mergeStudio(prev, state, prev?.viewerRole ?? "guest"));
+      setError(warning ?? "");
       const payload = new TextEncoder().encode(JSON.stringify({ type: "publish", on }));
       await room?.localParticipant.publishData(payload, { destinationIdentities: [identity] });
     } catch (err) {
@@ -1009,7 +1018,11 @@ export function Studio() {
           ))}
           <span className="hint">Guests wait here until you add them.</span>
         </div>
-        {error ? <p className="err">{error}</p> : null}
+        {error ? (
+          <p className="err" role="alert">
+            {error}
+          </p>
+        ) : null}
       </main>
 
       {panel ? (

@@ -16,7 +16,7 @@ describe("guest invite and stage", { session: "host" }, () => {
     await app.open(`/studio/${studio.id}`);
     await expect(screen.getByRole("button", "Settings")).toBeVisible();
 
-    await screen.getByRole("button", "+ Invite guest").click();
+    await screen.getByRole("button", "Invite guest").click();
     await expect(screen.getByRole("heading", "Invite guest")).toBeVisible();
     const joinUrl = await screen.getByDisplayValue(/\/join\//).inputValue();
     await screen.getByRole("button", "Done").click();
@@ -33,12 +33,12 @@ describe("guest invite and stage", { session: "host" }, () => {
     await guest.getByRole("button", { name: "Join backstage" }).click();
     await guest.getByText("Backstage — waiting for the host").waitFor({ timeout: 60_000 });
 
-    await expect(screen.getByRole("button", "Ada")).toBeVisible({ timeout: 30_000 });
-    await expect(screen.getByRole("heading", "Backstage · 1")).toBeVisible();
-    await screen.getByRole("button", "Ada").click();
+    await expect(screen.getByRole("button", "Add Ada to stage")).toBeVisible({ timeout: 30_000 });
+    await expect(screen.getByText("Backstage")).toBeVisible();
+    await screen.getByRole("button", "Add Ada to stage").click();
 
-    await expect(screen.getByRole("button", "Ada · on stage")).toBeVisible({ timeout: 30_000 });
-    await expect(screen.getByRole("heading", "Backstage · 0")).toBeVisible();
+    await expect(screen.getByRole("button", "Add Ada to stage")).not.toBeVisible({ timeout: 30_000 });
+    await expect(screen.getByText("Ada")).toBeVisible();
     await guest.getByText("You are on stage").waitFor({ timeout: 30_000 });
   });
 });

@@ -141,4 +141,4 @@ When reviewing a PR:
 
 ## Design
 
-Modern, minimal, lots of whitespace, few elements per screen. Restrained palette (`src/styles.css`: dark booth `#121316`, accent `#6d64f7`, light guest/home). No AI-looking template copy. Host studio is the dark booth; guest join is light until they enter. Do not restyle the Astro site unless the task is the site.
+Modern, minimal, lots of whitespace, few elements per screen. Host studio is the dark booth (`src/styles.css`: Geist, `#0a0a0a` ground, white Go live, red only for the live dot and mic/cam off). Guest join and home stay light (`#6d64f7` accent, Public Sans). No AI-looking template copy. Do not restyle the Astro site unless the task is the site.

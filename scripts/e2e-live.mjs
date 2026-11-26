@@ -210,11 +210,16 @@ try {
   for (let i = 0; i < 60; i++) {
     const result = await send("Runtime.evaluate", {
       expression: `(() => {
-        const btn = document.querySelector("button.go-live");
+        const confirm = document.querySelector("button.go-live");
+        if (confirm && !confirm.disabled) {
+          confirm.click();
+          return { ok: true };
+        }
+        const open = document.querySelector("button.go-live-open");
         const ready = Boolean(document.querySelector("video"));
-        if (!btn || btn.disabled || !ready) return { ok: false, text: document.body.innerText.slice(0, 400) };
-        btn.click();
-        return { ok: true };
+        if (!open || open.disabled || !ready) return { ok: false, text: document.body.innerText.slice(0, 400) };
+        open.click();
+        return { ok: false, opened: true };
       })()`,
       returnByValue: true,
     });

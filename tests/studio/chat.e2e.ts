@@ -5,7 +5,8 @@ import { test } from "./fixtures.ts";
 describe("studio chat", { session: "host" }, () => {
   test("sends a studio comment and pins it on the preview", async ({ app, screen, studio }) => {
     await app.open(`/studio/${studio.id}`);
-    await expect(screen.getByRole("heading", "Live chat")).toBeVisible();
+    await screen.getByRole("button", "Chat").click();
+    await expect(screen.getByRole("heading", "Chat")).toBeVisible();
 
     await screen.getByLabel("Studio chat").fill("hello booth");
     await screen.getByRole("button", "Send chat").click();

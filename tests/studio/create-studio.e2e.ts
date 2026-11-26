@@ -11,7 +11,7 @@ describe("create studio", { session: "host" }, () => {
     await screen.getByRole("button", "Open studio").click();
 
     await expect(browser).toHaveURL(/\/studio\//);
-    await expect(screen.getByText(`Studio · ${title}`)).toBeVisible();
-    await expect(screen.getByRole("button", "Go Live")).toBeVisible();
+    await expect(screen.getByText(title)).toBeVisible();
+    await expect(screen.getByRole("button", "Go live")).toBeVisible();
   });
 });

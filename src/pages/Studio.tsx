@@ -9,8 +9,7 @@ import {
   Track,
   VideoPresets,
 } from "livekit-client";
-import { Aperture, AudioLines, Mic, MicOff, MonitorUp, UserPlus, Video, VideoOff } from "lucide-react";
-import { Logo } from "../components/Logo";
+import { Link, Mic, MicOff, MonitorUp, Video, VideoOff, X } from "lucide-react";
 import { VideoTile } from "../components/VideoTile";
 import {
   getConfig,
@@ -34,12 +33,14 @@ import { startCameraBlur, type CameraBlurHandle } from "../lib/camera-blur";
 import { loadDenoisePref, saveDenoisePrefPair } from "../lib/denoise-prefs";
 import { processWithPipeline, type PipelineHandle } from "../lib/effects";
 import { fxBackendForDenoise } from "../lib/fx";
-import { hueFor, openUserMedia } from "../lib/media";
-import { backstageCount } from "../lib/participants";
+import { openUserMedia } from "../lib/media";
 import { loadSession, saveSession } from "../lib/session";
 import { canConnectToStudio } from "../lib/studio-entry";
+import { SHOT_LIVE_MS, shotFromUrl, shotStudio } from "../lib/studio-shot";
 import { isHostIdentity } from "../../worker/security";
 import type { LayoutId, ParticipantInfo, PublicDestination } from "../../worker/types";
+
+type PanelId = "chat" | "destinations" | "lower-third" | "settings";
 
 function destStatusLabel(status: PublicStudio["destinations"][number]["status"] | undefined, error: string | null | undefined): string {
   if (status === "connecting") return " · Starting…";
@@ -61,33 +62,66 @@ function formatLive(ms: number): string {
 function LayoutIcon({ id }: { id: LayoutId }) {
   if (id === "solo") {
     return (
-      <svg width="28" height="16" viewBox="0 0 28 16">
-        <rect x="4" y="2" width="20" height="12" rx="2" fill="currentColor" />
+      <svg viewBox="0 0 28 16" aria-hidden="true">
+        <rect x="5" y="1.5" width="18" height="13" rx="2" fill="currentColor" />
       </svg>
     );
   }
   if (id === "screen") {
     return (
-      <svg width="28" height="16" viewBox="0 0 28 16">
-        <rect x="2" y="2" width="16" height="12" rx="2" fill="currentColor" />
-        <rect x="20" y="2" width="6" height="5" rx="1" fill="currentColor" />
-        <rect x="20" y="9" width="6" height="5" rx="1" fill="currentColor" />
+      <svg viewBox="0 0 28 16" aria-hidden="true">
+        <rect x="2" y="1.5" width="16" height="13" rx="2" fill="currentColor" />
+        <rect x="20" y="1.5" width="6" height="6" rx="1" fill="currentColor" />
+        <rect x="20" y="8.5" width="6" height="6" rx="1" fill="currentColor" />
       </svg>
     );
   }
   return (
-    <svg width="28" height="16" viewBox="0 0 28 16">
-      <rect x="2" y="2" width="11" height="12" rx="2" fill="currentColor" />
-      <rect x="15" y="2" width="11" height="12" rx="2" fill="currentColor" />
+    <svg viewBox="0 0 28 16" aria-hidden="true">
+      <rect x="2" y="1.5" width="11" height="13" rx="2" fill="currentColor" />
+      <rect x="15" y="1.5" width="11" height="13" rx="2" fill="currentColor" />
     </svg>
   );
 }
 
-function DestBadge({ kind }: { kind: string }) {
-  if (kind === "youtube") return <span className="badge yt">YT</span>;
-  if (kind === "linkedin") return <span className="badge in">in</span>;
-  if (kind === "x") return <span className="badge x">X</span>;
-  return <span className="badge rtmp">RTMP</span>;
+function destGlyph(kind: string): string {
+  if (kind === "youtube") return "YT";
+  if (kind === "linkedin") return "in";
+  if (kind === "x") return "X";
+  return "RTMP";
+}
+
+function pinWho(pin: { name: string; source: string }): string {
+  if (pin.source === "youtube") return `${pin.name} · YouTube`;
+  if (pin.source === "linkedin") return `${pin.name} · LinkedIn`;
+  if (pin.source === "x") return `${pin.name} · X`;
+  return pin.name;
+}
+
+function tileTone(index: number): "cam1" | "cam2" | "cam3" {
+  if (index % 3 === 1) return "cam2";
+  if (index % 3 === 2) return "cam3";
+  return "cam1";
+}
+
+function emptyCustom(destinations: PublicDestination[]): PublicDestination | undefined {
+  return destinations.find((d) => d.kind === "custom" && !d.url);
+}
+
+function newCustomDest(url: string, existing: PublicDestination[]): PublicDestination {
+  const n = existing.filter((d) => d.kind === "custom").length + 1;
+  return {
+    id: `custom-${n}`,
+    kind: "custom",
+    label: n > 1 ? `RTMP ${n}` : "Custom RTMP",
+    detail: "Custom",
+    enabled: true,
+    hasKey: Boolean(url),
+    urlMasked: "",
+    url,
+    status: "idle",
+    error: null,
+  };
 }
 
 export function Studio() {
@@ -95,14 +129,15 @@ export function Studio() {
   const navigate = useNavigate();
   const publishingRef = useRef(false);
   const studioLiveRef = useRef(true);
+  const shot = useMemo(() => shotFromUrl(), []);
 
-  const [studio, setStudio] = useState<StudioView | null>(null);
+  const [studio, setStudio] = useState<StudioView | null>(() => (shot ? shotStudio(shot) : null));
   const isHost = studio?.viewerRole === "owner" || studio?.viewerRole === "cohost";
-  const [entry, setEntry] = useState<"pending" | "ok" | "gate">("pending");
+  const [entry, setEntry] = useState<"pending" | "ok" | "gate">(shot ? "ok" : "pending");
   const [entryId, setEntryId] = useState(id);
   if (entryId !== id) {
     setEntryId(id);
-    setEntry("pending");
+    setEntry(shot ? "ok" : "pending");
   }
   const [room, setRoom] = useState<Room | null>(null);
   const [peers, setPeers] = useState<(RemoteParticipant | LocalParticipant)[]>([]);
@@ -118,13 +153,17 @@ export function Studio() {
   const blurHandleRef = useRef<CameraBlurHandle | null>(null);
   const [error, setError] = useState("");
   const [chatDraft, setChatDraft] = useState("");
-  const [youtubeChat, setYoutubeChat] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [youtubeChat, setYoutubeChat] = useState(Boolean(shot));
+  const [panel, setPanel] = useState<PanelId | null>(shot === "chat" ? "chat" : null);
+  const [goLiveOpen, setGoLiveOpen] = useState(shot === "golive");
+  const [addRtmp, setAddRtmp] = useState(false);
+  const [rtmpDraft, setRtmpDraft] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [now, setNow] = useState(Date.now());
-  const identityRef = useRef<string>("");
-  const nameRef = useRef<string>("Guest");
-  const isHostRef = useRef(false);
+  const identityRef = useRef<string>(shot ? "host" : "");
+  const nameRef = useRef<string>(shot ? "Ana Souza" : "Guest");
+  const isHostRef = useRef(Boolean(shot));
+  const dlgRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 1000);
@@ -132,18 +171,21 @@ export function Studio() {
   }, []);
 
   useEffect(() => {
+    if (shot) return;
     const saved = loadSession(id);
     setBlurOn(loadBlurPref(saved?.cameraId ?? ""));
     setDenoiseOn(loadDenoisePref(saved?.micId ?? ""));
-  }, [id]);
+  }, [id, shot]);
 
   useEffect(() => {
+    if (shot) return;
     void getConfig()
       .then((cfg) => setYoutubeChat(cfg.destinationChat.youtube))
       .catch(() => setYoutubeChat(false));
-  }, []);
+  }, [shot]);
 
   useEffect(() => {
+    if (shot) return;
     let closed = false;
     let ws: WebSocket | null = null;
     let timer = 0;
@@ -182,10 +224,10 @@ export function Studio() {
       window.clearTimeout(timer);
       ws?.close();
     };
-  }, [id]);
+  }, [id, shot]);
 
   useEffect(() => {
-    if (entry !== "ok") return;
+    if (entry !== "ok" || shot) return;
     studioLiveRef.current = true;
     let cancelled = false;
     let current: Room | null = null;
@@ -307,15 +349,38 @@ export function Studio() {
       window.clearTimeout(refreshTimer);
       current?.disconnect();
     };
-  }, [id, entry]);
+  }, [id, entry, shot]);
 
   useEffect(() => {
-    if (!room || !studio) return;
+    if (!room || !studio || shot) return;
     const me = studio.participants.find((p) => p.identity === identityRef.current);
     if (me?.onStage && room.localParticipant.videoTrackPublications.size === 0) {
       void publishLocal(room);
     }
-  }, [studio, room]);
+  }, [studio, room, shot]);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      if (goLiveOpen) {
+        setGoLiveOpen(false);
+        setAddRtmp(false);
+        return;
+      }
+      if (inviteOpen) {
+        setInviteOpen(false);
+        return;
+      }
+      if (panel) setPanel(null);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [goLiveOpen, inviteOpen, panel]);
+
+  useEffect(() => {
+    if (!goLiveOpen) return;
+    dlgRef.current?.focus();
+  }, [goLiveOpen]);
 
   const stagePeople = useMemo(() => {
     const listed = studio?.participants.filter((p) => p.onStage) ?? [];
@@ -330,8 +395,7 @@ export function Studio() {
     }));
   }, [studio, peers]);
 
-  const backstage = studio?.participants ?? [];
-  const waiting = backstageCount(backstage);
+  const waiting = (studio?.participants ?? []).filter((p) => !p.onStage);
 
   function studioOpen(lk: Room): boolean {
     return studioLiveRef.current && lk.state !== ConnectionState.Disconnected;
@@ -510,10 +574,51 @@ export function Studio() {
 
   async function onLayout(layout: LayoutId) {
     if (!isHost) return;
+    if (shot) {
+      setStudio((prev) => (prev ? { ...prev, layout } : prev));
+      return;
+    }
     try {
       await setLayout(id, layout);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Layout failed");
+    }
+  }
+
+  async function persistDestinations(next: PublicDestination[]) {
+    if (!studio) return;
+    if (shot) {
+      setStudio((prev) => (prev ? { ...prev, destinations: next } : prev));
+      return;
+    }
+    const saved = await setDestinations(id, next);
+    setStudio((prev) => mergeStudio(prev, saved, prev?.viewerRole ?? "guest"));
+  }
+
+  async function onToggleDest(destId: string) {
+    if (!isHost || !studio) return;
+    const next = studio.destinations.map((x) => (x.id === destId ? { ...x, enabled: !x.enabled } : x));
+    try {
+      await persistDestinations(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update destinations");
+    }
+  }
+
+  async function onAddRtmp(url: string) {
+    if (!isHost || !studio) return;
+    const trimmed = url.trim();
+    if (!trimmed) return;
+    const vacant = emptyCustom(studio.destinations);
+    const next = vacant
+      ? studio.destinations.map((d) => (d.id === vacant.id ? { ...d, url: trimmed, enabled: true, hasKey: true } : d))
+      : [...studio.destinations, newCustomDest(trimmed, studio.destinations)];
+    try {
+      await persistDestinations(next);
+      setRtmpDraft("");
+      setAddRtmp(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not add destination");
     }
   }
 
@@ -523,8 +628,32 @@ export function Studio() {
     const phaseNow = studio.livePhase ?? (studio.live ? "live" : "idle");
     if (phaseNow === "failed") return;
     const busy = phaseNow === "live" || phaseNow === "starting" || phaseNow === "retrying" || phaseNow === "stopping";
+    if (busy) {
+      await onEndLive();
+      return;
+    }
+    setGoLiveOpen(true);
+  }
+
+  async function onConfirmGoLive() {
+    if (!isHost || !studio) return;
+    setError("");
+    setGoLiveOpen(false);
+    if (shot) {
+      setStudio((prev) =>
+        prev
+          ? {
+              ...prev,
+              live: true,
+              livePhase: "live",
+              liveStartedAt: Date.now() - SHOT_LIVE_MS,
+            }
+          : prev,
+      );
+      return;
+    }
     try {
-      await setLive(id, !busy);
+      await setLive(id, true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Live failed");
     }
@@ -543,6 +672,10 @@ export function Studio() {
   async function onEndLive() {
     if (!isHost || !studio) return;
     setError("");
+    if (shot) {
+      setStudio((prev) => (prev ? { ...prev, live: false, livePhase: "idle", liveStartedAt: null } : prev));
+      return;
+    }
     try {
       await setLive(id, false);
     } catch (err) {
@@ -555,6 +688,21 @@ export function Studio() {
     const text = chatDraft.trim();
     if (!text) return;
     setChatDraft("");
+    if (shot) {
+      setStudio((prev) => {
+        if (!prev) return prev;
+        const msg = {
+          id: `c-${prev.chat.length + 1}`,
+          from: identityRef.current,
+          name: nameRef.current,
+          text,
+          at: Date.now(),
+          source: "studio" as const,
+        };
+        return { ...prev, chat: [...prev.chat, msg] };
+      });
+      return;
+    }
     try {
       const saved = loadSession(id);
       await sendChat(id, {
@@ -569,6 +717,15 @@ export function Studio() {
 
   async function onPin(chatId: string | null) {
     if (!isHost) return;
+    if (shot) {
+      setStudio((prev) => {
+        if (!prev) return prev;
+        if (!chatId) return { ...prev, pinnedChat: null };
+        const m = prev.chat.find((c) => c.id === chatId);
+        return { ...prev, pinnedChat: m ? { id: m.id, name: m.name, text: m.text, source: m.source } : null };
+      });
+      return;
+    }
     try {
       const saved = await pinChat(id, chatId);
       setStudio((prev) => mergeStudio(prev, saved, prev?.viewerRole ?? "guest"));
@@ -585,6 +742,17 @@ export function Studio() {
 
   async function promote(identity: string, on: boolean) {
     if (!isHost) return;
+    if (shot) {
+      setStudio((prev) =>
+        prev
+          ? {
+              ...prev,
+              participants: prev.participants.map((p) => (p.identity === identity ? { ...p, onStage: on } : p)),
+            }
+          : prev,
+      );
+      return;
+    }
     try {
       await setStage(id, identity, on);
       const payload = new TextEncoder().encode(JSON.stringify({ type: "publish", on }));
@@ -594,23 +762,28 @@ export function Studio() {
     }
   }
 
+  function togglePanel(next: PanelId) {
+    setPanel((cur) => (cur === next ? null : next));
+  }
+
   if (entry === "gate") {
     return (
       <div className="studio">
-        <header className="topbar">
-          <Logo />
-          <div className="center">Studio{studio ? ` · ${studio.title}` : ""}</div>
-        </header>
-        <div className="panel">
-          <div className="sheet">
-            <h2>Join as a guest</h2>
-            <p>Guests pick a name and check camera and mic before going backstage. Sign in if you host this studio.</p>
-            <button className="btn primary" type="button" onClick={() => navigate(`/join/${id}`)}>
-              Join as guest
-            </button>
-            <button className="btn ghost" type="button" onClick={() => navigate("/")}>
-              Sign in
-            </button>
+        <StudioTop title={studio?.title ?? "Studio"} live={false} timer="" />
+        <div className="scrim">
+          <div className="dlg gate-dlg">
+            <header>
+              <h2>Join as a guest</h2>
+            </header>
+            <p className="lead">Guests pick a name and check camera and mic before going backstage. Sign in if you host this studio.</p>
+            <footer>
+              <button className="btn ghost" type="button" onClick={() => navigate("/")}>
+                Sign in
+              </button>
+              <button className="btn primary" type="button" onClick={() => navigate(`/join/${id}`)}>
+                Join as guest
+              </button>
+            </footer>
           </div>
         </div>
       </div>
@@ -620,10 +793,7 @@ export function Studio() {
   if (!studio || entry !== "ok") {
     return (
       <div className="studio">
-        <header className="topbar">
-          <Logo />
-          <div className="center">{error || "Opening studio…"}</div>
-        </header>
+        <StudioTop title={error || "Opening studio…"} live={false} timer="" />
       </div>
     );
   }
@@ -633,299 +803,444 @@ export function Studio() {
   const liveOn = phase === "live";
   const liveBusy = phase === "live" || phase === "starting" || phase === "retrying" || phase === "stopping";
   const liveError = studio.liveError;
+  const enabledCount = studio.destinations.filter((d) => d.enabled).length;
+  const meOnStage = studio.participants.find((p) => p.identity === identityRef.current)?.onStage;
+  const timerText = shot === "chat" ? formatLive(SHOT_LIVE_MS) : liveOn ? formatLive(liveMs) : "";
 
-  function livePillText(): string {
+  function statusText(): string {
     if (phase === "starting") return "Starting…";
     if (phase === "retrying") return liveError ? `Reconnecting · ${liveError}` : "Reconnecting…";
     if (phase === "stopping") return "Stopping…";
     if (phase === "failed") return liveError ? `Live failed · ${liveError}` : "Live failed";
-    if (liveOn) return `Live · ${formatLive(liveMs)}`;
-    return "Ready · not live";
+    if (liveOn) return "Live";
+    return "Not live";
   }
 
   return (
-    <div className="studio">
-      <header className="topbar">
-        <Logo />
-        <div className="center">
-          Studio · {studio.title}
-        </div>
-        <div className="right">
-          <span className={`live-pill ${liveOn ? "on" : ""} ${phase === "retrying" ? "retry" : ""} ${phase === "starting" ? "wait" : ""} ${phase === "failed" ? "fail" : ""}`}>
-            <span className="dot" />
-            {livePillText()}
+    <div className={`studio${panel ? " open" : ""}`}>
+      <header className="top">
+        <a className="brand" href="/" aria-label="Casthop home">
+          <span className="mark" aria-hidden="true" />
+          <span className="slash">/</span>
+          <span className="title">{studio.title}</span>
+        </a>
+        <div className="spacer" />
+        <div
+          className={`status${liveOn ? " on" : ""}${phase === "retrying" ? " retry" : ""}${phase === "failed" ? " fail" : ""}`}
+        >
+          <span className="dot" />
+          <span className="live-pill">
+            {statusText()}
+            {liveOn && timerText ? (
+              <>
+                {" "}
+                <span className="mono">{timerText}</span>
+              </>
+            ) : null}
           </span>
-          {isHost ? (
-            <button className="settings" type="button" onClick={() => setSettingsOpen(true)}>
-              Settings
-            </button>
-          ) : null}
         </div>
+        {isHost && phase === "failed" ? (
+          <>
+            <button className="btn ghost" type="button" onClick={() => void onRetryLive()} disabled={!room && !shot}>
+              Retry
+            </button>
+            <button className="btn end" type="button" onClick={() => void onEndLive()}>
+              End live
+            </button>
+          </>
+        ) : isHost ? (
+          <span>
+            <button
+              className={liveBusy ? "btn end" : "btn primary go-live-open"}
+              type="button"
+              onClick={() => void onGoLive()}
+              disabled={phase === "starting" || phase === "stopping" || (!liveBusy && !room && !shot)}
+            >
+              {liveBusy ? "End live" : "Go live"}
+            </button>
+          </span>
+        ) : null}
       </header>
-      <div className="body">
-        <div className="stage-col">
-          <section className="preview" aria-label="Program preview">
-            <div className="preview-label">PREVIEW</div>
-            <div className={`program ${programClass(studio.layout, stagePeople.length)}`}>
-              {studio.layout === "screen" ? (
-                <>
-                  <VideoTile
-                    participant={stagePeople.find((p) => p.participant?.getTrackPublication(Track.Source.ScreenShare))?.participant}
-                    label="Screen"
-                  />
-                  <div className="cams">
-                    {stagePeople.slice(0, 3).map((p) => (
-                      <VideoTile key={p.info.identity} participant={p.participant} label={p.info.name} local={p.participant instanceof LocalParticipant} />
-                    ))}
-                  </div>
-                </>
-              ) : (
-                visibleStage(studio.layout, stagePeople).map((p) => (
-                  <VideoTile
-                    key={p.info.identity}
-                    participant={p.participant}
-                    label={p.info.name}
-                    local={p.participant instanceof LocalParticipant}
-                  />
-                ))
-              )}
-              {stagePeople.length === 0 ? <VideoTile label="Empty stage" /> : null}
+
+      <main className="main">
+        <div className="stagewrap">
+          <section className={`program ${programClass(studio.layout, stagePeople.length)}`} aria-label="Program preview">
+            {studio.layout === "screen" ? (
+              <>
+                <VideoTile
+                  booth
+                  tone="cam1"
+                  participant={stagePeople.find((p) => p.participant?.getTrackPublication(Track.Source.ScreenShare))?.participant}
+                  label="Screen"
+                />
+                <div className="cams">
+                  {stagePeople.slice(0, 3).map((p, i) => (
+                    <VideoTile
+                      key={p.info.identity}
+                      booth
+                      tone={tileTone(i)}
+                      participant={p.participant}
+                      label={p.info.name}
+                      local={p.participant instanceof LocalParticipant}
+                    />
+                  ))}
+                </div>
+              </>
+            ) : (
+              visibleStage(studio.layout, stagePeople).map((p, i) => (
+                <VideoTile
+                  key={p.info.identity}
+                  booth
+                  tone={tileTone(i)}
+                  participant={p.participant}
+                  label={p.info.name}
+                  local={p.participant instanceof LocalParticipant}
+                />
+              ))
+            )}
+            {stagePeople.length === 0 ? <VideoTile booth tone="cam1" label="Empty stage" /> : null}
+            <div className="l3">
+              <b>{studio.bannerTitle}</b>
+              <span>{studio.bannerSubtitle}</span>
             </div>
             {studio.pinnedChat ? (
-              <div className="pinned-comment" role="status" aria-label={`Pinned comment from ${studio.pinnedChat.name}`}>
-                <span className="who">{studio.pinnedChat.name}</span>
+              <div className="pinov" role="status" aria-label={`Pinned comment from ${studio.pinnedChat.name}`}>
+                <span className="who">{pinWho(studio.pinnedChat)}</span>
                 {studio.pinnedChat.text}
               </div>
             ) : null}
-            <div className="lower-third">
-              {studio.bannerTitle}
-              <span>· {studio.bannerSubtitle}</span>
-            </div>
           </section>
+        </div>
 
-          {isHost ? (
-            <div className="layouts">
-              <span>Layout</span>
-              {(
-                [
-                  ["solo", "Solo"],
-                  ["side", "Side by side"],
-                  ["screen", "Screen + cams"],
-                ] as const
-              ).map(([key, label]) => (
-                <div className="layout-wrap" key={key}>
+        <div className="row">
+          <div>
+            {isHost ? (
+              <div className="seg" role="group" aria-label="Layout">
+                {(
+                  [
+                    ["solo", "Solo"],
+                    ["side", "Side by side"],
+                    ["screen", "Screen + cams"],
+                  ] as const
+                ).map(([key, label]) => (
                   <button
+                    key={key}
                     type="button"
-                    className={`layout-btn ${studio.layout === key ? "active" : ""}`}
-                    onClick={() => onLayout(key)}
+                    className={studio.layout === key ? "on" : undefined}
+                    onClick={() => void onLayout(key)}
                     aria-label={label}
                     aria-pressed={studio.layout === key}
+                    title={label}
                   >
                     <LayoutIcon id={key} />
                   </button>
-                  <span>{label}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="layouts">{studio.participants.find((p) => p.identity === identityRef.current)?.onStage ? "You are on stage" : "Backstage — waiting for the host"}</p>
-          )}
-
-          <section className="backstage">
-            <h3>Backstage · {waiting}</h3>
-            <div className="back-row">
-              {backstage.map((p) => (
-                <button
-                  key={p.identity}
-                  type="button"
-                  className={`mini ${p.onStage ? "on" : ""}`}
-                  style={{ background: `linear-gradient(160deg, hsl(${hueFor(p.identity)} 18% 38%), hsl(${hueFor(p.identity) + 40} 20% 20%))` }}
-                  onClick={() => isHost && promote(p.identity, !p.onStage)}
-                >
-                  <span className="tag">
-                    {p.name}
-                    {p.onStage ? " · on stage" : ""}
-                  </span>
-                </button>
-              ))}
-              {isHost ? (
-                <button type="button" className="invite-slot" onClick={copyInvite}>
-                  + Invite guest
-                </button>
-              ) : null}
-            </div>
-          </section>
-
-          <div className="controls">
-            <button className={`ctrl ${micOn ? "" : "off"}`} type="button" onClick={toggleMic}>
-              {micOn ? <Mic size={16} /> : <MicOff size={16} />} Mic
+                ))}
+              </div>
+            ) : (
+              <p className="guest-note">{meOnStage ? "You are on stage" : "Backstage — waiting for the host"}</p>
+            )}
+          </div>
+          <div className="dock">
+            <button className={`ctl icon${micOn ? "" : " off"}`} type="button" onClick={() => void toggleMic()} title="Mic" aria-label="Mic" aria-pressed={micOn}>
+              {micOn ? <Mic className="i" size={16} strokeWidth={1.6} /> : <MicOff className="i" size={16} strokeWidth={1.6} />}
             </button>
+            <button className={`ctl icon${camOn ? "" : " off"}`} type="button" onClick={() => void toggleCam()} title="Camera" aria-label="Camera" aria-pressed={camOn}>
+              {camOn ? <Video className="i" size={16} strokeWidth={1.6} /> : <VideoOff className="i" size={16} strokeWidth={1.6} />}
+            </button>
+            <button className="ctl" type="button" onClick={() => void shareScreen()} title="Share screen" aria-label="Share">
+              <MonitorUp className="i" size={16} strokeWidth={1.6} />
+              <span>Share</span>
+            </button>
+            <span className="sep" />
             <button
-              className={`ctrl ${denoiseOn ? "" : "off"}`}
+              className={`ctl${denoiseOn ? "" : " dim"}`}
               type="button"
               onClick={() => void toggleDenoise()}
+              title="Noise suppression"
+              aria-label="Noise"
               aria-pressed={denoiseOn}
               disabled={denoiseBusy}
             >
-              <AudioLines size={16} /> Noise
-            </button>
-            <button className={`ctrl ${camOn ? "" : "off"}`} type="button" onClick={toggleCam}>
-              {camOn ? <Video size={16} /> : <VideoOff size={16} />} Camera
+              <span className="chk" />
+              <small>Noise</small>
             </button>
             <button
-              className={`ctrl ${blurOn ? "" : "off"}`}
+              className={`ctl${blurOn ? "" : " dim"}`}
               type="button"
               onClick={() => void toggleBlur()}
+              title="Background blur"
+              aria-label="Blur"
               aria-pressed={blurOn}
               disabled={blurBusy}
             >
-              <Aperture size={16} /> Blur
+              <span className="chk" />
+              <small>Blur</small>
             </button>
-            <button className="ctrl" type="button" onClick={shareScreen}>
-              <MonitorUp size={16} /> Share screen
-            </button>
+          </div>
+          <div className="right">
             {isHost ? (
-              <button className="ctrl" type="button" onClick={copyInvite}>
-                <UserPlus size={16} /> Invite guest
-              </button>
-            ) : null}
-            {isHost && phase === "failed" ? (
-              <>
-                <button className="go-live" type="button" onClick={() => void onRetryLive()} disabled={!room}>
-                  <span className="orb" />
-                  Retry
-                </button>
-                <button className="go-live end" type="button" onClick={() => void onEndLive()}>
-                  End live
-                </button>
-              </>
-            ) : isHost ? (
-              <button
-                className={`go-live ${liveBusy ? "end" : ""}`}
-                type="button"
-                onClick={onGoLive}
-                disabled={phase === "starting" || phase === "stopping" || (!liveBusy && !room)}
-              >
-                <span className="orb" />
-                {liveBusy ? "End live" : "Go Live"}
+              <button className="btn ghost" type="button" onClick={() => void copyInvite()}>
+                <Link className="i" size={16} strokeWidth={1.6} />
+                Invite guest
               </button>
             ) : null}
           </div>
-          {error ? <p className="err">{error}</p> : null}
         </div>
 
-        <aside className="side">
-          <div className="side-head">
-            <h3>Destinations</h3>
-            {isHost ? (
-              <button className="add" type="button" onClick={() => setSettingsOpen(true)}>
-                + Add
-              </button>
-            ) : null}
+        <div className="back">
+          <span className="lbl">Backstage</span>
+          {waiting.map((p) => (
+            <div className="gchip" key={p.identity}>
+              <div className={`thumb ${tileTone(2)}`}>
+                <div className="person">
+                  <div className="head" />
+                  <div className="body" />
+                </div>
+              </div>
+              <span className="n">{p.name}</span>
+              {isHost ? (
+                <button className="act" type="button" aria-label={`Add ${p.name} to stage`} onClick={() => void promote(p.identity, true)}>
+                  Add to stage
+                </button>
+              ) : null}
+            </div>
+          ))}
+          <span className="hint">Guests wait here until you add them.</span>
+        </div>
+        {error ? <p className="err">{error}</p> : null}
+      </main>
+
+      {panel ? (
+        <aside className="sidepanel" aria-label={panelLabel(panel)}>
+          <div className="ph">
+            <h3>
+              {panelTitle(panel)}
+              {panel === "chat" && (isHost && youtubeChat) ? <span className="sub">Studio + YouTube</span> : null}
+            </h3>
+            <button className="btn quiet" type="button" aria-label="Close panel" onClick={() => setPanel(null)}>
+              <X className="i" size={16} strokeWidth={1.6} />
+            </button>
           </div>
-          <div>
+          {panel === "chat" ? (
+            <ChatPanel
+              studio={studio}
+              isHost={isHost}
+              chatDraft={chatDraft}
+              onDraft={setChatDraft}
+              onChat={onChat}
+              onPin={onPin}
+            />
+          ) : null}
+          {panel === "destinations" ? (
+            <DestinationsPanel
+              studio={studio}
+              isHost={isHost}
+              addRtmp={addRtmp}
+              rtmpDraft={rtmpDraft}
+              onDraft={setRtmpDraft}
+              onToggleAdd={() => setAddRtmp((v) => !v)}
+              onAdd={() => void onAddRtmp(rtmpDraft)}
+              onToggle={onToggleDest}
+              onSaveUrls={async (next) => {
+                try {
+                  await persistDestinations(next);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "Save failed");
+                }
+              }}
+            />
+          ) : null}
+          {panel === "lower-third" && isHost ? (
+            <LowerThirdPanel
+              studio={studio}
+              onSave={async (bannerTitle, bannerSubtitle) => {
+                try {
+                  if (shot) {
+                    setStudio((prev) => (prev ? { ...prev, bannerTitle, bannerSubtitle } : prev));
+                    return;
+                  }
+                  await setBanner(id, { bannerTitle, bannerSubtitle });
+                  setStudio((prev) => (prev ? { ...prev, bannerTitle, bannerSubtitle } : prev));
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "Save failed");
+                }
+              }}
+            />
+          ) : null}
+          {panel === "settings" && isHost ? (
+            <SettingsPanel
+              studioId={shot ? studio.id : id}
+              studio={studio}
+              canInvite={studio.viewerRole === "owner" && !shot}
+              onTitle={async (title) => {
+                try {
+                  if (shot) {
+                    setStudio((prev) => (prev ? { ...prev, title } : prev));
+                    return;
+                  }
+                  await setBanner(id, { title });
+                  setStudio((prev) => (prev ? { ...prev, title } : prev));
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "Save failed");
+                }
+              }}
+            />
+          ) : null}
+        </aside>
+      ) : null}
+
+      <nav className="rail" aria-label="Studio panels">
+        <button
+          type="button"
+          className={panel === "chat" ? "on" : undefined}
+          title="Chat"
+          aria-label="Chat"
+          aria-pressed={panel === "chat"}
+          onClick={() => togglePanel("chat")}
+        >
+          <ChatIcon />
+          {studio.chat.length > 0 && panel !== "chat" ? <span className="badge" /> : null}
+        </button>
+        <button
+          type="button"
+          className={panel === "destinations" ? "on" : undefined}
+          title="Destinations"
+          aria-label="Destinations"
+          aria-pressed={panel === "destinations"}
+          onClick={() => togglePanel("destinations")}
+        >
+          <RadioIcon />
+        </button>
+        {isHost ? (
+          <button
+            type="button"
+            className={panel === "lower-third" ? "on" : undefined}
+            title="Lower third"
+            aria-label="Lower third"
+            aria-pressed={panel === "lower-third"}
+            onClick={() => togglePanel("lower-third")}
+          >
+            <TypeIcon />
+          </button>
+        ) : null}
+        <span className="grow" />
+        {isHost ? (
+          <button
+            type="button"
+            className={panel === "settings" ? "on" : undefined}
+            title="Settings"
+            aria-label="Settings"
+            aria-pressed={panel === "settings"}
+            onClick={() => togglePanel("settings")}
+          >
+            <SettingsIcon />
+          </button>
+        ) : null}
+      </nav>
+
+      {goLiveOpen && isHost ? (
+        <div
+          className="scrim"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setGoLiveOpen(false);
+              setAddRtmp(false);
+            }
+          }}
+        >
+          <div className="dlg" role="dialog" aria-modal="true" aria-labelledby="golive-title" ref={dlgRef} tabIndex={-1}>
+            <header>
+              <h2 id="golive-title">Go live</h2>
+              <button
+                className="btn quiet"
+                type="button"
+                aria-label="Close"
+                onClick={() => {
+                  setGoLiveOpen(false);
+                  setAddRtmp(false);
+                }}
+              >
+                <X className="i" size={16} strokeWidth={1.6} />
+              </button>
+            </header>
+            <p className="lead">Stream the stage to these destinations.</p>
             {studio.destinations.map((d) => (
               <div className="dest" key={d.id}>
-                <DestBadge kind={d.kind} />
-                <div className="meta">
+                <span className="k">{destGlyph(d.kind)}</span>
+                <div className="t">
                   <b>{d.label}</b>
                   <small>
                     {d.detail}
-                    <span className={`dest-status ${d.status ?? "idle"}`}>
-                      {destStatusLabel(d.status, d.error)}
-                    </span>
+                    <span className={`dest-status ${d.status ?? "idle"}`}>{destStatusLabel(d.status, d.error)}</span>
                   </small>
                 </div>
                 <button
                   type="button"
-                  className={`toggle ${d.enabled ? "on" : ""}`}
-                  disabled={!isHost}
+                  className={`sw${d.enabled ? " on" : ""}`}
                   aria-pressed={d.enabled}
                   aria-label={`${d.enabled ? "Disable" : "Enable"} ${d.label}`}
-                  onClick={() => {
-                    if (!isHost) return;
-                    const next = studio.destinations.map((x) => (x.id === d.id ? { ...x, enabled: !x.enabled } : x));
-                    void setDestinations(id, next)
-                      .then((s) => setStudio((prev) => mergeStudio(prev, s, prev?.viewerRole ?? "guest")))
-                      .catch((err) => setError(err.message));
-                  }}
-                >
-                  <i />
-                </button>
+                  onClick={() => void onToggleDest(d.id)}
+                />
               </div>
             ))}
+            {addRtmp ? (
+              <form
+                className="dest add-row"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void onAddRtmp(rtmpDraft);
+                }}
+              >
+                <label className="t">
+                  RTMP URL
+                  <input
+                    value={rtmpDraft}
+                    onChange={(e) => setRtmpDraft(e.target.value)}
+                    placeholder="rtmp://…"
+                    autoFocus
+                  />
+                </label>
+                <button className="btn ghost" type="submit">
+                  Add
+                </button>
+              </form>
+            ) : null}
+            <footer>
+              <button className="add" type="button" onClick={() => setAddRtmp(true)}>
+                + Add RTMP destination
+              </button>
+              <button
+                className="btn primary go-live"
+                type="button"
+                onClick={() => void onConfirmGoLive()}
+                disabled={!shot && !room}
+              >
+                {enabledCount ? `Go live on ${enabledCount}` : "Go live"}
+              </button>
+            </footer>
           </div>
-          <div className="chat">
-            <div className="side-head">
-              <h3>Live chat</h3>
-              {isHost && youtubeChat ? <small>Studio + YouTube</small> : null}
-            </div>
-            {studio.chat.length === 0 ? <p>No comments yet.</p> : null}
-            {studio.chat.map((m) => (
-              <p key={m.id} className={studio.pinnedChat?.id === m.id ? "pinned" : undefined}>
-                <span className="src">{chatSourceLabel(m.source)}</span>
-                <span className="who">{m.name}</span>
-                <span className="chat-text">{m.text}</span>
-                {isHost ? (
-                  <button
-                    type="button"
-                    className="chat-pin"
-                    aria-label={studio.pinnedChat?.id === m.id ? "Unpin comment" : "Pin this comment"}
-                    onClick={() => void onPin(studio.pinnedChat?.id === m.id ? null : m.id)}
-                  >
-                    {studio.pinnedChat?.id === m.id ? "Unpin" : "Pin"}
-                  </button>
-                ) : null}
-              </p>
-            ))}
-          </div>
-          <form className="chat-form" onSubmit={onChat}>
-            <input
-              className="reply"
-              aria-label="Studio chat"
-              value={chatDraft}
-              onChange={(e) => setChatDraft(e.target.value)}
-              placeholder="Message the studio…"
-            />
-            <button type="submit" className="chat-send" aria-label="Send chat">
-              Send
-            </button>
-          </form>
-        </aside>
-      </div>
-
-      {settingsOpen && isHost ? (
-        <SettingsPanel
-          studioId={id}
-          studio={studio}
-          canInvite={studio.viewerRole === "owner"}
-          onClose={() => setSettingsOpen(false)}
-          onSave={async (next) => {
-            try {
-              const saved = await setDestinations(id, next.destinations);
-              await setBanner(id, {
-                title: next.title,
-                bannerTitle: next.bannerTitle,
-                bannerSubtitle: next.bannerSubtitle,
-              });
-              setStudio((prev) => mergeStudio(prev, saved, prev?.viewerRole ?? "guest"));
-              setSettingsOpen(false);
-            } catch (err) {
-              setError(err instanceof Error ? err.message : "Save failed");
-            }
-          }}
-        />
+        </div>
       ) : null}
 
       {inviteOpen ? (
-        <div className="panel" onClick={() => setInviteOpen(false)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
-            <h2>Invite guest</h2>
-            <p>No account needed. Share this link:</p>
-            <input readOnly value={`${location.origin}/join/${id}`} onFocus={(e) => e.currentTarget.select()} />
-            <button className="btn primary" type="button" onClick={() => setInviteOpen(false)}>
-              Done
-            </button>
+        <div className="scrim" onClick={() => setInviteOpen(false)}>
+          <div className="dlg" role="dialog" aria-labelledby="invite-title" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h2 id="invite-title">Invite guest</h2>
+              <button className="btn quiet" type="button" aria-label="Close" onClick={() => setInviteOpen(false)}>
+                <X className="i" size={16} strokeWidth={1.6} />
+              </button>
+            </header>
+            <p className="lead">No account needed. Share this link:</p>
+            <div className="dest">
+              <input readOnly value={`${location.origin}/join/${id}`} onFocus={(e) => e.currentTarget.select()} />
+            </div>
+            <footer>
+              <span />
+              <button className="btn primary" type="button" onClick={() => setInviteOpen(false)}>
+                Done
+              </button>
+            </footer>
           </div>
         </div>
       ) : null}
@@ -933,36 +1248,239 @@ export function Studio() {
   );
 }
 
+function StudioTop({ title, live, timer }: { title: string; live: boolean; timer: string }) {
+  return (
+    <header className="top">
+      <a className="brand" href="/" aria-label="Casthop home">
+        <span className="mark" aria-hidden="true" />
+        <span className="slash">/</span>
+        <span className="title">{title}</span>
+      </a>
+      <div className="spacer" />
+      <div className={`status${live ? " on" : ""}`}>
+        <span className="dot" />
+        {live ? (
+          <>
+            Live {timer ? <span className="mono">{timer}</span> : null}
+          </>
+        ) : (
+          "Not live"
+        )}
+      </div>
+    </header>
+  );
+}
+
+function ChatPanel({
+  studio,
+  isHost,
+  chatDraft,
+  onDraft,
+  onChat,
+  onPin,
+}: {
+  studio: PublicStudio;
+  isHost: boolean;
+  chatDraft: string;
+  onDraft: (value: string) => void;
+  onChat: (e: FormEvent) => void;
+  onPin: (id: string | null) => void;
+}) {
+  return (
+    <>
+      <div className="msgs">
+        {studio.chat.length === 0 ? <p className="empty-chat">No comments yet.</p> : null}
+        {studio.chat.map((m) => {
+          const pinned = studio.pinnedChat?.id === m.id;
+          return (
+            <div key={m.id} className={`msg${pinned ? " pinned" : ""}`}>
+              <div className="meta">
+                <span className="src">{chatSourceLabel(m.source)}</span>
+                {m.name}
+                {isHost && pinned ? (
+                  <button type="button" className="pinbtn" aria-label="Unpin comment" onClick={() => onPin(null)}>
+                    <PinIcon />
+                    Unpin
+                  </button>
+                ) : isHost ? (
+                  <button type="button" className="pinbtn" aria-label="Pin this comment" onClick={() => onPin(m.id)}>
+                    <PinIcon />
+                    Pin
+                  </button>
+                ) : null}
+              </div>
+              {m.text}
+            </div>
+          );
+        })}
+      </div>
+      <form className="compose" onSubmit={onChat}>
+        <div className="input-row">
+          <input
+            aria-label="Studio chat"
+            value={chatDraft}
+            onChange={(e) => onDraft(e.target.value)}
+            placeholder="Message the studio…"
+          />
+          <button type="submit" className="send" aria-label="Send chat">
+            <SendIcon />
+          </button>
+        </div>
+      </form>
+    </>
+  );
+}
+
+function DestinationsPanel({
+  studio,
+  isHost,
+  addRtmp,
+  rtmpDraft,
+  onDraft,
+  onToggleAdd,
+  onAdd,
+  onToggle,
+  onSaveUrls,
+}: {
+  studio: PublicStudio;
+  isHost: boolean;
+  addRtmp: boolean;
+  rtmpDraft: string;
+  onDraft: (value: string) => void;
+  onToggleAdd: () => void;
+  onAdd: () => void;
+  onToggle: (id: string) => void;
+  onSaveUrls: (next: PublicDestination[]) => Promise<void>;
+}) {
+  const [rows, setRows] = useState(studio.destinations);
+  useEffect(() => {
+    setRows(studio.destinations);
+  }, [studio.destinations]);
+
+  return (
+    <div className="panel-body">
+      {rows.map((d, i) => (
+        <div className="dest" key={d.id}>
+          <span className="k">{destGlyph(d.kind)}</span>
+          <div className="t">
+            <b>{d.label}</b>
+            <small>
+              {d.detail}
+              <span className={`dest-status ${d.status ?? "idle"}`}>{destStatusLabel(d.status, d.error)}</span>
+            </small>
+            {isHost ? (
+              <label>
+                {d.label} RTMP URL
+                <input
+                  value={d.url ?? ""}
+                  onChange={(e) => {
+                    const next = rows.slice();
+                    next[i] = { ...d, url: e.target.value };
+                    setRows(next);
+                  }}
+                />
+              </label>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            className={`sw${d.enabled ? " on" : ""}`}
+            disabled={!isHost}
+            aria-pressed={d.enabled}
+            aria-label={`${d.enabled ? "Disable" : "Enable"} ${d.label}`}
+            onClick={() => onToggle(d.id)}
+          />
+        </div>
+      ))}
+      {isHost && addRtmp ? (
+        <form
+          className="dest add-row"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onAdd();
+          }}
+        >
+          <label className="t">
+            RTMP URL
+            <input value={rtmpDraft} onChange={(e) => onDraft(e.target.value)} placeholder="rtmp://…" />
+          </label>
+          <button className="btn ghost" type="submit">
+            Add
+          </button>
+        </form>
+      ) : null}
+      {isHost ? (
+        <div className="panel-actions">
+          <button className="add" type="button" onClick={onToggleAdd}>
+            + Add RTMP destination
+          </button>
+          <button className="btn primary" type="button" onClick={() => void onSaveUrls(rows)}>
+            Save
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function LowerThirdPanel({
+  studio,
+  onSave,
+}: {
+  studio: PublicStudio;
+  onSave: (bannerTitle: string, bannerSubtitle: string) => Promise<void>;
+}) {
+  const [bannerTitle, setBannerTitle] = useState(studio.bannerTitle);
+  const [bannerSubtitle, setBannerSubtitle] = useState(studio.bannerSubtitle);
+  return (
+    <form
+      className="panel-body stack"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void onSave(bannerTitle, bannerSubtitle);
+      }}
+    >
+      <label>
+        Lower third
+        <input value={bannerTitle} onChange={(e) => setBannerTitle(e.target.value)} />
+      </label>
+      <label>
+        Lower third detail
+        <input value={bannerSubtitle} onChange={(e) => setBannerSubtitle(e.target.value)} />
+      </label>
+      <button className="btn primary" type="submit">
+        Save
+      </button>
+    </form>
+  );
+}
+
 function SettingsPanel({
   studioId,
   studio,
   canInvite,
-  onClose,
-  onSave,
+  onTitle,
 }: {
   studioId: string;
   studio: PublicStudio;
   canInvite: boolean;
-  onClose: () => void;
-  onSave: (next: { title: string; bannerTitle: string; bannerSubtitle: string; destinations: PublicDestination[] }) => void;
+  onTitle: (title: string) => Promise<void>;
 }) {
   const [title, setTitle] = useState(studio.title);
-  const [bannerTitle, setBannerTitle] = useState(studio.bannerTitle);
-  const [bannerSubtitle, setBannerSubtitle] = useState(studio.bannerSubtitle);
-  const [destinations, setDest] = useState(studio.destinations);
   const [inviteEmail, setInviteEmail] = useState("");
   const [members, setMembers] = useState<StudioMember[]>([]);
   const [pending, setPending] = useState<{ email: string }[]>([]);
   const [inviteNote, setInviteNote] = useState("");
 
   useEffect(() => {
+    if (!canInvite) return;
     listCohosts(studioId)
       .then((data) => {
         setMembers(data.members);
         setPending(data.pending);
       })
       .catch(() => undefined);
-  }, [studioId]);
+  }, [studioId, canInvite]);
 
   async function onInvite(e: FormEvent) {
     e.preventDefault();
@@ -980,71 +1498,54 @@ function SettingsPanel({
   }
 
   return (
-    <div className="panel" onClick={onClose}>
-      <div className="sheet" onClick={(e) => e.stopPropagation()}>
-        <h2>Settings</h2>
-        <label>
-          Studio title
-          <input value={title} onChange={(e) => setTitle(e.target.value)} />
-        </label>
-        <label>
-          Lower third
-          <input value={bannerTitle} onChange={(e) => setBannerTitle(e.target.value)} />
-        </label>
-        <label>
-          Lower third detail
-          <input value={bannerSubtitle} onChange={(e) => setBannerSubtitle(e.target.value)} />
-        </label>
-        {destinations.map((d, i) => (
-          <label key={d.id}>
-            {d.label} RTMP URL
+    <div className="panel-body stack">
+      <label>
+        Studio title
+        <input value={title} onChange={(e) => setTitle(e.target.value)} />
+      </label>
+      <button className="btn primary" type="button" onClick={() => void onTitle(title)}>
+        Save
+      </button>
+      {canInvite ? (
+        <form className="cohost-form" onSubmit={onInvite}>
+          <label>
+            Invite co-host
             <input
-              value={d.url ?? ""}
-              onChange={(e) => {
-                const next = destinations.slice();
-                next[i] = { ...d, url: e.target.value };
-                setDest(next);
-              }}
+              type="email"
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+              placeholder="producer@example.com"
             />
           </label>
-        ))}
-        {canInvite ? (
-          <form className="cohost-form" onSubmit={onInvite}>
-            <label>
-              Invite co-host
-              <input
-                type="email"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                placeholder="producer@example.com"
-              />
-            </label>
-            <button className="btn" type="submit">
-              Invite
-            </button>
-            {inviteNote ? <p className="sent-note">{inviteNote}</p> : null}
-            <ul className="cohost-list">
-              {members.map((m) => (
-                <li key={m.accountId}>
-                  {m.name} · {m.role}
-                </li>
-              ))}
-              {pending.map((p) => (
-                <li key={p.email}>{p.email} · pending</li>
-              ))}
-            </ul>
-          </form>
-        ) : null}
-        <button
-          className="btn primary"
-          type="button"
-          onClick={() => onSave({ title, bannerTitle, bannerSubtitle, destinations })}
-        >
-          Save
-        </button>
-      </div>
+          <button className="btn ghost" type="submit">
+            Invite
+          </button>
+          {inviteNote ? <p className="sent-note">{inviteNote}</p> : null}
+          <ul className="cohost-list">
+            {members.map((m) => (
+              <li key={m.accountId}>
+                {m.name} · {m.role}
+              </li>
+            ))}
+            {pending.map((p) => (
+              <li key={p.email}>{p.email} · pending</li>
+            ))}
+          </ul>
+        </form>
+      ) : null}
     </div>
   );
+}
+
+function panelLabel(panel: PanelId): string {
+  if (panel === "lower-third") return "Lower third";
+  if (panel === "destinations") return "Destinations";
+  if (panel === "settings") return "Settings";
+  return "Chat";
+}
+
+function panelTitle(panel: PanelId): string {
+  return panelLabel(panel);
 }
 
 function chatSourceLabel(source: string): string {
@@ -1083,3 +1584,63 @@ function mergeStudio(
     }),
   };
 }
+
+function ChatIcon() {
+  return (
+    <svg className="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+      <path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
+function RadioIcon() {
+  return (
+    <svg className="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+      <path d="M16.247 7.761a6 6 0 0 1 0 8.478" />
+      <path d="M19.075 4.933a10 10 0 0 1 0 14.134" />
+      <path d="M4.925 19.067a10 10 0 0 1 0-14.134" />
+      <path d="M7.753 16.239a6 6 0 0 1 0-8.478" />
+      <circle cx="12" cy="12" r="2" />
+    </svg>
+  );
+}
+
+function TypeIcon() {
+  return (
+    <svg className="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+      <path d="M12 4v16" />
+      <path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2" />
+      <path d="M9 20h6" />
+    </svg>
+  );
+}
+
+function SettingsIcon() {
+  return (
+    <svg className="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+      <path d="M14 17H5" />
+      <path d="M19 7h-9" />
+      <circle cx="17" cy="17" r="3" />
+      <circle cx="7" cy="7" r="3" />
+    </svg>
+  );
+}
+
+function PinIcon() {
+  return (
+    <svg className="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+      <path d="M12 17v5" />
+      <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+    </svg>
+  );
+}
+
+function SendIcon() {
+  return (
+    <svg className="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+      <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
+      <path d="m21.854 2.147-10.94 10.939" />
+    </svg>
+  );
+}
+

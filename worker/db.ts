@@ -111,8 +111,10 @@ export const Q = {
   replayById: "SELECT id, studio_id, title, visibility, duration_ms, created_at, bytes FROM replays WHERE id = ?",
   listReplaysByStudio:
     "SELECT id, studio_id, title, visibility, duration_ms, created_at, bytes FROM replays WHERE studio_id = ? ORDER BY created_at DESC",
+  listReplaysForAccount:
+    "SELECT r.id, r.studio_id, r.title, r.visibility, r.duration_ms, r.created_at, r.bytes FROM replays r INNER JOIN studio_members m ON m.studio_id = r.studio_id WHERE m.account_id = ? ORDER BY r.studio_id, r.created_at DESC",
   updateReplayVisibility: "UPDATE replays SET visibility = ? WHERE id = ?",
-  updateReplayBytes: "UPDATE replays SET bytes = ? WHERE id = ?",
+  addReplayBytes: "UPDATE replays SET bytes = MAX(0, bytes + ?) WHERE id = ? RETURNING bytes",
 } as const;
 
 const migrated = new WeakSet<object>();
@@ -307,18 +309,21 @@ export async function studioById(db: D1Database, id: string): Promise<{ id: stri
 
 export async function listStudiosFor(db: D1Database, accountId: string): Promise<StudioRecord[]> {
   const rows = await all<{ id: string; title: string; owner_id: string; created_at: number; role: MemberRole }>(db, Q.listStudios, accountId);
-  const studios: StudioRecord[] = [];
-  for (const r of rows) {
-    studios.push({
-      id: r.id,
-      title: r.title,
-      ownerId: r.owner_id,
-      createdAt: r.created_at,
-      role: r.role,
-      replays: await listReplaysForStudio(db, r.id),
-    });
+  const replayRows = await all<ReplayRow>(db, Q.listReplaysForAccount, accountId);
+  const byStudio = new Map<string, ReplayRecord[]>();
+  for (const row of replayRows) {
+    const list = byStudio.get(row.studio_id) ?? [];
+    list.push(mapReplay(row));
+    byStudio.set(row.studio_id, list);
   }
-  return studios;
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    ownerId: r.owner_id,
+    createdAt: r.created_at,
+    role: r.role,
+    replays: byStudio.get(r.id) ?? [],
+  }));
 }
 
 export async function insertMember(db: D1Database, studioId: string, accountId: string, role: MemberRole, createdAt: number): Promise<void> {
@@ -396,6 +401,7 @@ export async function updateReplayVisibility(db: D1Database, id: string, visibil
   await run(db, Q.updateReplayVisibility, visibility, id);
 }
 
-export async function updateReplayBytes(db: D1Database, id: string, bytes: number): Promise<void> {
-  await run(db, Q.updateReplayBytes, bytes, id);
+export async function addReplayBytes(db: D1Database, id: string, delta: number): Promise<number> {
+  const row = await first<{ bytes: number }>(db, Q.addReplayBytes, delta, id);
+  return row?.bytes ?? 0;
 }

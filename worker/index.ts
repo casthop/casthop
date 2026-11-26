@@ -71,8 +71,11 @@ import {
 import {
   applyReplayBytes,
   canViewReplay,
+  contentLengthOver,
   ingestFilesFromBody,
   isHlsFilename,
+  MAX_FILE_BYTES,
+  MAX_INGEST_BYTES,
   newReplayId,
   parseVisibility,
   publicReplay,
@@ -275,6 +278,9 @@ app.post("/api/studios/:id/replays", async (c) => {
   if (!host) return c.json({ error: "host access required" }, 403);
   const studio = await studioById(c.env.DB, id);
   if (!studio) return c.json({ error: "Studio not found" }, 404);
+  if (contentLengthOver(c.req.header("content-length"), MAX_INGEST_BYTES)) {
+    return c.json({ error: "body too large" }, 413);
+  }
   const ingested = ingestFilesFromBody(await c.req.json().catch(() => ({})));
   if ("error" in ingested) return c.json({ error: ingested.error }, ingested.status);
   const replayId = newReplayId();
@@ -328,10 +334,13 @@ app.put("/api/studios/:id/replays/:rid/hls/:file", async (c) => {
   const replay = await replayById(c.env.DB, rid);
   if (!replay || replay.studioId !== id) return c.json({ error: "not found" }, 404);
   if (!isHlsFilename(file)) return c.json({ error: "invalid filename" }, 400);
+  if (contentLengthOver(c.req.header("content-length"), MAX_FILE_BYTES)) {
+    return c.json({ error: "invalid file size" }, 400);
+  }
   const bytes = new Uint8Array(await c.req.arrayBuffer());
   try {
     const delta = await putReplayFiles(c.env, id, rid, [{ name: file, bytes }]);
-    const nextBytes = await applyReplayBytes(c.env, rid, delta, replay.bytes);
+    const nextBytes = await applyReplayBytes(c.env, rid, delta);
     return c.json(publicReplay({ ...replay, bytes: nextBytes }, true));
   } catch (err) {
     const status = errorStatus(err);

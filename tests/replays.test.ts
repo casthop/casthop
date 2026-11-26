@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { app, StudioDurableObject } from "../worker/index.ts";
-import { durationFromPlaylist, hlsFilenamesInPlaylist, isHlsFilename, playlistError } from "../worker/replays.ts";
+import {
+  durationFromPlaylist,
+  hlsFilenamesInPlaylist,
+  isHlsFilename,
+  MAX_FILE_BYTES,
+  MAX_INGEST_BYTES,
+  playlistError,
+} from "../worker/replays.ts";
 import { DEV_API_KEY, DEV_API_SECRET, SESSION_COOKIE } from "../worker/security.ts";
 import type { Env, PublicReplay } from "../worker/types.ts";
 import { FakeD1 } from "./fake-d1.ts";
@@ -250,6 +257,77 @@ test("public replay is playable by link; private stays host-only", async () => {
   assert.equal(patched.status, 200);
   const nowOpen = await app.request(`https://casthop.test/api/replays/${priv.id}`, {}, env);
   assert.equal(nowOpen.status, 200);
+});
+
+test("studio list loads replays for every studio in one query", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "owner@example.com");
+  const a = await createStudio(env, cookie, "One");
+  const b = await createStudio(env, cookie, "Two");
+  await postReplay(env, cookie, a.id, { title: "Cut A", files: hlsFiles() });
+  await postReplay(env, cookie, b.id, { title: "Cut B", files: hlsFiles() });
+  const listed = await json<{ studios: { id: string; title: string; replays: PublicReplay[] }[] }>(
+    await app.request("https://casthop.test/api/studios", { headers: { Cookie: cookie } }, env),
+  );
+  const one = listed.studios.find((s) => s.id === a.id);
+  const two = listed.studios.find((s) => s.id === b.id);
+  assert.equal(one?.replays[0]?.title, "Cut A");
+  assert.equal(two?.replays[0]?.title, "Cut B");
+});
+
+test("PUT HLS files add to the stored byte total", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "owner@example.com");
+  const { id } = await createStudio(env, cookie);
+  const created = await json<PublicReplay>(await postReplay(env, cookie, id, { title: "Cuts", files: hlsFiles() }));
+  const first = await json<PublicReplay>(
+    await app.request(`https://casthop.test/api/studios/${id}/replays/${created.id}/hls/seg1.m4s`, {
+      method: "PUT",
+      headers: { Cookie: cookie },
+      body: "aaaa",
+    }, env),
+  );
+  assert.equal(first.bytes, created.bytes + 4);
+  const second = await json<PublicReplay>(
+    await app.request(`https://casthop.test/api/studios/${id}/replays/${created.id}/hls/seg2.m4s`, {
+      method: "PUT",
+      headers: { Cookie: cookie },
+      body: "bbbbbb",
+    }, env),
+  );
+  assert.equal(second.bytes, created.bytes + 4 + 6);
+});
+
+test("ingest and PUT reject oversized content-length before reading the body", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "owner@example.com");
+  const { id } = await createStudio(env, cookie);
+  const hugePost = await app.request(
+    `https://casthop.test/api/studios/${id}/replays`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": String(MAX_INGEST_BYTES + 1),
+        Cookie: cookie,
+      },
+      body: JSON.stringify({ title: "nope" }),
+    },
+    env,
+  );
+  assert.equal(hugePost.status, 413);
+
+  const replay = await json<PublicReplay>(await postReplay(env, cookie, id, { title: "Cuts", files: hlsFiles() }));
+  const hugePut = await app.request(
+    `https://casthop.test/api/studios/${id}/replays/${replay.id}/hls/seg1.m4s`,
+    {
+      method: "PUT",
+      headers: { "Content-Length": String(MAX_FILE_BYTES + 1), Cookie: cookie },
+      body: "x",
+    },
+    env,
+  );
+  assert.equal(hugePut.status, 400);
 });
 
 test("ingest rejects unsafe playlists and missing index", async () => {

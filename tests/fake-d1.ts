@@ -282,6 +282,20 @@ export class FakeD1 implements D1Database {
         .sort((a, b) => Number(b.created_at) - Number(a.created_at));
       return { results, changes: 0 };
     }
+    if (q === norm(Q.listReplaysForAccount)) {
+      const studioIds = new Set(
+        this.rows("studio_members").filter((m) => m.account_id === binds[0]).map((m) => m.studio_id),
+      );
+      const results = this.rows("replays")
+        .filter((r) => studioIds.has(r.studio_id))
+        .map(clone)
+        .sort((a, b) => {
+          const studios = String(a.studio_id).localeCompare(String(b.studio_id));
+          if (studios !== 0) return studios;
+          return Number(b.created_at) - Number(a.created_at);
+        });
+      return { results, changes: 0 };
+    }
     if (q === norm(Q.updateReplayVisibility)) {
       const [visibility, id] = binds;
       for (const r of this.rows("replays")) {
@@ -289,12 +303,12 @@ export class FakeD1 implements D1Database {
       }
       return { results: [], changes: 1 };
     }
-    if (q === norm(Q.updateReplayBytes)) {
-      const [bytes, id] = binds;
-      for (const r of this.rows("replays")) {
-        if (r.id === id) r.bytes = bytes;
-      }
-      return { results: [], changes: 1 };
+    if (q === norm(Q.addReplayBytes)) {
+      const [delta, id] = binds;
+      const row = this.rows("replays").find((r) => r.id === id);
+      if (!row) return { results: [], changes: 0 };
+      row.bytes = Math.max(0, Number(row.bytes) + Number(delta));
+      return { results: [{ bytes: row.bytes }], changes: 1 };
     }
     if (q === norm(Q.bumpRate)) {
       const [key, nowBind, , windowBind] = binds;

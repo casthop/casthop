@@ -1,12 +1,18 @@
 import type { Account, Env, PublicReplay, ReplayRecord, ReplayVisibility } from "./types";
-import { updateReplayBytes } from "./db";
+import { addReplayBytes } from "./db";
 import { asName, randomId } from "./security";
 import { hostAuth } from "./auth";
 
 export const HLS_INDEX = "index.m3u8";
 const MAX_FILES = 256;
-const MAX_FILE_BYTES = 12 * 1024 * 1024;
+export const MAX_FILE_BYTES = 12 * 1024 * 1024;
+export const MAX_INGEST_BYTES = 32 * 1024 * 1024;
 const MAX_PLAYLIST_BYTES = 256 * 1024;
+
+export function contentLengthOver(header: string | undefined, max: number): boolean {
+  const n = Number(header ?? 0);
+  return !Number.isFinite(n) || n > max;
+}
 
 export type ReplayFileInput = {
   name: string;
@@ -203,10 +209,8 @@ export function ingestFilesFromBody(
   return { title, visibility, durationMs, files };
 }
 
-export async function applyReplayBytes(env: Env, replayId: string, delta: number, current: number): Promise<number> {
-  const next = Math.max(0, current + delta);
-  await updateReplayBytes(env.DB, replayId, next);
-  return next;
+export async function applyReplayBytes(env: Env, replayId: string, delta: number): Promise<number> {
+  return addReplayBytes(env.DB, replayId, delta);
 }
 
 function jsonError(error: string, status: 400 | 404): Response {

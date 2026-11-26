@@ -9,6 +9,7 @@ export const MAX_FILE_BYTES = 12 * 1024 * 1024;
 export const MAX_INGEST_BYTES = 32 * 1024 * 1024;
 export const MAX_REPLAY_BYTES = 2 * 1024 * 1024 * 1024;
 export const MAX_REPLAY_OBJECTS = 4096;
+const R2_LIST_LIMIT = 1000;
 const MAX_PLAYLIST_BYTES = 256 * 1024;
 
 export function contentLengthOver(header: string | undefined, max: number): boolean {
@@ -116,11 +117,34 @@ export function decodeReplayFile(file: ReplayFileInput): Uint8Array | null {
   return new TextEncoder().encode(file.content);
 }
 
+async function listReplayPrefix(
+  env: Env,
+  prefix: string,
+  max = MAX_REPLAY_OBJECTS + 1,
+): Promise<{ objects: { key: string; size: number }[]; truncated: boolean }> {
+  const objects: { key: string; size: number }[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const listed = await env.RECORDINGS.list(
+      cursor ? { prefix, limit: R2_LIST_LIMIT, cursor } : { prefix, limit: R2_LIST_LIMIT },
+    );
+    for (const obj of listed.objects) {
+      objects.push({ key: obj.key, size: obj.size });
+      if (objects.length >= max) return { objects, truncated: true };
+    }
+    if (!listed.truncated) return { objects, truncated: false };
+    cursor = listed.cursor;
+    if (!cursor) return { objects, truncated: true };
+  }
+}
+
 export async function deleteReplayPrefix(env: Env, studioId: string, replayId: string): Promise<void> {
   const prefix = replayPrefix(studioId, replayId);
   let cursor: string | undefined;
   for (;;) {
-    const listed = await env.RECORDINGS.list({ prefix, limit: 1000, cursor });
+    const listed = await env.RECORDINGS.list(
+      cursor ? { prefix, limit: R2_LIST_LIMIT, cursor } : { prefix, limit: R2_LIST_LIMIT },
+    );
     if (listed.objects.length) {
       await env.RECORDINGS.delete(listed.objects.map((obj) => obj.key));
     }
@@ -137,8 +161,7 @@ export async function replayWouldExceedQuota(
   currentBytes: number,
   files: { name: string; bytes: Uint8Array }[],
 ): Promise<string | null> {
-  const prefix = replayPrefix(studioId, replayId);
-  const listed = await env.RECORDINGS.list({ prefix, limit: MAX_REPLAY_OBJECTS + 1 });
+  const listed = await listReplayPrefix(env, replayPrefix(studioId, replayId));
   const existing = new Map(listed.objects.map((obj) => [obj.key, obj.size]));
   let nextCount = listed.truncated ? MAX_REPLAY_OBJECTS + 1 : existing.size;
   let nextBytes = currentBytes;

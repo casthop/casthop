@@ -123,7 +123,7 @@ export class FakeR2 implements R2Bucket {
 
   async list(options?: R2ListOptions): Promise<R2Objects> {
     const prefix = options?.prefix ?? "";
-    const limit = options?.limit ?? 1000;
+    const limit = Math.min(options?.limit ?? 1000, 1000);
     let keys = [...this.objects.keys()].filter((k) => k.startsWith(prefix)).sort();
     if (options?.cursor) keys = keys.filter((k) => k > options.cursor!);
     const sliced = keys.slice(0, limit);

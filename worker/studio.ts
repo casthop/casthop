@@ -640,29 +640,45 @@ export class StudioDurableObject {
     try {
       const { page, liveChatId, cache } = await youtube.poll(this.env, cursor ?? {}, this.youtubeToken);
       this.youtubeToken = cache;
+      const fresh = (await this.getState()) ?? state;
+      if (!fresh.wantLive) {
+        if (fresh.destChat?.youtube) {
+          fresh.destChat = undefined;
+          await this.putState(fresh);
+        }
+        return;
+      }
       if (!page || !liveChatId) {
         const nextPollAt = now + DEST_CHAT_BACKOFF_MS;
-        state.destChat = { youtube: { liveChatId: liveChatId || cursor?.liveChatId, pageToken: cursor?.pageToken, nextPollAt } };
-        await this.putState(state);
+        fresh.destChat = { youtube: { liveChatId: liveChatId || cursor?.liveChatId, pageToken: cursor?.pageToken, nextPollAt } };
+        await this.putState(fresh);
         await this.scheduleWatch(nextPollAt);
         return;
       }
-      const seen = new Set(state.chat.map((m) => m.id));
+      const seen = new Set(fresh.chat.map((m) => m.id));
       for (const msg of page.comments) {
         if (seen.has(msg.id)) continue;
-        state.chat.push(msg);
+        fresh.chat.push(msg);
         seen.add(msg.id);
       }
-      state.chat = state.chat.slice(-100);
+      fresh.chat = fresh.chat.slice(-100);
       const nextPollAt = now + page.pollAfterMs;
-      state.destChat = { youtube: { liveChatId, pageToken: page.pageToken, nextPollAt } };
-      await this.putState(state);
+      fresh.destChat = { youtube: { liveChatId, pageToken: page.pageToken, nextPollAt } };
+      await this.putState(fresh);
       await this.scheduleWatch(nextPollAt);
     } catch (err) {
       console.warn("youtube chat poll", err);
+      const fresh = (await this.getState()) ?? state;
+      if (!fresh.wantLive) {
+        if (fresh.destChat?.youtube) {
+          fresh.destChat = undefined;
+          await this.putState(fresh);
+        }
+        return;
+      }
       const nextPollAt = now + DEST_CHAT_BACKOFF_MS;
-      state.destChat = { youtube: { liveChatId: cursor?.liveChatId, pageToken: cursor?.pageToken, nextPollAt } };
-      await this.putState(state);
+      fresh.destChat = { youtube: { liveChatId: cursor?.liveChatId, pageToken: cursor?.pageToken, nextPollAt } };
+      await this.putState(fresh);
       await this.scheduleWatch(nextPollAt);
     }
   }

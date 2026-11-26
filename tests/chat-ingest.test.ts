@@ -23,6 +23,9 @@ let youtubePolls = 0;
 let youtubeBroadcasts = 0;
 let youtubeTokens = 0;
 let youtubeVideos = 0;
+let holdNextYoutube = false;
+let youtubeHold: Promise<void> | null = null;
+let youtubeStarted: (() => void) | null = null;
 const realFetch = globalThis.fetch;
 
 const ytMessage = {
@@ -186,6 +189,11 @@ before(() => {
     }
     if (url.includes("googleapis.com/youtube/v3/liveChat/messages")) {
       youtubePolls += 1;
+      youtubeStarted?.();
+      if (holdNextYoutube && youtubeHold) {
+        holdNextYoutube = false;
+        await youtubeHold;
+      }
       const parsed = new URL(url);
       assert.ok(parsed.searchParams.get("liveChatId"));
       return new Response(
@@ -395,6 +403,74 @@ test("API key plus video id resolves activeLiveChatId", async () => {
   assert.equal(youtubeVideos, 1);
   assert.equal(youtubePolls, 1);
   assert.equal(result.liveChatId, "LC_from_video");
+});
+
+test("youtube poll does not overwrite a stop or studio chat", async () => {
+  youtubePolls = 0;
+  const env = makeEnv({ YOUTUBE_API_KEY: "test-key", YOUTUBE_LIVE_CHAT_ID: "LC_env" });
+  const { id, cookie } = await createStudio(env);
+  const live = await app.request(
+    `https://casthop.test/api/studios/${id}/live`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ live: true }),
+    },
+    env,
+  );
+  assert.equal(live.status, 200, await live.clone().text());
+
+  let release!: () => void;
+  youtubeHold = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const sawPoll = new Promise<void>((resolve) => {
+    youtubeStarted = resolve;
+  });
+  holdNextYoutube = true;
+  const watchP = env.STUDIO.get(env.STUDIO.idFromName(id)).fetch(`https://studio/${id}?action=watch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  try {
+    await sawPoll;
+    const chat = await app.request(
+      `https://casthop.test/api/studios/${id}/chat`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: cookie },
+        body: JSON.stringify({ text: "keep me" }),
+      },
+      env,
+    );
+    assert.equal(chat.status, 200, await chat.clone().text());
+    const stop = await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: cookie },
+        body: JSON.stringify({ live: false }),
+      },
+      env,
+    );
+    assert.equal(stop.status, 200, await stop.clone().text());
+    assert.equal((await json<PublicStudio>(stop)).livePhase, "idle");
+    release();
+    assert.equal((await watchP).status, 200);
+    const after = await json<PublicStudio>(
+      await app.request(`https://casthop.test/api/studios/${id}`, { headers: { Cookie: cookie } }, env),
+    );
+    assert.equal(after.live, false);
+    assert.equal(after.livePhase, "idle");
+    assert.equal(after.chat.some((m) => m.text === "keep me"), true);
+    assert.equal(after.chat.some((m) => m.source === "youtube"), false);
+  } finally {
+    release();
+    youtubeHold = null;
+    youtubeStarted = null;
+    holdNextYoutube = false;
+  }
 });
 
 test("pin requires a host session", async () => {

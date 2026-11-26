@@ -24,7 +24,7 @@ getrandom = { version = "0.2", features = ["js"] }
 addr2line = "=0.24.2"
 backtrace = "=0.3.74"
 idna = "=1.0.3"
-idna_adapter = "=1.1.0"
+idna_adapter = "=1.2.2"
 js-sys = "=0.3.82"
 object = "=0.36.7"
 tokio = { version = "=1.41.1", default-features = false }

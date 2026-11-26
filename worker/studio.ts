@@ -73,6 +73,7 @@ type Incoming =
 
 export class StudioDurableObject {
   private launching = false;
+  private portraitLaunching = false;
   ctx: DurableObjectState;
   env: Env;
   private chatHits = new Map<string, { n: number; t: number }>();
@@ -241,7 +242,10 @@ export class StudioDurableObject {
     if (action === "destinations") {
       if (!isHost) return json({ error: "host key required" }, 403);
       const allowLoopback = isLoopbackUrl(this.env.LIVEKIT_HTTP_URL);
-      const destinations = sanitizeDestinations(body.destinations, state.destinations, { allowLoopback });
+      const destinations = sanitizeDestinations(body.destinations, state.destinations, {
+        allowLoopback,
+        allowPortrait: Boolean(this.env.EGRESS_TEMPLATE_URL),
+      });
       if (!destinations) return json({ error: "invalid destinations" }, 400);
       const prevLand = enabledUrls(state.destinations, "landscape");
       const prevPort = enabledUrls(state.destinations, "portrait");
@@ -1147,7 +1151,13 @@ export class StudioDurableObject {
   private async ensurePortraitEgress(state: StudioState): Promise<void> {
     const urls = enabledUrls(state.destinations, "portrait");
     if (!urls.length || !state.wantLive) return;
-    if (state.portraitEgressId) return;
+    if (state.portraitEgressId || this.portraitLaunching) return;
+    if (!this.env.EGRESS_TEMPLATE_URL) {
+      setDestStatuses(state.destinations, "failed", "9:16 needs a custom Egress template", "portrait");
+      await this.putState(state);
+      return;
+    }
+    this.portraitLaunching = true;
     setDestStatuses(state.destinations, "connecting", null, "portrait");
     await this.putState(state);
     try {
@@ -1159,11 +1169,11 @@ export class StudioDurableObject {
         timeoutMs: startEgressTimeoutMs(remainingRecoveryMs(state, Date.now(), recoveryBudgetMs(this.env.CASTHOP_RECOVERY_MS))),
       });
       const latest = (await this.getState()) ?? state;
-      if (!latest.wantLive) {
+      if (!latest.wantLive || latest.portraitEgressId) {
         try {
           await stopEgress(this.env, egressId);
         } catch {
-          /* host already ended */
+          /* host already ended or another compositor owns 9:16 */
         }
         return;
       }
@@ -1178,6 +1188,8 @@ export class StudioDurableObject {
       setDestStatuses(latest.destinations, "retrying", publicError(err instanceof Error ? err.message : "Could not start 9:16") ?? "Could not start 9:16", "portrait");
       await this.putState(latest);
       await this.scheduleWatch(Date.now() + WATCH_MS);
+    } finally {
+      this.portraitLaunching = false;
     }
   }
 

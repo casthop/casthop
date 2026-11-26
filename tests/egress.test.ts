@@ -1887,3 +1887,99 @@ test("switching a live destination to 9:16 starts portrait egress", async () => 
   assert.equal(egressStarts, nextStarts + 1);
   assert.equal(startBodies.at(-1)?.layout, PORTRAIT_LAYOUT);
 });
+
+test("startRoomComposite refuses 9:16 without a custom template", async () => {
+  await assert.rejects(
+    () =>
+      startRoomComposite({
+        env: makeEnv({ EGRESS_TEMPLATE_URL: "" }),
+        room: "studio-room",
+        layout: PORTRAIT_LAYOUT,
+        urls: [YT],
+      }),
+    /9:16 needs a custom Egress template/,
+  );
+});
+
+test("portrait destinations are rejected when the Egress template is unset", async () => {
+  listedParticipants = [{ identity: "host" }];
+  listedEgress = { items: [] };
+  const env = makeEnv({ EGRESS_TEMPLATE_URL: "" });
+  const { id, cookie } = await createStudio(env);
+  const studio = await json<PublicStudio>(
+    await app.request(`https://casthop.test/api/studios/${id}`, { headers: { Cookie: cookie } }, env),
+  );
+  const patched = await app.request(
+    `https://casthop.test/api/studios/${id}/destinations`,
+    {
+      method: "POST",
+      headers: liveHeaders(cookie),
+      body: JSON.stringify({
+        destinations: studio.destinations.map((d) => (d.id === "custom" ? { ...d, aspect: "portrait" } : d)),
+      }),
+    },
+    env,
+  );
+  assert.equal(patched.status, 400);
+});
+
+test("overlapping 9:16 starts share one compositor", async () => {
+  listedParticipants = [{ identity: "host" }, { identity: "EG_abc" }];
+  listedEgress = { items: [] };
+  const env = makeEnv();
+  const { id, cookie } = await createStudio(env);
+  const go = await app.request(
+    `https://casthop.test/api/studios/${id}/live`,
+    { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
+    env,
+  );
+  assert.equal(go.status, 200, await go.clone().text());
+  const afterGo = await json<PublicStudio>(go);
+  listedEgress = {
+    items: [
+      {
+        egressId: afterGo.egressId,
+        status: "EGRESS_ACTIVE",
+        stream_results: [{ url: YT, status: "ACTIVE", started_at: Date.now() * 1e6, bytes: 4096 }],
+      },
+    ],
+  };
+  const studio = await json<PublicStudio>(
+    await app.request(`https://casthop.test/api/studios/${id}`, { headers: { Cookie: cookie } }, env),
+  );
+  const portraitBody = JSON.stringify({
+    destinations: studio.destinations.map((d) => (d.id === "x" ? { ...d, aspect: "portrait", enabled: true } : d)),
+  });
+  let release!: () => void;
+  const sawStart = new Promise<void>((resolve) => {
+    startRoomCompositeStarted = () => resolve();
+  });
+  startRoomCompositeHold = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  holdNextStartRoomComposite = true;
+  const nextStarts = egressStarts;
+  try {
+    const first = app.request(
+      `https://casthop.test/api/studios/${id}/destinations`,
+      { method: "POST", headers: liveHeaders(cookie), body: portraitBody },
+      env,
+    );
+    await sawStart;
+    const second = await app.request(
+      `https://casthop.test/api/studios/${id}/destinations`,
+      { method: "POST", headers: liveHeaders(cookie), body: portraitBody },
+      env,
+    );
+    release();
+    const firstRes = await first;
+    assert.equal(firstRes.status, 200, await firstRes.clone().text());
+    assert.equal(second.status, 200, await second.clone().text());
+    assert.equal(egressStarts, nextStarts + 1);
+  } finally {
+    release();
+    startRoomCompositeHold = null;
+    startRoomCompositeStarted = null;
+    holdNextStartRoomComposite = false;
+  }
+});

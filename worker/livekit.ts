@@ -219,6 +219,9 @@ export async function startRoomComposite(opts: {
   preset?: number;
 }): Promise<{ egressId: string }> {
   const portrait = opts.layout === PORTRAIT_LAYOUT;
+  if (portrait && !opts.env.EGRESS_TEMPLATE_URL) {
+    throw new Error("9:16 needs a custom Egress template");
+  }
   let layout: string;
   if (opts.layout === PORTRAIT_LAYOUT) {
     layout = PORTRAIT_LAYOUT;

@@ -182,7 +182,7 @@ export function parseRtmpUrl(raw: unknown, opts: { allowLoopback: boolean }): st
 export function sanitizeDestinations(
   incoming: unknown,
   existing: Destination[],
-  opts: { allowLoopback: boolean },
+  opts: { allowLoopback: boolean; allowPortrait?: boolean },
 ): Destination[] | null {
   if (!Array.isArray(incoming) || incoming.length > 16) return null;
   const byId = new Map(existing.map((d) => [d.id, d]));
@@ -205,6 +205,7 @@ export function sanitizeDestinations(
     }
     const urlChanged = url !== (prev?.url || "");
     const aspect: DestAspect = r.aspect === "portrait" || r.aspect === "landscape" ? r.aspect : destAspectOf(prev ?? {});
+    if (aspect === "portrait" && !opts.allowPortrait) return null;
     const aspectChanged = aspect !== destAspectOf(prev ?? {});
     const status: DestStatus = urlChanged || aspectChanged ? "idle" : (prev?.status ?? "idle");
     out.push({

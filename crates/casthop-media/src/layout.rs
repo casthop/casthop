@@ -33,6 +33,7 @@ pub fn fill(n: u32, mode: u32, out: &mut [Rect]) -> usize {
             1
         }
         3 => fill_screen(n, out),
+        4 => fill_portrait(n, out),
         1 if n <= 2 => fill_side(n, out),
         _ => fill_grid(n, out),
     }
@@ -97,6 +98,27 @@ fn fill_grid(n: u32, out: &mut [Rect]) -> usize {
     count
 }
 
+/// Stacked cameras with a reserved captions band at the bottom. Used for 9:16.
+fn fill_portrait(n: u32, out: &mut [Rect]) -> usize {
+    let n = (n as usize).clamp(1, MAX_TILES).min(out.len());
+    if n == 0 {
+        return 0;
+    }
+    const CAPTION: f32 = 0.18;
+    let area_h = 1.0 - CAPTION;
+    let count = n as f32;
+    let th = (area_h - GUTTER * (count - 1.0)) / count;
+    for i in 0..n {
+        out[i] = Rect {
+            x: 0.0,
+            y: i as f32 * (th + GUTTER),
+            w: 1.0,
+            h: th,
+        };
+    }
+    n
+}
+
 fn fill_screen(n: u32, out: &mut [Rect]) -> usize {
     // Keep the old screen(1) behaviour: one main pane plus one camera stack slot.
     let cams = n.saturating_sub(1).clamp(1, 3);
@@ -156,5 +178,18 @@ mod tests {
     #[test]
     fn screen_one_still_has_a_camera_slot() {
         assert_eq!(layout(1, 3).len(), 2);
+    }
+
+    #[test]
+    fn portrait_stacks_and_leaves_caption_band() {
+        let r = layout(3, 4);
+        assert_eq!(r.len(), 3);
+        let bottom = r[2].y + r[2].h;
+        assert!(
+            bottom < 0.84,
+            "cameras must sit above the captions band, got {bottom}"
+        );
+        assert!((r[0].w - 1.0).abs() < f32::EPSILON);
+        assert!(r[1].y > r[0].y);
     }
 }

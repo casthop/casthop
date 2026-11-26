@@ -205,25 +205,34 @@ export async function removeParticipant(env: Env, room: string, identity: string
   await twirp(env, "/twirp/livekit.RoomService/RemoveParticipant", { room, identity });
 }
 
+/** LiveKit `PORTRAIT_H264_720P_30` — 720×1280, one encode for 9:16 destinations. */
+export const PORTRAIT_PRESET = 4;
+export const PORTRAIT_LAYOUT = "portrait";
+
 export async function startRoomComposite(opts: {
   env: Env;
   room: string;
-  layout: LayoutId;
+  layout: LayoutId | typeof PORTRAIT_LAYOUT;
   urls: string[];
-  filepath: string;
+  filepath?: string | null;
   timeoutMs?: number;
+  preset?: number;
 }): Promise<{ egressId: string }> {
-  const layout = opts.env.EGRESS_TEMPLATE_URL ? opts.layout : layoutToEgress(opts.layout);
+  const portrait = opts.layout === PORTRAIT_LAYOUT;
+  let layout: string;
+  if (opts.layout === PORTRAIT_LAYOUT) {
+    layout = PORTRAIT_LAYOUT;
+  } else {
+    layout = opts.env.EGRESS_TEMPLATE_URL ? opts.layout : layoutToEgress(opts.layout);
+  }
   const body: Record<string, unknown> = {
     room_name: opts.room,
     layout,
-    preset: 0,
-    file_outputs: [
-      {
-        filepath: opts.filepath,
-      },
-    ],
+    preset: opts.preset ?? (portrait ? PORTRAIT_PRESET : 0),
   };
+  if (opts.filepath) {
+    body.file_outputs = [{ filepath: opts.filepath }];
+  }
   if (opts.urls.length) {
     body.stream_outputs = [
       {

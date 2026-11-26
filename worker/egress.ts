@@ -1,4 +1,4 @@
-import type { Destination, DestStatus, LivePhase, StudioState } from "./types";
+import { destAspectOf, type DestAspect, type Destination, type DestStatus, type LivePhase, type StudioState } from "./types";
 
 export const WATCH_MS = 3_000;
 export const EMPTY_GRACE_MS = 45_000;
@@ -153,11 +153,13 @@ export function isForeignEgress(
   status: EgressHealth,
   wantLive = true,
   abandoned: readonly string[] = [],
+  extraOwned: readonly (string | null | undefined)[] = [],
 ): boolean {
   if (abandoned.includes(infoId)) return true;
-  if (!wantLive) return isActiveHealth(status) || infoId !== ownedId;
-  if (infoId === ownedId) return false;
-  if (ownedId) return true;
+  const owned = [ownedId, ...extraOwned].filter((id): id is string => Boolean(id));
+  if (!wantLive) return isActiveHealth(status) || !owned.includes(infoId);
+  if (owned.includes(infoId)) return false;
+  if (owned.length) return true;
   return !isRunningHealth(status);
 }
 
@@ -191,8 +193,30 @@ export function publicError(raw: string | null | undefined): string | null {
   return cleaned.slice(0, 140);
 }
 
-export function enabledUrls(destinations: Destination[]): string[] {
-  return destinations.filter((d) => d.enabled && d.url).map((d) => d.url);
+export function destsForAspect(destinations: Destination[], aspect: DestAspect): Destination[] {
+  return destinations.filter((d) => destAspectOf(d) === aspect);
+}
+
+export function enabledUrls(destinations: Destination[], aspect?: DestAspect): string[] {
+  return destinations
+    .filter((d) => d.enabled && d.url && (aspect == null || destAspectOf(d) === aspect))
+    .map((d) => d.url);
+}
+
+export function outputPhase(
+  destinations: readonly { aspect?: string | null; enabled: boolean; url?: string; status: DestStatus }[],
+  aspect: DestAspect,
+): DestStatus | "off" {
+  const rows = destinations.filter((d) => destAspectOf(d) === aspect && d.enabled && d.url);
+  if (!rows.length) return "off";
+  if (rows.some((d) => d.status === "live")) return "live";
+  if (rows.some((d) => d.status === "retrying")) return "retrying";
+  if (rows.some((d) => d.status === "failed") && rows.every((d) => d.status === "failed" || d.status === "idle")) {
+    return "failed";
+  }
+  if (rows.some((d) => d.status === "connecting")) return "connecting";
+  if (rows.some((d) => d.status === "stopped")) return "stopped";
+  return "idle";
 }
 
 /** LiveKit `RedactIdentifier`: keep up to 3 prefix/suffix chars when the key is long enough. */
@@ -318,8 +342,14 @@ function matchStreamForDest(dest: Destination, streams: StreamResult[], used: Se
   return streams[first];
 }
 
-export function setDestStatuses(destinations: Destination[], status: DestStatus, error: string | null = null): void {
+export function setDestStatuses(
+  destinations: Destination[],
+  status: DestStatus,
+  error: string | null = null,
+  aspect?: DestAspect,
+): void {
   for (const d of destinations) {
+    if (aspect && destAspectOf(d) !== aspect) continue;
     if (!d.enabled || !d.url) {
       d.status = "idle";
       d.error = null;
@@ -565,12 +595,16 @@ export function pickActiveEgress(
   knownId: string | null,
   abandoned: readonly string[] = [],
 ): ParsedEgress | null {
-  const skip = new Set(abandoned);
+  const skip = new Set(abandoned.filter(Boolean));
   if (knownId && !skip.has(knownId)) {
     const known = items.find((e) => e.egressId === knownId);
     if (known && isRunningHealth(known.status)) return known;
   }
   return items.find((e) => isRunningHealth(e.status) && !skip.has(e.egressId)) ?? null;
+}
+
+export function skipIds(abandoned: readonly string[] | undefined, ...extra: Array<string | null | undefined>): string[] {
+  return [...(abandoned ?? []), ...extra.filter((id): id is string => Boolean(id))];
 }
 
 /** True when this stream has actually sent output. started_at needs a settle unless duration/bytes. */
@@ -625,10 +659,13 @@ export function normalizeStudio(state: StudioState): StudioState {
     egressRecoveringSince: state.egressRecoveringSince ?? null,
     abandonedEgressIds: state.abandonedEgressIds ?? [],
     egressHeartbeatAt: state.egressHeartbeatAt ?? null,
+    portraitEgressId: state.portraitEgressId ?? null,
+    portraitHeartbeatAt: state.portraitHeartbeatAt ?? null,
     emptySince: state.emptySince ?? null,
     pinnedChat: state.pinnedChat ?? null,
     destinations: state.destinations.map((d) => ({
       ...d,
+      aspect: destAspectOf(d),
       status: d.status ?? (state.live && d.enabled ? "live" : "idle"),
       error: d.error ?? null,
       retryCount: d.retryCount ?? 0,

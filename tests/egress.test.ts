@@ -3,9 +3,10 @@ import { after, before, test } from "node:test";
 import { app, StudioDurableObject } from "../worker/index.ts";
 import { DEV_API_KEY, DEV_API_SECRET, SESSION_COOKIE } from "../worker/security.ts";
 import { FakeD1 } from "./fake-d1.ts";
-import { mintApiToken, mintParticipantToken, signLivekitWebhook, startRoomComposite } from "../worker/livekit.ts";
+import { mintApiToken, mintParticipantToken, PORTRAIT_LAYOUT, PORTRAIT_PRESET, signLivekitWebhook, startRoomComposite } from "../worker/livekit.ts";
 import {
   applyStreamResults,
+  destsForAspect,
   beginRecovery,
   egressIsProducing,
   egressOutputStarted,
@@ -14,6 +15,7 @@ import {
   heartbeatLost,
   isForeignEgress,
   livePhaseOf,
+  outputPhase,
   MAX_STREAM_RETRIES,
   nextBackoffMs,
   parseEgressInfo,
@@ -28,7 +30,7 @@ import {
   nextWatchMs,
   OUTPUT_SETTLE_MS,
 } from "../worker/egress.ts";
-import type { Destination, Env, PublicStudio, StudioState } from "../worker/types.ts";
+import { destAspectOf, type Destination, type Env, type PublicStudio, type StudioState } from "../worker/types.ts";
 
 const YT = "rtmp://ingest.example.com/live/super-secret-youtube-key";
 const LI = "rtmp://ingest.example.com/live/super-secret-linkedin-key";
@@ -37,6 +39,7 @@ const X = "rtmp://ingest.example.com/live/super-secret-x-key";
 let egressStarts = 0;
 let egressStops = 0;
 let streamUpdates = 0;
+const startBodies: Record<string, unknown>[] = [];
 let listedParticipants: { identity: string }[] = [{ identity: "host" }];
 let listedEgress: unknown = { items: [] };
 let listEgressHold: Promise<void> | null = null;
@@ -217,8 +220,16 @@ before(() => {
         ]);
       }
       if (startRoomCompositeFail) return new Response(`cannot publish ${YT}`, { status: 500 });
-      const body = JSON.parse(String(init?.body ?? "{}")) as { stream_outputs?: { urls?: string[] }[] };
-      assert.ok((body.stream_outputs?.[0]?.urls?.length ?? 0) >= 1, "fan-out must send RTMP urls");
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        stream_outputs?: { urls?: string[] }[];
+        file_outputs?: { filepath?: string }[];
+        layout?: string;
+        preset?: number;
+      };
+      startBodies.push(body);
+      const urls = body.stream_outputs?.[0]?.urls ?? [];
+      const files = body.file_outputs ?? [];
+      assert.ok(urls.length >= 1 || files.length >= 1, "egress needs RTMP or a recording");
       return new Response(JSON.stringify({ egress_id: `eg_${egressStarts}` }), { status: 200 });
     }
     if (url.includes("StopEgress")) {
@@ -1749,4 +1760,130 @@ test("StartRoomComposite timeout is bounded by the remaining recovery budget", a
     startRoomCompositeStarted = null;
     holdNextStartRoomComposite = false;
   }
+});
+
+test("outputPhase is off when no destination uses that size", () => {
+  const dests: Destination[] = [
+    { id: "youtube", kind: "youtube", label: "YouTube", detail: "", url: YT, enabled: true, status: "live", error: null, aspect: "landscape" },
+    { id: "custom", kind: "custom", label: "TikTok", detail: "", url: "rtmp://ingest.example.com/live/tiktok-key", enabled: false, status: "idle", error: null, aspect: "portrait" },
+  ];
+  assert.equal(outputPhase(dests, "landscape"), "live");
+  assert.equal(outputPhase(dests, "portrait"), "off");
+});
+
+test("isForeignEgress treats a second owned compositor as ours", () => {
+  assert.equal(isForeignEgress("EG_land", "EG_port", "active", true, [], ["EG_port"]), false);
+  assert.equal(isForeignEgress("EG_land", "EG_other", "active", true, [], ["EG_port"]), true);
+});
+
+test("applyStreamResults on landscape dests leaves portrait dests alone", () => {
+  const dests: Destination[] = [
+    { id: "youtube", kind: "youtube", label: "YouTube", detail: "", url: YT, enabled: true, status: "connecting", error: null, aspect: "landscape" },
+    { id: "custom", kind: "custom", label: "TikTok", detail: "", url: "rtmp://ingest.example.com/live/tiktok-key", enabled: true, status: "connecting", error: null, aspect: "portrait" },
+  ];
+  applyStreamResults(
+    destsForAspect(dests, "landscape"),
+    [{ url: YT, status: "active", error: "", startedAt: 1_700_000_000_000, bytes: 4096 }],
+    true,
+    Date.now(),
+    true,
+  );
+  assert.equal(dests[0]?.status, "live");
+  assert.equal(dests[1]?.status, "connecting");
+});
+
+test("go live with a 9:16 destination starts a second portrait compositor", async () => {
+  listedParticipants = [{ identity: "host" }];
+  listedEgress = { items: [] };
+  const env = makeEnv();
+  const { id, cookie } = await createStudio(env);
+  const studio = await json<PublicStudio>(
+    await app.request(`https://casthop.test/api/studios/${id}`, { headers: { Cookie: cookie } }, env),
+  );
+  const patched = await app.request(
+    `https://casthop.test/api/studios/${id}/destinations`,
+    {
+      method: "POST",
+      headers: liveHeaders(cookie),
+      body: JSON.stringify({
+        destinations: studio.destinations.map((d) =>
+          d.id === "custom"
+            ? { ...d, url: "rtmp://ingest.example.com/live/tiktok-key", enabled: true, aspect: "portrait" }
+            : { ...d, aspect: "landscape", enabled: d.id === "youtube" },
+        ),
+      }),
+    },
+    env,
+  );
+  assert.equal(patched.status, 200, await patched.clone().text());
+  const saved = await json<PublicStudio>(patched);
+  assert.equal(saved.destinations.find((d) => d.id === "custom")?.aspect, "portrait");
+  assert.equal(destAspectOf(saved.destinations.find((d) => d.id === "youtube") ?? {}), "landscape");
+
+  startBodies.length = 0;
+  const starts = egressStarts;
+  const go = await app.request(
+    `https://casthop.test/api/studios/${id}/live`,
+    { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
+    env,
+  );
+  assert.equal(go.status, 200, await go.clone().text());
+  assert.equal(egressStarts, starts + 2);
+  const land = startBodies.find((b) => b.layout !== PORTRAIT_LAYOUT);
+  const port = startBodies.find((b) => b.layout === PORTRAIT_LAYOUT);
+  assert.ok(land);
+  assert.ok(port);
+  assert.equal(port.preset, PORTRAIT_PRESET);
+  assert.equal(Array.isArray(port.file_outputs), false);
+  const landUrls = (land.stream_outputs as { urls?: string[] }[] | undefined)?.[0]?.urls ?? [];
+  const portUrls = (port.stream_outputs as { urls?: string[] }[] | undefined)?.[0]?.urls ?? [];
+  assert.ok(landUrls.some((u) => u.includes("youtube")));
+  assert.ok(portUrls.some((u) => u.includes("tiktok-key")));
+  assert.equal(landUrls.some((u) => u.includes("tiktok-key")), false);
+});
+
+test("switching a live destination to 9:16 starts portrait egress", async () => {
+  listedParticipants = [{ identity: "host" }, { identity: "EG_abc" }];
+  listedEgress = { items: [] };
+  const env = makeEnv();
+  const { id, cookie } = await createStudio(env);
+  const starts = egressStarts;
+  const go = await app.request(
+    `https://casthop.test/api/studios/${id}/live`,
+    { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
+    env,
+  );
+  assert.equal(go.status, 200, await go.clone().text());
+  assert.equal(egressStarts, starts + 1);
+  const afterGo = await json<PublicStudio>(go);
+  listedEgress = {
+    items: [
+      {
+        egressId: afterGo.egressId,
+        status: "EGRESS_ACTIVE",
+        stream_results: [{ url: YT, status: "ACTIVE", started_at: Date.now() * 1e6, bytes: 4096 }],
+      },
+    ],
+  };
+  const studio = await json<PublicStudio>(
+    await app.request(`https://casthop.test/api/studios/${id}`, { headers: { Cookie: cookie } }, env),
+  );
+  startBodies.length = 0;
+  const nextStarts = egressStarts;
+  const switched = await app.request(
+    `https://casthop.test/api/studios/${id}/destinations`,
+    {
+      method: "POST",
+      headers: liveHeaders(cookie),
+      body: JSON.stringify({
+        destinations: studio.destinations.map((d) =>
+          d.id === "x" ? { ...d, aspect: "portrait", enabled: true } : d,
+        ),
+      }),
+    },
+    env,
+  );
+  assert.equal(switched.status, 200, await switched.clone().text());
+  assert.equal(egressStarts, nextStarts + 1);
+  assert.equal(startBodies.at(-1)?.layout, PORTRAIT_LAYOUT);
 });

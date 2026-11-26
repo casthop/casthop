@@ -381,11 +381,13 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
         const blob = JSON.stringify(s);
         if (who === "owner" || who === "cohost") {
           assert.equal(s.destinations.find((d) => d.id === "youtube")?.url, YT);
+          assert.equal(s.destinations.find((d) => d.id === "youtube")?.aspect, "landscape");
           assert.ok(s.viewerRole === "owner" || s.viewerRole === "cohost");
         } else {
           assert.equal(blob.includes(YT), false);
           assert.equal(blob.includes("super-secret"), false);
           assert.equal(s.destinations[0]?.url, undefined);
+          assert.equal(s.destinations[0]?.aspect, "landscape");
           assert.equal(s.viewerRole, "guest");
         }
       },

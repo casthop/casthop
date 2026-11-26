@@ -5,7 +5,7 @@ group: Operate
 order: 5
 ---
 
-A destination is an RTMP URL. Casthop sends the same composite to every destination at once, using one transcode in Egress.
+A destination is an RTMP URL. Each destination picks **16:9** (the program) or **9:16** (a second stacked composite). Destinations that share an aspect share one Egress encode.
 
 ## Local stand-ins
 
@@ -23,7 +23,9 @@ For production, replace these with real YouTube, LinkedIn and X ingest URLs. Cas
 
 ## Status, Live, and recovery
 
-Each destination row shows its own RTMP status (`connecting`, `live`, `retrying`, `failed`). The studio Live pill stays on Starting until Egress is producing: stream bytes or duration, or a short settle after RTMP `started_at`. It does not flip to Live just because the compositor process exists.
+Each destination row shows its own RTMP status (`connecting`, `live`, `retrying`, `failed`). The Destinations panel also shows 16:9 and 9:16 output status separately. The studio Live pill stays on Starting until Egress is producing: stream bytes or duration, or a short settle after RTMP `started_at`. It does not flip to Live just because the compositor process exists.
+
+Mark a destination 9:16 for TikTok, YouTube Shorts, or Instagram Reels ingest. The 16:9 layout (solo / side / screen) is unchanged. Vertical uses its own stacked-camera layout with a captions band. Guests still publish once.
 
 If Egress or a stream drops, the studio retries with backoff. This relies on signed LiveKit webhooks, see [Self-hosting](/docs/self-hosting).
 

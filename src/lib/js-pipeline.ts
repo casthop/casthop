@@ -58,6 +58,14 @@ export function jsLayout(n: number, mode: number): JsRect[] {
     for (let i = 0; i < cams; i++) out.push({ x: stackX, y: i * (ch + g), w: stackW, h: ch });
     return out;
   }
+  if (mode === 4) {
+    const caption = 0.18;
+    const areaH = 1 - caption;
+    const th = (areaH - g * (count - 1)) / count;
+    const stacked: JsRect[] = [];
+    for (let i = 0; i < count; i++) stacked.push({ x: 0, y: i * (th + g), w: 1, h: th });
+    return stacked;
+  }
   if (mode === 1 && count <= 2) {
     const w = (1 - g) / 2;
     return [

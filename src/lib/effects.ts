@@ -1,10 +1,17 @@
 import workletUrl from "../worklets/denoise-processor.js?url";
+import { fxFromSearch, type FxBackend } from "./fx";
 import { loadWasmBytes } from "./wasm";
 
-export type FxBackend = "wasm" | "js" | "off";
+export type { FxBackend };
+export { fxFromSearch, fxBackendForDenoise } from "./fx";
 
 export type MediaPipeline = {
   process(stream: MediaStream): Promise<MediaStream>;
+};
+
+export type PipelineHandle = {
+  stream: MediaStream;
+  close: () => void;
 };
 
 export type Meter = {
@@ -15,10 +22,14 @@ export type Meter = {
 
 const liveContexts: AudioContext[] = [];
 
-export function fxFromSearch(search = location.search): FxBackend {
-  const v = new URLSearchParams(search).get("fx");
-  if (v === "js" || v === "off" || v === "wasm") return v;
-  return "wasm";
+function passthrough(stream: MediaStream): PipelineHandle {
+  return { stream, close: () => undefined };
+}
+
+function dropContext(ctx: AudioContext): void {
+  const i = liveContexts.indexOf(ctx);
+  if (i >= 0) liveContexts.splice(i, 1);
+  void ctx.close();
 }
 
 export const passthroughPipeline: MediaPipeline = {
@@ -31,14 +42,16 @@ export const passthroughPipeline: MediaPipeline = {
  * Noise suppression + VAD before LiveKit publish.
  * WASM path: RNNoise (nnnoiseless) in an AudioWorklet.
  * JS path: DC-remove + noise gate in the same worklet (comparison).
+ * Call `close()` when swapping tracks so Chrome does not hit its AudioContext limit.
  */
-export async function processWithPipeline(stream: MediaStream, backend: FxBackend = fxFromSearch()): Promise<MediaStream> {
-  if (backend === "off") return stream;
+export async function processWithPipeline(stream: MediaStream, backend: FxBackend = fxFromSearch()): Promise<PipelineHandle> {
+  if (backend === "off") return passthrough(stream);
   const audio = stream.getAudioTracks()[0];
   const video = stream.getVideoTracks();
-  if (!audio) return stream;
+  if (!audio) return passthrough(stream);
+  let ctx: AudioContext | undefined;
   try {
-    const ctx = new AudioContext({ sampleRate: 48000, latencyHint: "interactive" });
+    ctx = new AudioContext({ sampleRate: 48000, latencyHint: "interactive" });
     liveContexts.push(ctx);
     await ctx.audioWorklet.addModule(workletUrl);
     const src = ctx.createMediaStreamSource(new MediaStream([audio]));
@@ -59,16 +72,34 @@ export async function processWithPipeline(stream: MediaStream, backend: FxBacken
     src.connect(node).connect(dest);
     if (ctx.state === "suspended") await ctx.resume();
     const processed = dest.stream.getAudioTracks()[0];
-    if (!processed) return stream;
-    return new MediaStream([...video, processed]);
+    if (!processed) {
+      node.disconnect();
+      src.disconnect();
+      dropContext(ctx);
+      return passthrough(stream);
+    }
+    let closed = false;
+    const live = ctx;
+    return {
+      stream: new MediaStream([...video, processed]),
+      close: () => {
+        if (closed) return;
+        closed = true;
+        node.disconnect();
+        src.disconnect();
+        processed.stop();
+        dropContext(live);
+      },
+    };
   } catch (err) {
+    if (ctx) dropContext(ctx);
     console.warn("casthop pipeline fallback", err);
-    return stream;
+    return passthrough(stream);
   }
 }
 
 export const mediaPipeline: MediaPipeline = {
-  process: (stream) => processWithPipeline(stream),
+  process: async (stream) => (await processWithPipeline(stream)).stream,
 };
 
 export function attachWorkletMeter(stream: MediaStream, backend: FxBackend = fxFromSearch()): Promise<Meter> {

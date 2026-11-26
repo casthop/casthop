@@ -205,6 +205,10 @@ test("offthread compose uses OffscreenCanvas and VideoFrame transfer", () => {
 
 test("vite enables the React Compiler", () => {
   const src = readFileSync(join(root, "vite.config.ts"), "utf8");
-  assert.match(src, /babel-plugin-react-compiler/);
+  assert.match(src, /reactCompilerPreset/);
+  assert.match(src, /@rolldown\/plugin-babel/);
   assert.match(src, /target: "19"/);
+  assert.match(src, /skipReact/);
+  assert.match(src, /workers/);
+  assert.match(src, /worklets/);
 });

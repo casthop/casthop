@@ -36,7 +36,7 @@ Point LiveKit `webhook.urls` at:
 https://<worker>/api/livekit/webhook
 ```
 
-The webhooks are signed. This is how Egress crashes and RTMP drops reach the studio so it can retry.
+The webhooks are signed. This is how Egress crashes and RTMP drops reach the studio so it can retry. The Live pill waits for real output (bytes/duration or a short RTMP settle) before showing Live.
 
 ## 4. Deploy the Worker
 
@@ -66,6 +66,6 @@ Sign-in is an email magic link. By default the link is logged to the Worker cons
 
 Point destination URLs at real YouTube, LinkedIn and X ingest. See [Destinations](/docs/destinations). After a show, package the Egress MP4 with `casthop-post hls` and `POST /api/studios/:id/replays`. Private replays are owner/co-host only; public ones play from `/watch/:id` as HLS from R2.
 
-## What this prototype does not cover
+## What this tree does not cover
 
-This is a working prototype. TURN is on the roadmap, not shipped. Measure your own setup before relying on it.
+TURN for guests behind strict NAT is not shipped. YouTube Live chat ingest is optional (Worker secrets); X and LinkedIn comments are not wired. Camera blur, off-thread Canvas2D compose, Live-when-producing, Egress crash retry, and the R2 replay viewer are. Measure your own setup before relying on it. Env vars: [Configuration](/docs/configuration).

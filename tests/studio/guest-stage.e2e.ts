@@ -34,9 +34,11 @@ describe("guest invite and stage", { session: "host" }, () => {
     await guest.getByText("Backstage — waiting for the host").waitFor({ timeout: 60_000 });
 
     await expect(screen.getByRole("button", "Ada")).toBeVisible({ timeout: 30_000 });
+    await expect(screen.getByRole("heading", "Backstage · 1")).toBeVisible();
     await screen.getByRole("button", "Ada").click();
 
     await expect(screen.getByRole("button", "Ada · on stage")).toBeVisible({ timeout: 30_000 });
+    await expect(screen.getByRole("heading", "Backstage · 0")).toBeVisible();
     await guest.getByText("You are on stage").waitFor({ timeout: 30_000 });
   });
 });

@@ -54,7 +54,7 @@ Workers / D1 / DO stay inside the $5 account floor at this volume **(estimate, m
 
 ## 4. Rust / WASM vs JS
 
-Bundle: `src/wasm/casthop_media.wasm` is **383.7 KiB** (392,879 bytes), zero imports, loads in AudioWorklets and Workers. The WebGPU compositor is a second module, `casthop_gpu_bg.wasm` **33.0 KiB** (33,777 bytes) plus `casthop_gpu.js` **29.1 KiB**, loaded only when `?compose=webgpu`. Chrome `/internal/bench` and Bun `bun run bench:wasm` agree. The selfie-segmenter model (245 KiB, Apache-2.0) and MediaPipe vision WASM load only when blur is on.
+Bundle: `src/wasm/casthop_media.wasm` is **382.8 KiB** (392,038 bytes), zero imports, loads in AudioWorklets and Workers. The WebGPU compositor is a second module, `casthop_gpu_bg.wasm` **32.7 KiB** (33,532 bytes) plus `casthop_gpu.js` **29.1 KiB**, loaded only when `?compose=webgpu`. Chrome `/internal/bench` and Bun `bun run bench:wasm` agree. The selfie-segmenter model (245 KiB, Apache-2.0) and MediaPipe vision WASM load only when blur is on.
 
 | Path | WASM | JS | JS/WASM | What this actually compares |
 |---|---|---|---|---|
@@ -104,14 +104,14 @@ What broke / was hard:
 - Default Egress output dir is uid 1001; `data/recordings` needs to be writable (`chmod 777` locally).
 - MediaMTX 1.21 HLS index 404s even while RTMP is up. Proof is `ffprobe` on the RTMP URL + the Egress MP4.
 - Host Docker networking is the Linux ICE story; Docker Desktop needs a different compose.
-- Latest `nnnoiseless` / `wasm-pack` on crates.io want Rust 1.85+ / edition 2024. This repo vendors nnnoiseless 0.5.1 (BSD-3) and builds with `wasm-bindgen-cli` 0.2.100 + rustc 1.83.
+- Latest `nnnoiseless` / `wasm-pack` on crates.io want edition 2024. This repo vendors nnnoiseless 0.5.1 (BSD-3) and builds with `wasm-bindgen-cli` 0.2.100 + rustc 1.100.
 - `lk --no-subscribe` is not a flag on livekit-cli 2.20 (default is already no auto-subscribe).
 
 What next (called out by the product-owner Rust/WASM direction, not done in v0):
 
 - Audio **VAD-driven** UI (worklet already posts VAD; studio chrome doesn’t show it yet).
 - Dedicated Rust **RTMP fan-out** if we leave Cloudflare Stream unused in production (`casthop-post` is inspect/remux/HLS).
-- TURN.
+- TURN. YouTube Live chat ingest ships (poll while live; pin overlay). X and LinkedIn comments are not wired.
 
 Camera background blur ships: WASM mix + lazy MediaPipe selfie segmenter (toggle in the studio; `?fx=js` for the JS mix). Rust WebGPU compositor ships behind `?compose=webgpu`; Canvas2D stays the live default and runs in a Worker when `OffscreenCanvas` + `MediaStreamTrackProcessor` are present.
 

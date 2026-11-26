@@ -50,8 +50,10 @@ class CasthopDenoiseProcessor extends AudioWorkletProcessor {
     const output = outputs[0]?.[0];
     if (!output) return true;
     if (!input || !this.ready || this.backend === "off") {
-      if (input) output.set(input);
-      else output.fill(0);
+      if (input) {
+        output.set(input);
+        if (this.ready && this.backend === "off") this.emitMeter(input, 0);
+      } else output.fill(0);
       return true;
     }
 

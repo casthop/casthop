@@ -1,0 +1,50 @@
+name: Bug report
+description: Something is not working.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security issues go to [private vulnerability reporting](https://github.com/casthop/casthop/security/advisories/new), not here.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: dropdown
+    id: role
+    attributes:
+      label: Who was signed in
+      options:
+        - Owner / host
+        - Co-host
+        - Guest
+        - Signed out
+        - Self-host operator
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: Browser, OS, `bun run dev` vs a deployed Worker, compose or not.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Worker console, browser console, or Egress logs. Strip stream keys.
+      render: text

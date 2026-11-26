@@ -70,7 +70,7 @@ import {
 } from "./auth";
 import { destChatConfigured } from "./chat-ingest";
 import {
-  applyReplayBytes,
+  applyReplayUsage,
   canViewReplay,
   contentLengthOver,
   deleteReplayPrefix,
@@ -290,10 +290,13 @@ app.post("/api/studios/:id/replays", async (c) => {
   const replayId = newReplayId();
   try {
     let bytes = 0;
+    let files = 0;
     if (ingested.files.length) {
-      const quota = await replayWouldExceedQuota(c.env, id, replayId, 0, ingested.files);
+      const quota = await replayWouldExceedQuota(c.env, id, replayId, { bytes: 0, files: 0 }, ingested.files);
       if (quota) return c.json({ error: quota }, 400);
-      bytes = await putReplayFiles(c.env, id, replayId, ingested.files);
+      const written = await putReplayFiles(c.env, id, replayId, ingested.files);
+      bytes = written.bytes;
+      files = written.files;
     }
     const row: ReplayRecord = {
       id: replayId,
@@ -303,6 +306,7 @@ app.post("/api/studios/:id/replays", async (c) => {
       durationMs: ingested.durationMs,
       createdAt: Date.now(),
       bytes,
+      files,
     };
     await insertReplay(c.env.DB, row);
     return c.json(publicReplay(row, true));
@@ -346,12 +350,12 @@ app.put("/api/studios/:id/replays/:rid/hls/:file", async (c) => {
   }
   const bytes = new Uint8Array(await c.req.arrayBuffer());
   const files = [{ name: file, bytes }];
-  const quota = await replayWouldExceedQuota(c.env, id, rid, replay.bytes, files);
+  const quota = await replayWouldExceedQuota(c.env, id, rid, replay, files);
   if (quota) return c.json({ error: quota }, 400);
   try {
-    const delta = await putReplayFiles(c.env, id, rid, files);
-    const nextBytes = await applyReplayBytes(c.env, rid, delta);
-    return c.json(publicReplay({ ...replay, bytes: nextBytes }, true));
+    const written = await putReplayFiles(c.env, id, rid, files);
+    const next = await applyReplayUsage(c.env, rid, written.bytes, written.files);
+    return c.json(publicReplay({ ...replay, bytes: next.bytes, files: next.files }, true));
   } catch (err) {
     const status = errorStatus(err);
     if (status === 400) return c.json({ error: err instanceof Error ? err.message : "invalid file" }, 400);

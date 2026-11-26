@@ -268,8 +268,17 @@ export class FakeD1 implements D1Database {
       return { results: [], changes: 1 };
     }
     if (q === norm(Q.insertReplay)) {
-      const [id, studio_id, title, visibility, duration_ms, created_at, bytes] = binds;
-      this.rows("replays").push({ id, studio_id, title, visibility, duration_ms, created_at, bytes });
+      const [id, studio_id, title, visibility, duration_ms, created_at, bytes, files] = binds;
+      this.rows("replays").push({
+        id,
+        studio_id,
+        title,
+        visibility,
+        duration_ms,
+        created_at,
+        bytes,
+        files: files ?? 0,
+      });
       return { results: [], changes: 1 };
     }
     if (q === norm(Q.replayById)) {
@@ -309,12 +318,13 @@ export class FakeD1 implements D1Database {
       }
       return { results: [], changes: 1 };
     }
-    if (q === norm(Q.addReplayBytes)) {
-      const [delta, id] = binds;
+    if (q === norm(Q.addReplayUsage)) {
+      const [bytesDelta, filesDelta, id] = binds;
       const row = this.rows("replays").find((r) => r.id === id);
       if (!row) return { results: [], changes: 0 };
-      row.bytes = Math.max(0, Number(row.bytes) + Number(delta));
-      return { results: [{ bytes: row.bytes }], changes: 1 };
+      row.bytes = Math.max(0, Number(row.bytes) + Number(bytesDelta));
+      row.files = Math.max(0, Number(row.files ?? 0) + Number(filesDelta));
+      return { results: [{ bytes: row.bytes, files: row.files }], changes: 1 };
     }
     if (q === norm(Q.bumpRate)) {
       const [key, nowBind, , windowBind] = binds;

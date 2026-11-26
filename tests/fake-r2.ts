@@ -93,6 +93,7 @@ class FakeR2ObjectBody extends FakeR2Object implements R2ObjectBody {
 
 export class FakeR2 implements R2Bucket {
   private readonly objects = new Map<string, Stored>();
+  listCalls = 0;
 
   async head(key: string): Promise<R2Object | null> {
     const stored = this.objects.get(key);
@@ -122,6 +123,7 @@ export class FakeR2 implements R2Bucket {
   }
 
   async list(options?: R2ListOptions): Promise<R2Objects> {
+    this.listCalls += 1;
     const prefix = options?.prefix ?? "";
     const limit = Math.min(options?.limit ?? 1000, 1000);
     let keys = [...this.objects.keys()].filter((k) => k.startsWith(prefix)).sort();

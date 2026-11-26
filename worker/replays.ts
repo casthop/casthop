@@ -1,5 +1,5 @@
 import type { Account, Env, PublicReplay, ReplayRecord, ReplayVisibility } from "./types";
-import { addReplayBytes } from "./db";
+import { addReplayUsage } from "./db";
 import { asName, randomId } from "./security";
 import { hostAuth } from "./auth";
 
@@ -117,27 +117,6 @@ export function decodeReplayFile(file: ReplayFileInput): Uint8Array | null {
   return new TextEncoder().encode(file.content);
 }
 
-async function listReplayPrefix(
-  env: Env,
-  prefix: string,
-  max = MAX_REPLAY_OBJECTS + 1,
-): Promise<{ objects: { key: string; size: number }[]; truncated: boolean }> {
-  const objects: { key: string; size: number }[] = [];
-  let cursor: string | undefined;
-  for (;;) {
-    const listed = await env.RECORDINGS.list(
-      cursor ? { prefix, limit: R2_LIST_LIMIT, cursor } : { prefix, limit: R2_LIST_LIMIT },
-    );
-    for (const obj of listed.objects) {
-      objects.push({ key: obj.key, size: obj.size });
-      if (objects.length >= max) return { objects, truncated: true };
-    }
-    if (!listed.truncated) return { objects, truncated: false };
-    cursor = listed.cursor;
-    if (!cursor) return { objects, truncated: true };
-  }
-}
-
 export async function deleteReplayPrefix(env: Env, studioId: string, replayId: string): Promise<void> {
   const prefix = replayPrefix(studioId, replayId);
   let cursor: string | undefined;
@@ -154,22 +133,25 @@ export async function deleteReplayPrefix(env: Env, studioId: string, replayId: s
   }
 }
 
+function latestReplayFiles(files: { name: string; bytes: Uint8Array }[]): { name: string; bytes: Uint8Array }[] {
+  const latest = new Map<string, Uint8Array>();
+  for (const file of files) latest.set(file.name, file.bytes);
+  return [...latest].map(([name, bytes]) => ({ name, bytes }));
+}
+
 export async function replayWouldExceedQuota(
   env: Env,
   studioId: string,
   replayId: string,
-  currentBytes: number,
+  current: { bytes: number; files: number },
   files: { name: string; bytes: Uint8Array }[],
 ): Promise<string | null> {
-  const listed = await listReplayPrefix(env, replayPrefix(studioId, replayId));
-  const existing = new Map(listed.objects.map((obj) => [obj.key, obj.size]));
-  let nextCount = listed.truncated ? MAX_REPLAY_OBJECTS + 1 : existing.size;
-  let nextBytes = currentBytes;
-  for (const file of files) {
-    const key = replayObjectKey(studioId, replayId, file.name);
-    const prev = existing.get(key);
-    if (prev === undefined) nextCount += 1;
-    nextBytes += file.bytes.byteLength - (prev ?? 0);
+  let nextCount = current.files;
+  let nextBytes = current.bytes;
+  for (const file of latestReplayFiles(files)) {
+    const prev = await env.RECORDINGS.head(replayObjectKey(studioId, replayId, file.name));
+    if (!prev) nextCount += 1;
+    nextBytes += file.bytes.byteLength - (prev?.size ?? 0);
   }
   if (nextCount > MAX_REPLAY_OBJECTS) return "too many files";
   if (nextBytes > MAX_REPLAY_BYTES) return "replay too large";
@@ -181,11 +163,12 @@ export async function putReplayFiles(
   studioId: string,
   replayId: string,
   files: { name: string; bytes: Uint8Array }[],
-): Promise<number> {
+): Promise<{ bytes: number; files: number }> {
   if (files.length === 0 || files.length > MAX_FILES) {
     throw Object.assign(new Error("invalid files"), { status: 400 });
   }
-  let total = 0;
+  let bytes = 0;
+  let added = 0;
   const playlist = files.find((f) => f.name === HLS_INDEX);
   if (playlist) {
     const err = playlistError(new TextDecoder().decode(playlist.bytes));
@@ -202,9 +185,10 @@ export async function putReplayFiles(
     await env.RECORDINGS.put(key, file.bytes, {
       httpMetadata: { contentType: hlsContentType(file.name) },
     });
-    total += file.bytes.byteLength - prevSize;
+    bytes += file.bytes.byteLength - prevSize;
+    if (!prev) added += 1;
   }
-  return total;
+  return { bytes, files: added };
 }
 
 export async function serveReplayObject(env: Env, replay: ReplayRecord, file: string): Promise<Response> {
@@ -273,8 +257,13 @@ export function ingestFilesFromBody(
   return { title, visibility, durationMs, files };
 }
 
-export async function applyReplayBytes(env: Env, replayId: string, delta: number): Promise<number> {
-  return addReplayBytes(env.DB, replayId, delta);
+export async function applyReplayUsage(
+  env: Env,
+  replayId: string,
+  bytesDelta: number,
+  filesDelta: number,
+): Promise<{ bytes: number; files: number }> {
+  return addReplayUsage(env.DB, replayId, bytesDelta, filesDelta);
 }
 
 function jsonError(error: string, status: 400 | 404): Response {

@@ -64,7 +64,8 @@ export const SCHEMA = [
     visibility TEXT NOT NULL,
     duration_ms INTEGER,
     created_at INTEGER NOT NULL,
-    bytes INTEGER NOT NULL
+    bytes INTEGER NOT NULL,
+    files INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS replays_studio ON replays(studio_id, created_at)`,
 ] as const;
@@ -109,13 +110,13 @@ export const Q = {
   bumpRate:
     "INSERT INTO rate_limits (key, count, window_start) VALUES (?, 1, ?) ON CONFLICT(key) DO UPDATE SET count = CASE WHEN ? - window_start > ? THEN 1 ELSE count + 1 END, window_start = CASE WHEN ? - window_start > ? THEN ? ELSE window_start END RETURNING count",
   insertReplay:
-    "INSERT INTO replays (id, studio_id, title, visibility, duration_ms, created_at, bytes) VALUES (?, ?, ?, ?, ?, ?, ?)",
-  replayById: "SELECT id, studio_id, title, visibility, duration_ms, created_at, bytes FROM replays WHERE id = ?",
+    "INSERT INTO replays (id, studio_id, title, visibility, duration_ms, created_at, bytes, files) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  replayById: "SELECT id, studio_id, title, visibility, duration_ms, created_at, bytes, files FROM replays WHERE id = ?",
   listReplaysByStudio:
-    "SELECT id, studio_id, title, visibility, duration_ms, created_at, bytes FROM replays WHERE studio_id = ? ORDER BY created_at DESC",
-  listReplaysForAccount: `SELECT id, studio_id, title, visibility, duration_ms, created_at, bytes FROM (SELECT r.id, r.studio_id, r.title, r.visibility, r.duration_ms, r.created_at, r.bytes, ROW_NUMBER() OVER (PARTITION BY r.studio_id ORDER BY r.created_at DESC) AS rn FROM replays r INNER JOIN studio_members m ON m.studio_id = r.studio_id WHERE m.account_id = ?) WHERE rn <= ${LIST_REPLAYS_PER_STUDIO} ORDER BY studio_id, created_at DESC`,
+    "SELECT id, studio_id, title, visibility, duration_ms, created_at, bytes, files FROM replays WHERE studio_id = ? ORDER BY created_at DESC",
+  listReplaysForAccount: `SELECT id, studio_id, title, visibility, duration_ms, created_at, bytes, files FROM (SELECT r.id, r.studio_id, r.title, r.visibility, r.duration_ms, r.created_at, r.bytes, r.files, ROW_NUMBER() OVER (PARTITION BY r.studio_id ORDER BY r.created_at DESC) AS rn FROM replays r INNER JOIN studio_members m ON m.studio_id = r.studio_id WHERE m.account_id = ?) WHERE rn <= ${LIST_REPLAYS_PER_STUDIO} ORDER BY studio_id, created_at DESC`,
   updateReplayVisibility: "UPDATE replays SET visibility = ? WHERE id = ?",
-  addReplayBytes: "UPDATE replays SET bytes = MAX(0, bytes + ?) WHERE id = ? RETURNING bytes",
+  addReplayUsage: "UPDATE replays SET bytes = MAX(0, bytes + ?), files = MAX(0, files + ?) WHERE id = ? RETURNING bytes, files",
 } as const;
 
 const migrated = new WeakSet<object>();
@@ -156,6 +157,7 @@ type ReplayRow = {
   duration_ms: number | null;
   created_at: number;
   bytes: number;
+  files: number;
 };
 
 function mapReplay(row: ReplayRow): ReplayRecord {
@@ -167,6 +169,7 @@ function mapReplay(row: ReplayRow): ReplayRecord {
     durationMs: row.duration_ms,
     createdAt: row.created_at,
     bytes: row.bytes,
+    files: row.files ?? 0,
   };
 }
 
@@ -185,6 +188,11 @@ export async function ensureDb(db: D1Database): Promise<void> {
     await db.batch(SCHEMA.map((sql) => db.prepare(sql)));
     try {
       await db.prepare("ALTER TABLE studios ADD COLUMN owner_id TEXT").run();
+    } catch {
+      /* already present */
+    }
+    try {
+      await db.prepare("ALTER TABLE replays ADD COLUMN files INTEGER NOT NULL DEFAULT 0").run();
     } catch {
       /* already present */
     }
@@ -386,7 +394,18 @@ export async function allowRate(db: D1Database, key: string, max: number, window
 }
 
 export async function insertReplay(db: D1Database, row: ReplayRecord): Promise<void> {
-  await run(db, Q.insertReplay, row.id, row.studioId, row.title, row.visibility, row.durationMs, row.createdAt, row.bytes);
+  await run(
+    db,
+    Q.insertReplay,
+    row.id,
+    row.studioId,
+    row.title,
+    row.visibility,
+    row.durationMs,
+    row.createdAt,
+    row.bytes,
+    row.files,
+  );
 }
 
 export async function replayById(db: D1Database, id: string): Promise<ReplayRecord | null> {
@@ -403,7 +422,16 @@ export async function updateReplayVisibility(db: D1Database, id: string, visibil
   await run(db, Q.updateReplayVisibility, visibility, id);
 }
 
+export async function addReplayUsage(
+  db: D1Database,
+  id: string,
+  bytesDelta: number,
+  filesDelta: number,
+): Promise<{ bytes: number; files: number }> {
+  const row = await first<{ bytes: number; files: number }>(db, Q.addReplayUsage, bytesDelta, filesDelta, id);
+  return { bytes: row?.bytes ?? 0, files: row?.files ?? 0 };
+}
+
 export async function addReplayBytes(db: D1Database, id: string, delta: number): Promise<number> {
-  const row = await first<{ bytes: number }>(db, Q.addReplayBytes, delta, id);
-  return row?.bytes ?? 0;
+  return (await addReplayUsage(db, id, delta, 0)).bytes;
 }

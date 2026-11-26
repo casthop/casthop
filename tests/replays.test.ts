@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { app, StudioDurableObject } from "../worker/index.ts";
-import { addReplayBytes, LIST_REPLAYS_PER_STUDIO } from "../worker/db.ts";
+import { addReplayBytes, addReplayUsage, LIST_REPLAYS_PER_STUDIO } from "../worker/db.ts";
 import {
   contentLengthOver,
   durationFromPlaylist,
@@ -204,6 +204,7 @@ test("owner archives a private replay into mocked R2 and plays HLS", async () =>
   assert.equal(replay.durationMs, 4000);
   assert.equal(replay.playlistUrl, `/api/replays/${replay.id}/hls/index.m3u8`);
   assert.ok(replay.bytes > 0);
+  assert.equal(replay.files, hlsFiles().length);
 
   const listed = await json<{ studios: { id: string; replays: PublicReplay[] }[] }>(
     await app.request("https://casthop.test/api/studios", { headers: { Cookie: cookie } }, env),
@@ -317,11 +318,13 @@ test("studio list keeps the latest 20 replays per studio", async () => {
   assert.equal(studioList.replays.length, LIST_REPLAYS_PER_STUDIO + 1);
 });
 
-test("PUT HLS files add to the stored byte total", async () => {
+test("PUT HLS files add to the stored byte and file totals", async () => {
   const env = makeEnv();
   const cookie = await signIn(env, "owner@example.com");
   const { id } = await createStudio(env, cookie);
   const created = await json<PublicReplay>(await postReplay(env, cookie, id, { title: "Cuts", files: hlsFiles() }));
+  const r2 = env.RECORDINGS as FakeR2;
+  const listsBefore = r2.listCalls;
   const first = await json<PublicReplay>(
     await app.request(`https://casthop.test/api/studios/${id}/replays/${created.id}/hls/seg1.m4s`, {
       method: "PUT",
@@ -330,6 +333,16 @@ test("PUT HLS files add to the stored byte total", async () => {
     }, env),
   );
   assert.equal(first.bytes, created.bytes + 4);
+  assert.equal(first.files, created.files + 1);
+  const overwritten = await json<PublicReplay>(
+    await app.request(`https://casthop.test/api/studios/${id}/replays/${created.id}/hls/seg1.m4s`, {
+      method: "PUT",
+      headers: { Cookie: cookie, "Content-Length": "5" },
+      body: "aaaaa",
+    }, env),
+  );
+  assert.equal(overwritten.bytes, created.bytes + 5);
+  assert.equal(overwritten.files, created.files + 1);
   const second = await json<PublicReplay>(
     await app.request(`https://casthop.test/api/studios/${id}/replays/${created.id}/hls/seg2.m4s`, {
       method: "PUT",
@@ -337,7 +350,9 @@ test("PUT HLS files add to the stored byte total", async () => {
       body: "bbbbbb",
     }, env),
   );
-  assert.equal(second.bytes, created.bytes + 4 + 6);
+  assert.equal(second.bytes, created.bytes + 5 + 6);
+  assert.equal(second.files, created.files + 2);
+  assert.equal(r2.listCalls, listsBefore);
 });
 
 test("ingest and PUT reject oversized content-length before reading the body", async () => {
@@ -464,11 +479,19 @@ test("PUT rejects a replay over the byte or object cap", async () => {
   const other = await json<PublicReplay>(
     await postReplay(env, cookie, id, { title: "Many files", files: hlsFiles() }),
   );
-  const prefix = `replays/${id}/${other.id}/`;
-  const already = await env.RECORDINGS.list({ prefix, limit: MAX_REPLAY_OBJECTS + 1 });
-  for (let i = already.objects.length; i < MAX_REPLAY_OBJECTS; i++) {
-    await env.RECORDINGS.put(`${prefix}pad${i}.m4s`, "x");
-  }
+  await addReplayUsage(env.DB, other.id, 0, MAX_REPLAY_OBJECTS - other.files);
+  const overwrite = await json<PublicReplay>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/replays/${other.id}/hls/seg0.m4s`,
+      {
+        method: "PUT",
+        headers: { Cookie: cookie, "Content-Length": "4" },
+        body: "aaaa",
+      },
+      env,
+    ),
+  );
+  assert.equal(overwrite.files, MAX_REPLAY_OBJECTS);
   const tooMany = await app.request(
     `https://casthop.test/api/studios/${id}/replays/${other.id}/hls/seg99.m4s`,
     {

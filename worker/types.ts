@@ -165,6 +165,7 @@ export type ReplayRecord = {
   durationMs: number | null;
   createdAt: number;
   bytes: number;
+  files: number;
 };
 
 export type PublicReplay = ReplayRecord & {

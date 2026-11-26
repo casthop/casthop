@@ -11,6 +11,7 @@ import {
 } from "livekit-client";
 import { Link, Mic, MicOff, MonitorUp, Video, VideoOff, X } from "lucide-react";
 import { VideoTile } from "../components/VideoTile";
+import { LanguageSwitcher, useI18n, type MessageKey } from "../i18n";
 import {
   getConfig,
   getStudio,
@@ -41,13 +42,18 @@ import { isHostIdentity } from "../../worker/security";
 import type { LayoutId, ParticipantInfo, PublicDestination } from "../../worker/types";
 
 type PanelId = "chat" | "destinations" | "lower-third" | "settings";
+type Translate = (key: MessageKey, vars?: Record<string, string | number>) => string;
 
-function destStatusLabel(status: PublicStudio["destinations"][number]["status"] | undefined, error: string | null | undefined): string {
-  if (status === "connecting") return " · Starting…";
-  if (status === "live") return " · Live";
-  if (status === "retrying") return error ? ` · Reconnecting · ${error}` : " · Reconnecting…";
-  if (status === "failed") return error ? ` · Live failed · ${error}` : " · Live failed";
-  if (status === "stopped") return " · stopped";
+function destStatusLabel(
+  t: Translate,
+  status: PublicStudio["destinations"][number]["status"] | undefined,
+  error: string | null | undefined,
+): string {
+  if (status === "connecting") return t("destStarting");
+  if (status === "live") return t("destLive");
+  if (status === "retrying") return error ? t("destReconnectingError", { error }) : t("destReconnecting");
+  if (status === "failed") return error ? t("destFailedError", { error }) : t("destFailed");
+  if (status === "stopped") return t("destStopped");
   return "";
 }
 
@@ -108,13 +114,13 @@ function emptyCustom(destinations: PublicDestination[]): PublicDestination | und
   return destinations.find((d) => d.kind === "custom" && !d.url);
 }
 
-function newCustomDest(url: string, existing: PublicDestination[]): PublicDestination {
+function newCustomDest(url: string, existing: PublicDestination[], t: Translate): PublicDestination {
   const n = existing.filter((d) => d.kind === "custom").length + 1;
   return {
     id: `custom-${n}`,
     kind: "custom",
-    label: n > 1 ? `RTMP ${n}` : "Custom RTMP",
-    detail: "Custom",
+    label: n > 1 ? t("destRtmpN", { n }) : t("destCustomRtmp"),
+    detail: t("destCustom"),
     enabled: true,
     hasKey: Boolean(url),
     urlMasked: "",
@@ -127,6 +133,7 @@ function newCustomDest(url: string, existing: PublicDestination[]): PublicDestin
 export function Studio() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
+  const { t } = useI18n();
   const publishingRef = useRef(false);
   const studioLiveRef = useRef(true);
   const shot = useMemo(() => shotFromUrl(), []);
@@ -161,7 +168,7 @@ export function Studio() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [now, setNow] = useState(Date.now());
   const identityRef = useRef<string>(shot ? "host" : "");
-  const nameRef = useRef<string>(shot ? "Ana Souza" : "Guest");
+  const nameRef = useRef<string>(shot ? "Ana Souza" : "");
   const isHostRef = useRef(Boolean(shot));
   const dlgRef = useRef<HTMLDivElement>(null);
 
@@ -238,7 +245,7 @@ export function Studio() {
       const host = snap.viewerRole === "owner" || snap.viewerRole === "cohost";
       isHostRef.current = host;
       const saved = loadSession(id);
-      const name = saved?.name ?? (host ? "Host" : "Guest");
+      const name = saved?.name ?? (host ? t("studioHostName") : t("guestDefaultName"));
       nameRef.current = name;
       const minted = await mintToken(id, {
         name,
@@ -304,7 +311,7 @@ export function Studio() {
         refreshTimer = window.setTimeout(() => {
           void refreshHostToken().catch((err) => {
             if (cancelled) return;
-            setError(err instanceof Error ? err.message : "Could not refresh");
+            setError(err instanceof Error ? err.message : t("errRefresh"));
             current?.disconnect();
           });
         }, waitMs);
@@ -325,7 +332,7 @@ export function Studio() {
             bump();
             if (next.canPublish) await publishLocal(lk);
           } catch (err) {
-            if (!cancelled) setError(err instanceof Error ? err.message : "Could not reconnect");
+            if (!cancelled) setError(err instanceof Error ? err.message : t("errReconnect"));
           }
         })();
       });
@@ -339,7 +346,7 @@ export function Studio() {
       bump();
       if (minted.canPublish) await publishLocal(lk);
       if (host) scheduleRefresh(minted.expiresIn);
-    })().catch((err) => setError(err instanceof Error ? err.message : "Could not connect"));
+    })().catch((err) => setError(err instanceof Error ? err.message : t("errConnect")));
     return () => {
       cancelled = true;
       studioLiveRef.current = false;
@@ -448,7 +455,7 @@ export function Studio() {
             handle = undefined;
             console.warn("casthop blur", err);
             setBlurOn(false);
-            setError(err instanceof Error ? err.message : "Blur failed");
+            setError(err instanceof Error ? err.message : t("errBlur"));
           }
         }
         if (!studioOpen(lk)) return;
@@ -523,7 +530,7 @@ export function Studio() {
       }
     } catch (err) {
       if (pipeline && denoiseHandleRef.current !== pipeline) pipeline.close();
-      setError(err instanceof Error ? err.message : "Noise removal failed");
+      setError(err instanceof Error ? err.message : t("errNoise"));
       setDenoiseOn(!next);
       saveDenoisePrefPair(deviceId, savedId, !next);
     } finally {
@@ -561,7 +568,7 @@ export function Studio() {
       }
     } catch (err) {
       handle?.stop();
-      setError(err instanceof Error ? err.message : "Blur failed");
+      setError(err instanceof Error ? err.message : t("errBlur"));
       setBlurOn(!next);
       saveBlurPrefPair(deviceId, savedId, !next);
     } finally {
@@ -574,7 +581,7 @@ export function Studio() {
       await room?.localParticipant.setScreenShareEnabled(true);
       if (isHostRef.current) await setLayout(id, "screen");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Screen share failed");
+      setError(err instanceof Error ? err.message : t("errScreen"));
     }
   }
 
@@ -587,7 +594,7 @@ export function Studio() {
     try {
       await setLayout(id, layout);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Layout failed");
+      setError(err instanceof Error ? err.message : t("errLayout"));
     }
   }
 
@@ -607,7 +614,7 @@ export function Studio() {
     try {
       await persistDestinations(next);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not update destinations");
+      setError(err instanceof Error ? err.message : t("errDestinations"));
     }
   }
 
@@ -618,13 +625,13 @@ export function Studio() {
     const vacant = emptyCustom(studio.destinations);
     const next = vacant
       ? studio.destinations.map((d) => (d.id === vacant.id ? { ...d, url: trimmed, enabled: true, hasKey: true } : d))
-      : [...studio.destinations, newCustomDest(trimmed, studio.destinations)];
+      : [...studio.destinations, newCustomDest(trimmed, studio.destinations, t)];
     try {
       await persistDestinations(next);
       setRtmpDraft("");
       setAddRtmp(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not add destination");
+      setError(err instanceof Error ? err.message : t("errAddDest"));
     }
   }
 
@@ -661,7 +668,7 @@ export function Studio() {
     try {
       await setLive(id, true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Live failed");
+      setError(err instanceof Error ? err.message : t("errLive"));
     }
   }
 
@@ -671,7 +678,7 @@ export function Studio() {
     try {
       await setLive(id, true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Live failed");
+      setError(err instanceof Error ? err.message : t("errLive"));
     }
   }
 
@@ -685,7 +692,7 @@ export function Studio() {
     try {
       await setLive(id, false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Live failed");
+      setError(err instanceof Error ? err.message : t("errLive"));
     }
   }
 
@@ -719,7 +726,7 @@ export function Studio() {
       });
       setStudio((prev) => mergeStudio(prev, next, prev?.viewerRole ?? "guest"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Chat failed");
+      setError(err instanceof Error ? err.message : t("errChat"));
     }
   }
 
@@ -738,7 +745,7 @@ export function Studio() {
       const saved = await pinChat(id, chatId);
       setStudio((prev) => mergeStudio(prev, saved, prev?.viewerRole ?? "guest"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Pin failed");
+      setError(err instanceof Error ? err.message : t("errPin"));
     }
   }
 
@@ -769,7 +776,7 @@ export function Studio() {
       const payload = new TextEncoder().encode(JSON.stringify({ type: "publish", on }));
       await room?.localParticipant.publishData(payload, { destinationIdentities: [identity] });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Stage update failed");
+      setError(err instanceof Error ? err.message : t("errStage"));
     }
   }
 
@@ -780,19 +787,19 @@ export function Studio() {
   if (entry === "gate") {
     return (
       <div className="studio">
-        <StudioTop title={studio?.title ?? "Studio"} live={false} timer="" />
+        <StudioTop title={studio?.title ?? t("studioFallback")} live={false} timer="" />
         <div className="scrim">
           <div className="dlg gate-dlg">
             <header>
-              <h2>Join as a guest</h2>
+              <h2>{t("gateTitle")}</h2>
             </header>
-            <p className="lead">Guests pick a name and check camera and mic before going backstage. Sign in if you host this studio.</p>
+            <p className="lead">{t("gateBody")}</p>
             <footer>
               <button className="btn ghost" type="button" onClick={() => navigate("/")}>
-                Sign in
+                {t("gateSignIn")}
               </button>
               <button className="btn primary" type="button" onClick={() => navigate(`/join/${id}`)}>
-                Join as guest
+                {t("gateJoin")}
               </button>
             </footer>
           </div>
@@ -804,7 +811,7 @@ export function Studio() {
   if (!studio || entry !== "ok") {
     return (
       <div className="studio">
-        <StudioTop title={error || "Opening studio…"} live={false} timer="" />
+        <StudioTop title={error || t("studioOpening")} live={false} timer="" />
       </div>
     );
   }
@@ -819,23 +826,24 @@ export function Studio() {
   const timerText = shot === "chat" ? formatLive(SHOT_LIVE_MS) : liveOn ? formatLive(liveMs) : "";
 
   function statusText(): string {
-    if (phase === "starting") return "Starting…";
-    if (phase === "retrying") return liveError ? `Reconnecting · ${liveError}` : "Reconnecting…";
-    if (phase === "stopping") return "Stopping…";
-    if (phase === "failed") return liveError ? `Live failed · ${liveError}` : "Live failed";
-    if (liveOn) return "Live";
-    return "Not live";
+    if (phase === "starting") return t("liveStarting");
+    if (phase === "retrying") return liveError ? t("liveReconnectingError", { error: liveError }) : t("liveReconnecting");
+    if (phase === "stopping") return t("liveStopping");
+    if (phase === "failed") return liveError ? t("liveFailedError", { error: liveError }) : t("liveFailed");
+    if (liveOn) return t("liveLive");
+    return t("liveNotLive");
   }
 
   return (
     <div className={`studio${panel ? " open" : ""}`}>
       <header className="top">
-        <a className="brand" href="/" aria-label="Casthop home">
+        <a className="brand" href="/" aria-label={t("brandHome")}>
           <span className="mark" aria-hidden="true" />
           <span className="slash">/</span>
           <h1 className="title">{studio.title}</h1>
         </a>
         <div className="spacer" />
+        <LanguageSwitcher tone="dark" />
         <div
           className={`status${liveOn ? " on" : ""}${phase === "retrying" ? " retry" : ""}${phase === "failed" ? " fail" : ""}`}
         >
@@ -853,10 +861,10 @@ export function Studio() {
         {isHost && phase === "failed" ? (
           <>
             <button className="btn ghost" type="button" onClick={() => void onRetryLive()} disabled={!room && !shot}>
-              Retry
+              {t("liveRetry")}
             </button>
             <button className="btn end" type="button" onClick={() => void onEndLive()}>
-              End live
+              {t("liveEnd")}
             </button>
           </>
         ) : isHost ? (
@@ -864,10 +872,11 @@ export function Studio() {
             <button
               className={liveBusy ? "btn end" : "btn primary go-live-open"}
               type="button"
+              data-testid="go-live"
               onClick={() => void onGoLive()}
               disabled={phase === "starting" || phase === "stopping" || (!liveBusy && !room && !shot)}
             >
-              {liveBusy ? "End live" : "Go live"}
+              {liveBusy ? t("liveEnd") : t("liveGo")}
             </button>
           </span>
         ) : null}
@@ -875,14 +884,14 @@ export function Studio() {
 
       <main className="main">
         <div className="stagewrap">
-          <section className={`program ${programClass(studio.layout, stagePeople.length)}`} aria-label="Program preview">
+          <section className={`program ${programClass(studio.layout, stagePeople.length)}`} aria-label={t("programPreview")}>
             {studio.layout === "screen" ? (
               <>
                 <VideoTile
                   booth
                   tone="cam1"
                   participant={stagePeople.find((p) => p.participant?.getTrackPublication(Track.Source.ScreenShare))?.participant}
-                  label="Screen"
+                  label={t("screen")}
                 />
                 <div className="cams">
                   {stagePeople.slice(0, 3).map((p, i) => (
@@ -909,13 +918,13 @@ export function Studio() {
                 />
               ))
             )}
-            {stagePeople.length === 0 ? <VideoTile booth tone="cam1" label="Empty stage" /> : null}
+            {stagePeople.length === 0 ? <VideoTile booth tone="cam1" label={t("emptyStage")} /> : null}
             <div className="l3">
               <b>{studio.bannerTitle}</b>
               <span>{studio.bannerSubtitle}</span>
             </div>
             {studio.pinnedChat ? (
-              <div className="pinov" role="status" aria-label={`Pinned comment from ${studio.pinnedChat.name}`}>
+              <div className="pinov" role="status" aria-label={t("pinnedFrom", { name: studio.pinnedChat.name })}>
                 <span className="who">{pinWho(studio.pinnedChat)}</span>
                 {studio.pinnedChat.text}
               </div>
@@ -926,12 +935,12 @@ export function Studio() {
         <div className="row">
           <div>
             {isHost ? (
-              <div className="seg" role="group" aria-label="Layout">
+              <div className="seg" role="group" aria-label={t("layout")}>
                 {(
                   [
-                    ["solo", "Solo"],
-                    ["side", "Side by side"],
-                    ["screen", "Screen + cams"],
+                    ["solo", t("layoutSolo")],
+                    ["side", t("layoutSide")],
+                    ["screen", t("layoutScreen")],
                   ] as const
                 ).map(([key, label]) => (
                   <button
@@ -948,58 +957,58 @@ export function Studio() {
                 ))}
               </div>
             ) : (
-              <p className="guest-note">{meOnStage ? "You are on stage" : "Backstage — waiting for the host"}</p>
+              <p className="guest-note">{meOnStage ? t("onStage") : t("waitingHost")}</p>
             )}
           </div>
           <div className="dock">
-            <button className={`ctl icon${micOn ? "" : " off"}`} type="button" onClick={() => void toggleMic()} title="Mic" aria-label="Mic" aria-pressed={micOn}>
+            <button className={`ctl icon${micOn ? "" : " off"}`} type="button" onClick={() => void toggleMic()} title={t("mic")} aria-label={t("mic")} aria-pressed={micOn}>
               {micOn ? <Mic className="i" size={16} strokeWidth={1.6} /> : <MicOff className="i" size={16} strokeWidth={1.6} />}
             </button>
-            <button className={`ctl icon${camOn ? "" : " off"}`} type="button" onClick={() => void toggleCam()} title="Camera" aria-label="Camera" aria-pressed={camOn}>
+            <button className={`ctl icon${camOn ? "" : " off"}`} type="button" onClick={() => void toggleCam()} title={t("camera")} aria-label={t("camera")} aria-pressed={camOn}>
               {camOn ? <Video className="i" size={16} strokeWidth={1.6} /> : <VideoOff className="i" size={16} strokeWidth={1.6} />}
             </button>
-            <button className="ctl" type="button" onClick={() => void shareScreen()} title="Share screen" aria-label="Share">
+            <button className="ctl" type="button" onClick={() => void shareScreen()} title={t("shareScreen")} aria-label={t("share")}>
               <MonitorUp className="i" size={16} strokeWidth={1.6} />
-              <span>Share</span>
+              <span>{t("share")}</span>
             </button>
             <span className="sep" />
             <button
               className={`ctl${denoiseOn ? "" : " dim"}`}
               type="button"
               onClick={() => void toggleDenoise()}
-              title="Noise suppression"
-              aria-label="Noise"
+              title={t("noiseSuppression")}
+              aria-label={t("noise")}
               aria-pressed={denoiseOn}
               disabled={denoiseBusy}
             >
               <span className="chk" />
-              <small>Noise</small>
+              <small>{t("noise")}</small>
             </button>
             <button
               className={`ctl${blurOn ? "" : " dim"}`}
               type="button"
               onClick={() => void toggleBlur()}
-              title="Background blur"
-              aria-label="Blur"
+              title={t("backgroundBlur")}
+              aria-label={t("blur")}
               aria-pressed={blurOn}
               disabled={blurBusy}
             >
               <span className="chk" />
-              <small>Blur</small>
+              <small>{t("blur")}</small>
             </button>
           </div>
           <div className="right">
             {isHost ? (
               <button className="btn ghost" type="button" onClick={() => void copyInvite()}>
                 <Link className="i" size={16} strokeWidth={1.6} />
-                Invite guest
+                {t("inviteGuest")}
               </button>
             ) : null}
           </div>
         </div>
 
         <div className="back">
-          <span className="lbl">Backstage</span>
+          <span className="lbl">{t("backstage")}</span>
           {waiting.map((p) => (
             <div className="gchip" key={p.identity}>
               <div className={`thumb ${tileTone(2)}`}>
@@ -1010,13 +1019,13 @@ export function Studio() {
               </div>
               <span className="n">{p.name}</span>
               {isHost ? (
-                <button className="act" type="button" aria-label={`Add ${p.name} to stage`} onClick={() => void promote(p.identity, true)}>
-                  Add to stage
+                <button className="act" type="button" aria-label={t("addNamedToStage", { name: p.name })} onClick={() => void promote(p.identity, true)}>
+                  {t("addToStage")}
                 </button>
               ) : null}
             </div>
           ))}
-          <span className="hint">Guests wait here until you add them.</span>
+          <span className="hint">{t("backstageHint")}</span>
         </div>
         {error ? (
           <p className="err" role="alert">
@@ -1026,13 +1035,13 @@ export function Studio() {
       </main>
 
       {panel ? (
-        <aside className="sidepanel" aria-label={panelLabel(panel)}>
+        <aside className="sidepanel" aria-label={panelLabel(panel, t)}>
           <div className="ph">
             <h3>
-              {panelTitle(panel)}
-              {panel === "chat" && (isHost && youtubeChat) ? <span className="sub">Studio + YouTube</span> : null}
+              {panelTitle(panel, t)}
+              {panel === "chat" && (isHost && youtubeChat) ? <span className="sub">{t("chatStudioYoutube")}</span> : null}
             </h3>
-            <button className="btn quiet" type="button" aria-label="Close panel" onClick={() => setPanel(null)}>
+            <button className="btn quiet" type="button" aria-label={t("closePanel")} onClick={() => setPanel(null)}>
               <X className="i" size={16} strokeWidth={1.6} />
             </button>
           </div>
@@ -1060,7 +1069,7 @@ export function Studio() {
                 try {
                   await persistDestinations(next);
                 } catch (err) {
-                  setError(err instanceof Error ? err.message : "Save failed");
+                  setError(err instanceof Error ? err.message : t("errSave"));
                 }
               }}
             />
@@ -1077,7 +1086,7 @@ export function Studio() {
                   await setBanner(id, { bannerTitle, bannerSubtitle });
                   setStudio((prev) => (prev ? { ...prev, bannerTitle, bannerSubtitle } : prev));
                 } catch (err) {
-                  setError(err instanceof Error ? err.message : "Save failed");
+                  setError(err instanceof Error ? err.message : t("errSave"));
                 }
               }}
             />
@@ -1096,7 +1105,7 @@ export function Studio() {
                   await setBanner(id, { title });
                   setStudio((prev) => (prev ? { ...prev, title } : prev));
                 } catch (err) {
-                  setError(err instanceof Error ? err.message : "Save failed");
+                  setError(err instanceof Error ? err.message : t("errSave"));
                 }
               }}
             />
@@ -1104,12 +1113,13 @@ export function Studio() {
         </aside>
       ) : null}
 
-      <nav className="rail" aria-label="Studio panels">
+      <nav className="rail" aria-label={t("panels")}>
         <button
           type="button"
           className={panel === "chat" ? "on" : undefined}
-          title="Chat"
-          aria-label="Chat"
+          data-testid="rail-chat"
+          title={t("panelChat")}
+          aria-label={t("panelChat")}
           aria-pressed={panel === "chat"}
           onClick={() => togglePanel("chat")}
         >
@@ -1119,8 +1129,9 @@ export function Studio() {
         <button
           type="button"
           className={panel === "destinations" ? "on" : undefined}
-          title="Destinations"
-          aria-label="Destinations"
+          data-testid="rail-destinations"
+          title={t("panelDestinations")}
+          aria-label={t("panelDestinations")}
           aria-pressed={panel === "destinations"}
           onClick={() => togglePanel("destinations")}
         >
@@ -1130,8 +1141,9 @@ export function Studio() {
           <button
             type="button"
             className={panel === "lower-third" ? "on" : undefined}
-            title="Lower third"
-            aria-label="Lower third"
+            data-testid="rail-lower-third"
+            title={t("panelLowerThird")}
+            aria-label={t("panelLowerThird")}
             aria-pressed={panel === "lower-third"}
             onClick={() => togglePanel("lower-third")}
           >
@@ -1143,8 +1155,9 @@ export function Studio() {
           <button
             type="button"
             className={panel === "settings" ? "on" : undefined}
-            title="Settings"
-            aria-label="Settings"
+            data-testid="rail-settings"
+            title={t("panelSettings")}
+            aria-label={t("panelSettings")}
             aria-pressed={panel === "settings"}
             onClick={() => togglePanel("settings")}
           >
@@ -1165,11 +1178,11 @@ export function Studio() {
         >
           <div className="dlg" role="dialog" aria-modal="true" aria-labelledby="golive-title" ref={dlgRef} tabIndex={-1}>
             <header>
-              <h2 id="golive-title">Go live</h2>
+              <h2 id="golive-title">{t("liveGo")}</h2>
               <button
                 className="btn quiet"
                 type="button"
-                aria-label="Close"
+                aria-label={t("close")}
                 onClick={() => {
                   setGoLiveOpen(false);
                   setAddRtmp(false);
@@ -1178,7 +1191,7 @@ export function Studio() {
                 <X className="i" size={16} strokeWidth={1.6} />
               </button>
             </header>
-            <p className="lead">Stream the stage to these destinations.</p>
+            <p className="lead">{t("liveLead")}</p>
             {studio.destinations.map((d) => (
               <div className="dest" key={d.id}>
                 <span className="k">{destGlyph(d.kind)}</span>
@@ -1186,14 +1199,14 @@ export function Studio() {
                   <b>{d.label}</b>
                   <small>
                     {d.detail}
-                    <span className={`dest-status ${d.status ?? "idle"}`}>{destStatusLabel(d.status, d.error)}</span>
+                    <span className={`dest-status ${d.status ?? "idle"}`}>{destStatusLabel(t, d.status, d.error)}</span>
                   </small>
                 </div>
                 <button
                   type="button"
                   className={`sw${d.enabled ? " on" : ""}`}
                   aria-pressed={d.enabled}
-                  aria-label={`${d.enabled ? "Disable" : "Enable"} ${d.label}`}
+                  aria-label={d.enabled ? t("destDisable", { label: d.label }) : t("destEnable", { label: d.label })}
                   onClick={() => void onToggleDest(d.id)}
                 />
               </div>
@@ -1207,22 +1220,22 @@ export function Studio() {
                 }}
               >
                 <label className="t">
-                  RTMP URL
+                  {t("destRtmpUrl")}
                   <input
                     value={rtmpDraft}
                     onChange={(e) => setRtmpDraft(e.target.value)}
-                    placeholder="rtmp://…"
+                    placeholder={t("destRtmpPlaceholder")}
                     autoFocus
                   />
                 </label>
                 <button className="btn ghost" type="submit">
-                  Add
+                  {t("add")}
                 </button>
               </form>
             ) : null}
             <footer>
               <button className="add" type="button" onClick={() => setAddRtmp(true)}>
-                + Add RTMP destination
+                {t("destAddRtmp")}
               </button>
               <button
                 className="btn primary go-live"
@@ -1230,7 +1243,7 @@ export function Studio() {
                 onClick={() => void onConfirmGoLive()}
                 disabled={!shot && !room}
               >
-                {enabledCount ? `Go live on ${enabledCount}` : "Go live"}
+                {enabledCount ? t("liveGoOn", { count: enabledCount }) : t("liveGo")}
               </button>
             </footer>
           </div>
@@ -1241,19 +1254,19 @@ export function Studio() {
         <div className="scrim" onClick={() => setInviteOpen(false)}>
           <div className="dlg" role="dialog" aria-labelledby="invite-title" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <header>
-              <h2 id="invite-title">Invite guest</h2>
-              <button className="btn quiet" type="button" aria-label="Close" onClick={() => setInviteOpen(false)}>
+              <h2 id="invite-title">{t("inviteGuest")}</h2>
+              <button className="btn quiet" type="button" aria-label={t("close")} onClick={() => setInviteOpen(false)}>
                 <X className="i" size={16} strokeWidth={1.6} />
               </button>
             </header>
-            <p className="lead">No account needed. Share this link:</p>
+            <p className="lead">{t("inviteLead")}</p>
             <div className="dest">
               <input readOnly value={`${location.origin}/join/${id}`} onFocus={(e) => e.currentTarget.select()} />
             </div>
             <footer>
               <span />
               <button className="btn primary" type="button" onClick={() => setInviteOpen(false)}>
-                Done
+                {t("done")}
               </button>
             </footer>
           </div>
@@ -1264,22 +1277,24 @@ export function Studio() {
 }
 
 function StudioTop({ title, live, timer }: { title: string; live: boolean; timer: string }) {
+  const { t } = useI18n();
   return (
     <header className="top">
-      <a className="brand" href="/" aria-label="Casthop home">
+      <a className="brand" href="/" aria-label={t("brandHome")}>
         <span className="mark" aria-hidden="true" />
         <span className="slash">/</span>
         <span className="title">{title}</span>
       </a>
       <div className="spacer" />
+      <LanguageSwitcher tone="dark" />
       <div className={`status${live ? " on" : ""}`}>
         <span className="dot" />
         {live ? (
           <>
-            Live {timer ? <span className="mono">{timer}</span> : null}
+            {t("liveLive")} {timer ? <span className="mono">{timer}</span> : null}
           </>
         ) : (
-          "Not live"
+          t("liveNotLive")
         )}
       </div>
     </header>
@@ -1301,26 +1316,29 @@ function ChatPanel({
   onChat: (e: FormEvent<HTMLFormElement>) => void;
   onPin: (id: string | null) => void;
 }) {
+  const { t, formatDateTime } = useI18n();
   return (
     <>
       <div className="msgs">
-        {studio.chat.length === 0 ? <p className="empty-chat">No comments yet.</p> : null}
+        {studio.chat.length === 0 ? <p className="empty-chat">{t("chatEmpty")}</p> : null}
         {studio.chat.map((m) => {
           const pinned = studio.pinnedChat?.id === m.id;
           return (
             <div key={m.id} className={`msg${pinned ? " pinned" : ""}`}>
               <div className="meta">
                 <span className="src">{chatSourceLabel(m.source)}</span>
-                {m.name}
+                <time dateTime={new Date(m.at).toISOString()} title={formatDateTime(m.at)}>
+                  {m.name}
+                </time>
                 {isHost && pinned ? (
-                  <button type="button" className="pinbtn" aria-label="Unpin comment" onClick={() => onPin(null)}>
+                  <button type="button" className="pinbtn" aria-label={t("unpinComment")} onClick={() => onPin(null)}>
                     <PinIcon />
-                    Unpin
+                    {t("unpin")}
                   </button>
                 ) : isHost ? (
-                  <button type="button" className="pinbtn" aria-label="Pin this comment" onClick={() => onPin(m.id)}>
+                  <button type="button" className="pinbtn" aria-label={t("pinComment")} onClick={() => onPin(m.id)}>
                     <PinIcon />
-                    Pin
+                    {t("pin")}
                   </button>
                 ) : null}
               </div>
@@ -1333,12 +1351,12 @@ function ChatPanel({
         <div className="input-row">
           <input
             name="text"
-            aria-label="Studio chat"
+            aria-label={t("chatStudioLabel")}
             value={chatDraft}
             onChange={(e) => onDraft(e.target.value)}
-            placeholder="Message the studio…"
+            placeholder={t("chatPlaceholder")}
           />
-          <button type="submit" className="send" aria-label="Send chat">
+          <button type="submit" className="send" aria-label={t("send")}>
             <SendIcon />
           </button>
         </div>
@@ -1368,6 +1386,7 @@ function DestinationsPanel({
   onToggle: (id: string) => void;
   onSaveUrls: (next: PublicDestination[]) => Promise<void>;
 }) {
+  const { t } = useI18n();
   const [rows, setRows] = useState(studio.destinations);
   useEffect(() => {
     setRows(studio.destinations);
@@ -1382,11 +1401,11 @@ function DestinationsPanel({
             <b>{d.label}</b>
             <small>
               {d.detail}
-              <span className={`dest-status ${d.status ?? "idle"}`}>{destStatusLabel(d.status, d.error)}</span>
+              <span className={`dest-status ${d.status ?? "idle"}`}>{destStatusLabel(t, d.status, d.error)}</span>
             </small>
             {isHost ? (
               <label>
-                {d.label} RTMP URL
+                {t("destRtmpUrlNamed", { label: d.label })}
                 <input
                   value={d.url ?? ""}
                   onChange={(e) => {
@@ -1403,7 +1422,7 @@ function DestinationsPanel({
             className={`sw${d.enabled ? " on" : ""}`}
             disabled={!isHost}
             aria-pressed={d.enabled}
-            aria-label={`${d.enabled ? "Disable" : "Enable"} ${d.label}`}
+            aria-label={d.enabled ? t("destDisable", { label: d.label }) : t("destEnable", { label: d.label })}
             onClick={() => onToggle(d.id)}
           />
         </div>
@@ -1417,21 +1436,21 @@ function DestinationsPanel({
           }}
         >
           <label className="t">
-            RTMP URL
-            <input value={rtmpDraft} onChange={(e) => onDraft(e.target.value)} placeholder="rtmp://…" />
+            {t("destRtmpUrl")}
+            <input value={rtmpDraft} onChange={(e) => onDraft(e.target.value)} placeholder={t("destRtmpPlaceholder")} />
           </label>
           <button className="btn ghost" type="submit">
-            Add
+            {t("add")}
           </button>
         </form>
       ) : null}
       {isHost ? (
         <div className="panel-actions">
           <button className="add" type="button" onClick={onToggleAdd}>
-            + Add RTMP destination
+            {t("destAddRtmp")}
           </button>
           <button className="btn primary" type="button" onClick={() => void onSaveUrls(rows)}>
-            Save
+            {t("save")}
           </button>
         </div>
       ) : null}
@@ -1446,6 +1465,7 @@ function LowerThirdPanel({
   studio: PublicStudio;
   onSave: (bannerTitle: string, bannerSubtitle: string) => Promise<void>;
 }) {
+  const { t } = useI18n();
   const [bannerTitle, setBannerTitle] = useState(studio.bannerTitle);
   const [bannerSubtitle, setBannerSubtitle] = useState(studio.bannerSubtitle);
   return (
@@ -1457,15 +1477,15 @@ function LowerThirdPanel({
       }}
     >
       <label>
-        Lower third
+        {t("lowerThird")}
         <input value={bannerTitle} onChange={(e) => setBannerTitle(e.target.value)} />
       </label>
       <label>
-        Lower third detail
+        {t("lowerThirdDetail")}
         <input value={bannerSubtitle} onChange={(e) => setBannerSubtitle(e.target.value)} />
       </label>
       <button className="btn primary" type="submit">
-        Save
+        {t("save")}
       </button>
     </form>
   );
@@ -1482,6 +1502,7 @@ function SettingsPanel({
   canInvite: boolean;
   onTitle: (title: string) => Promise<void>;
 }) {
+  const { t } = useI18n();
   const [title, setTitle] = useState(studio.title);
   const [inviteEmail, setInviteEmail] = useState("");
   const [members, setMembers] = useState<StudioMember[]>([]);
@@ -1504,47 +1525,51 @@ function SettingsPanel({
     try {
       await inviteCohost(studioId, inviteEmail);
       setInviteEmail("");
-      setInviteNote("Invite sent.");
+      setInviteNote(t("inviteSent"));
       const data = await listCohosts(studioId);
       setMembers(data.members);
       setPending(data.pending);
     } catch (err) {
-      setInviteNote(err instanceof Error ? err.message : "Invite failed");
+      setInviteNote(err instanceof Error ? err.message : t("inviteFailed"));
     }
   }
 
   return (
     <div className="panel-body stack">
+      <div className="lang-field">
+        <span>{t("language")}</span>
+        <LanguageSwitcher tone="dark" />
+      </div>
       <label>
-        Studio title
+        {t("settingsTitle")}
         <input value={title} onChange={(e) => setTitle(e.target.value)} />
       </label>
       <button className="btn primary" type="button" onClick={() => void onTitle(title)}>
-        Save
+        {t("save")}
       </button>
       {canInvite ? (
         <form className="cohost-form" onSubmit={onInvite}>
           <label>
-            Invite co-host
+            {t("inviteCohost")}
             <input
               type="email"
               value={inviteEmail}
               onChange={(e) => setInviteEmail(e.target.value)}
-              placeholder="producer@example.com"
+              placeholder={t("invitePlaceholder")}
             />
           </label>
           <button className="btn ghost" type="submit">
-            Invite
+            {t("invite")}
           </button>
           {inviteNote ? <p className="sent-note">{inviteNote}</p> : null}
           <ul className="cohost-list">
             {members.map((m) => (
               <li key={m.accountId}>
-                {m.name} · {m.role}
+                {t("memberLine", { name: m.name, role: m.role === "owner" ? t("roleOwner") : t("roleCohost") })}
               </li>
             ))}
             {pending.map((p) => (
-              <li key={p.email}>{p.email} · pending</li>
+              <li key={p.email}>{t("pendingLine", { email: p.email })}</li>
             ))}
           </ul>
         </form>
@@ -1553,15 +1578,15 @@ function SettingsPanel({
   );
 }
 
-function panelLabel(panel: PanelId): string {
-  if (panel === "lower-third") return "Lower third";
-  if (panel === "destinations") return "Destinations";
-  if (panel === "settings") return "Settings";
-  return "Chat";
+function panelLabel(panel: PanelId, t: Translate): string {
+  if (panel === "lower-third") return t("panelLowerThird");
+  if (panel === "destinations") return t("panelDestinations");
+  if (panel === "settings") return t("panelSettings");
+  return t("panelChat");
 }
 
-function panelTitle(panel: PanelId): string {
-  return panelLabel(panel);
+function panelTitle(panel: PanelId, t: Translate): string {
+  return panelLabel(panel, t);
 }
 
 function chatSourceLabel(source: string): string {

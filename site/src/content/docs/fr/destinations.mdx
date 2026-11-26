@@ -1,0 +1,57 @@
+---
+title: Destinations
+description: Destinations RTMP, substituts locaux, statut, enregistrements, et qui voit les URL complètes.
+group: Exploiter
+order: 5
+---
+
+Une destination est une URL RTMP. Casthop envoie le même composite à toutes les destinations à la fois, avec un seul transcodage dans Egress.
+
+## Substituts locaux
+
+Par défaut, les destinations sont des substituts MediaMTX pour YouTube, LinkedIn et X :
+
+| Destination | Ingest | Visionner |
+|---|---|---|
+| Substitut YouTube | `rtmp://127.0.0.1:1935/live/youtube` | `ffprobe rtmp://127.0.0.1:1935/live/youtube` |
+| Substitut LinkedIn | `rtmp://127.0.0.1:1935/live/linkedin` | pareil, `/live/linkedin` |
+| Substitut X | `rtmp://127.0.0.1:1935/live/x` | pareil, `/live/x` |
+
+## Vraies destinations
+
+En production, remplacez-les par de vraies URL d’ingest YouTube, LinkedIn et X. Casthop valide les destinations : seules les URL `rtmp:` sont acceptées des clients, et les cibles de réseau privé (RFC 1918) sont rejetées.
+
+## Statut, Live et rétablissement
+
+Chaque ligne de destination affiche son propre statut RTMP (`connecting`, `live`, `retrying`, `failed`). La pastille Live du studio reste sur Démarrage tant qu’Egress ne produit pas : octets ou durée du flux, ou un court settle après le `started_at` RTMP. Elle ne passe pas à Live juste parce que le processus du compositeur existe.
+
+Si Egress ou un flux tombe, le studio réessaie avec backoff. Ça s’appuie sur des webhooks LiveKit signés ; voir [Self-hosting](/docs/self-hosting).
+
+## Enregistrements
+
+| Où | Quoi |
+|---|---|
+| `data/recordings/` | MP4 Egress du composite. |
+| `data/rtmp/` | fMP4 MediaMTX depuis la bordure RTMP locale. |
+
+Inspectez un enregistrement avec l’outil Rust :
+
+```bash
+cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
+```
+
+Pour vérifier qu’un enregistrement n’est pas silencieux, lancez `bash scripts/check-silent-audio.sh data/recordings/<file>.mp4`.
+
+## Chat
+
+Les gens dans le studio peuvent envoyer des commentaires dans la salle. Pendant que le show est en direct, Casthop peut aussi interroger le chat en direct YouTube (`liveChatMessages.list`) et fusionner ces commentaires dans le même panneau. Hôtes et co-hôtes peuvent en épingler un sur l’overlay du compositeur (pile lower-third Canvas2D). Le polling utilise le `pollingIntervalMillis` de l’API. Sans identifiants, l’ingest YouTube se masque ; le studio ne plante pas.
+
+Il faut des Worker secrets : `YOUTUBE_API_KEY` plus `YOUTUBE_LIVE_CHAT_ID` ou `YOUTUBE_VIDEO_ID`, ou le trio de refresh OAuth (`YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN`), qui cherche l’émission active du propriétaire. Voir [Configuration](/docs/configuration).
+
+L’API de X exige un palier payant. Les commentaires en direct LinkedIn demandent une API partenaire. Ni l’un ni l’autre n’est branché. Il n’y a pas de VOD / replay du chat de destination ; le polling ne tourne que pendant que le studio est en direct. Le curseur page-token YouTube reste dans le stockage du Durable Object et n’est jamais envoyé aux invités ni à l’état GET / WebSocket public.
+
+## Qui voit quoi
+
+- **Propriétaires et co-hôtes** reçoivent les URL de destination complètes une fois connectés (cookie de session).
+- **Invités et requêtes publiques** n’ont qu’un suffixe masqué, plus un flag `hasKey`. Ça s’applique à `GET /api/studios/:id` et à la trame `state` du WebSocket.
+- Les clés de stream sont stockées dans le Durable Object, pas dans le dépôt.

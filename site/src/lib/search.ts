@@ -55,7 +55,7 @@ if (dialog && input && list && raw) {
     if (hits.length === 0) {
       const li = document.createElement("li");
       li.className = "empty";
-      li.textContent = "No results.";
+      li.textContent = dialog.dataset.empty || "No results.";
       list.append(li);
     }
   };

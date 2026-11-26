@@ -1,9 +1,17 @@
 ---
 import Base from "../../layouts/Base.astro";
+import { t } from "../../i18n";
 ---
-<Base title="Casthop docs" description="Casthop documentation." theme="light">
+<Base
+  title={t("en", "docsChromeTitle")}
+  description={t("en", "docsChromeDescription")}
+  theme="light"
+  locale="en"
+  path="/docs/"
+  skip={t("en", "skip")}
+>
   <meta http-equiv="refresh" content="0;url=/docs/getting-started/" slot="head" />
   <main id="main" style="padding:4rem 1.5rem;max-width:40rem;margin:auto">
-    <p>Continue to <a href="/docs/getting-started/">Getting started</a>.</p>
+    <p><a href="/docs/getting-started/">{t("en", "continueTo")}</a></p>
   </main>
 </Base>

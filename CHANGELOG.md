@@ -22,6 +22,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 - Studio UI e2e flows and a Go Live → MediaMTX silent-audio release gate.
 - Astro marketing site and docs in `site/`.
 - `casthop-post` CLI to inspect / remux recordings.
+- Studio and marketing site in English, Português (pt-BR), Español, Français, Deutsch, and 日本語. Browser language on first visit, then a dropdown to switch. English is the fallback.
 
 ### Fixed
 

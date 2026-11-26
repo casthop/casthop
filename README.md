@@ -20,7 +20,7 @@ In this tree:
 - **Studio chat and YouTube Live chat.** People in the room can chat. While live, the Worker can poll YouTube `liveChatMessages.list` and show those comments in the studio panel. Hosts and co-hosts can pin one onto the compositor overlay. Needs Worker secrets (`YOUTUBE_API_KEY` plus a live chat or video id, or a YouTube OAuth refresh token). Unset, the feature stays hidden and the studio does not error. X and LinkedIn comment APIs are not wired.
 - **Co-hosts.** The owner can invite co-hosts by email.
 
-Media plane: LiveKit (SFU) + Egress + Redis + an RTMP edge. Control plane: Cloudflare Worker, Durable Objects, D1. Browser media hot paths are Rust compiled to WASM in `crates/casthop-media`. Details: [Architecture](site/src/content/docs/architecture.mdx).
+Media plane: LiveKit (SFU) + Egress + Redis + an RTMP edge. Control plane: Cloudflare Worker, Durable Objects, D1. Browser media hot paths are Rust compiled to WASM in `crates/casthop-media`. Details: [Architecture](site/src/content/docs/en/architecture.mdx).
 
 ## Quick start
 
@@ -35,21 +35,27 @@ bun install
 bun run dev
 ```
 
-Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Email yourself a magic link (the Worker prints it in the console), open a studio, copy the guest link, put people on stage, Go Live. Optional GitHub OAuth and YouTube Live chat are Worker secrets in `.dev.vars`; see [Configuration](site/src/content/docs/configuration.mdx).
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Email yourself a magic link (the Worker prints it in the console), open a studio, copy the guest link, put people on stage, Go Live. Optional GitHub OAuth and YouTube Live chat are Worker secrets in `.dev.vars`; see [Configuration](site/src/content/docs/en/configuration.mdx).
 
 Default destinations are local MediaMTX stand-ins (`rtmp://127.0.0.1:1935/live/youtube`, `/live/linkedin`, `/live/x`). Health: [http://127.0.0.1:5173/api/health](http://127.0.0.1:5173/api/health).
 
-Full local notes (Docker Desktop, no camera, rebuilding WASM): [Getting started](site/src/content/docs/getting-started.mdx). Tests and PR flow: [CONTRIBUTING.md](CONTRIBUTING.md).
+Full local notes (Docker Desktop, no camera, rebuilding WASM): [Getting started](site/src/content/docs/en/getting-started.mdx). Tests and PR flow: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Self-hosting
 
 Run LiveKit, Egress, Redis, and an RTMP edge yourself. Deploy the Worker (`wrangler deploy`) with D1 and Durable Objects. Put `LIVEKIT_API_SECRET` and a dedicated `HOST_KEY_SECRET` in Worker secrets, never in git. Generate real LiveKit keys (`lk generate-keys`); the published `devkey` is loopback-only.
 
-See [Self-hosting](site/src/content/docs/self-hosting.mdx) and [Configuration](site/src/content/docs/configuration.mdx).
+See [Self-hosting](site/src/content/docs/en/self-hosting.mdx) and [Configuration](site/src/content/docs/en/configuration.mdx).
+
+## Languages
+
+The studio and the site at [casthop.com](https://casthop.com) ship in English, Português (pt-BR), Español, Français, Deutsch, and 日本語. English is the source and the fallback. The first visit follows `navigator.languages`; after that the dropdown choice is stored in `localStorage` (`casthop.locale`).
+
+To add a language: add the locale code in `src/i18n/locales.ts` and `site/src/i18n/locales.ts`, copy `src/i18n/en.ts` / `site/src/i18n/en.ts` into a new file and translate, lazy-load it from `src/i18n/load.ts`, add `site/src/content/docs/<locale>/` MDX, and keep the missing-key test in `tests/i18n.test.ts` green.
 
 ## Docs and site
 
-The marketing site and docs are an Astro app in [`site/`](site/) (`cd site && bun install && bun run dev`). Recorded numbers live in [MEASUREMENTS.md](MEASUREMENTS.md).
+The marketing site and docs are an Astro app in [`site/`](site/) (`cd site && bun install && bun run dev`), served at [casthop.com](https://casthop.com). Localized routes live at `/pt-BR/`, `/es/`, `/fr/`, `/de/`, `/ja/` (English at `/`). Recorded numbers live in [MEASUREMENTS.md](MEASUREMENTS.md).
 
 ## Contributing
 

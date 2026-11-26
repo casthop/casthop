@@ -1,0 +1,56 @@
+---
+import { LOCALES, localeNativeName, withLocale, type Locale } from "../i18n";
+
+interface Props { locale: Locale; path: string; label: string; }
+const { locale, path, label } = Astro.props;
+---
+<div class="lang-switch">
+  <button
+    type="button"
+    class="lang-switch-btn"
+    aria-haspopup="listbox"
+    aria-expanded="false"
+    aria-label={label}
+    data-locale-switcher
+  >
+    🌐 {localeNativeName(locale)}
+  </button>
+  <ul hidden role="listbox" aria-label={label}>
+    {LOCALES.map((id) => (
+      <li role="option" aria-selected={id === locale}>
+        <a href={withLocale(id, path)} hreflang={id} data-set-locale={id}>{localeNativeName(id)}</a>
+      </li>
+    ))}
+  </ul>
+</div>
+<script>
+  const KEY = "casthop.locale";
+  for (const root of document.querySelectorAll(".lang-switch")) {
+    const btn = root.querySelector("[data-locale-switcher]");
+    const list = root.querySelector("ul");
+    if (!(btn instanceof HTMLButtonElement) || !(list instanceof HTMLElement)) continue;
+    btn.addEventListener("click", () => {
+      const open = list.hasAttribute("hidden");
+      list.toggleAttribute("hidden", !open);
+      btn.setAttribute("aria-expanded", String(open));
+    });
+    document.addEventListener("pointerdown", (e) => {
+      if (!root.contains(e.target as Node)) {
+        list.hidden = true;
+        btn.setAttribute("aria-expanded", "false");
+      }
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        list.hidden = true;
+        btn.setAttribute("aria-expanded", "false");
+      }
+    });
+    list.querySelectorAll("a[data-set-locale]").forEach((a) => {
+      a.addEventListener("click", () => {
+        const id = a.getAttribute("data-set-locale");
+        if (id) try { localStorage.setItem(KEY, id); } catch { /* ignore */ }
+      });
+    });
+  }
+</script>

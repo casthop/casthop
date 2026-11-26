@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Participant, TrackPublication } from "livekit-client";
 import { ParticipantEvent, Track } from "livekit-client";
+import { useI18n } from "../i18n";
 
 // Publications exist before the MediaStreamTrack is subscribed; listen so we attach then.
 const VIDEO_EVENTS = [
@@ -36,6 +37,7 @@ export function VideoTile({
   tone?: "cam1" | "cam2" | "cam3";
   booth?: boolean;
 }) {
+  const { t } = useI18n();
   const ref = useRef<HTMLVideoElement>(null);
   const [tile, setTile] = useState({ hasVideo: false, micOff: false });
 
@@ -94,14 +96,14 @@ export function VideoTile({
       ) : null}
       <span className={booth ? "name" : "tag"}>{label}</span>
       {booth && tile.micOff ? (
-        <span className="muted" title="Microphone off">
+        <span className="muted" title={t("micOff")}>
           <svg className="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <path d="M12 19v3" />
             <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
             <rect x="9" y="2" width="6" height="13" rx="3" />
             <path d="m2 2 20 20" />
           </svg>
-          <span className="sr-only">Microphone off</span>
+          <span className="sr-only">{t("micOff")}</span>
         </span>
       ) : null}
     </div>

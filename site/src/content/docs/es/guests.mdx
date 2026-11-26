@@ -1,0 +1,29 @@
+---
+title: Invitados
+description: Cómo los invitados entran a un estudio desde un enlace, y qué tiene que hacer el anfitrión.
+group: Empezar
+order: 2
+---
+
+Los invitados entran con un enlace. No necesitan cuenta.
+
+## Cómo funciona
+
+1. El anfitrión abre un estudio y copia el enlace de invitado.
+2. El invitado abre el enlace en el navegador e introduce un nombre.
+3. El invitado espera entre bastidores. El anfitrión lo ve, pero aún no está en la emisión.
+4. El anfitrión lo sube a escena. Caben hasta seis a la vez.
+
+![La pantalla de entrada del invitado con una imagen de prueba verde.](/guest.png)
+
+*La imagen verde es una cámara falsa en una captura de prueba, no un invitado de verdad.*
+
+## Quién puede qué
+
+- **Presentar exige una cuenta.** El anfitrión entra con un magic link por correo, o GitHub si lo configuraste. El dueño del estudio, y cualquier coanfitrión que invite, puede controlarlo.
+- **Los invitados no se hacen pasar por el anfitrión.** Las identidades las asigna el Worker, y cada acción se comprueba en el servidor.
+- **Los invitados nunca ven claves de stream.** El estado público del estudio solo incluye un sufijo enmascarado de cada URL de destino. Mira [Destinos](/docs/destinations).
+
+## Si un invitado no conecta
+
+TURN para invitados detrás de NAT estricto aún no está. En una red restrictiva, el invitado puede fallar por ahora.

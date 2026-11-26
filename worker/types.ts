@@ -168,7 +168,8 @@ export type ReplayRecord = {
   files: number;
 };
 
-export type PublicReplay = ReplayRecord & {
+export type PublicReplay = Omit<ReplayRecord, "studioId"> & {
+  studioId?: string;
   playlistUrl: string;
   viewerCanEdit: boolean;
 };

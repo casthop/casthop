@@ -257,6 +257,12 @@ test("public replay is playable by link; private stays host-only", async () => {
   assert.equal(openPub.status, 200);
   const pubBody = await json<PublicReplay>(openPub);
   assert.equal(pubBody.viewerCanEdit, false);
+  assert.equal(pubBody.studioId, undefined);
+  const asOwner = await json<PublicReplay>(
+    await app.request(`https://casthop.test/api/replays/${pub.id}`, { headers: { Cookie: owner } }, env),
+  );
+  assert.equal(asOwner.viewerCanEdit, true);
+  assert.equal(asOwner.studioId, id);
   const openHls = await app.request(`https://casthop.test${pub.playlistUrl}`, {}, env);
   assert.equal(openHls.status, 200);
   assert.equal(openHls.headers.get("cache-control"), "public, max-age=0, must-revalidate");

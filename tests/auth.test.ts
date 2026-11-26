@@ -561,6 +561,15 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
       path: `/api/replays/${publicReplay.id}`,
       init: {},
       expect: { owner: 200, cohost: 200, guest: 200, signedOut: 200, expired: 404, outsider: 200 },
+      check: (who, body, status) => {
+        if (status !== 200) return;
+        const row = body as PublicReplay;
+        if (who === "owner" || who === "cohost") {
+          assert.equal(row.studioId, id);
+          return;
+        }
+        assert.equal(row.studioId, undefined);
+      },
     },
     {
       name: "GET private replay HLS",

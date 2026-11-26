@@ -77,7 +77,7 @@ export function Watch() {
   }, [replay?.playlistUrl]);
 
   async function onVisibility(visibility: ReplayVisibility) {
-    if (!replay) return;
+    if (!replay?.studioId) return;
     try {
       const next = await setReplayVisibility(replay.studioId, replay.id, visibility);
       setReplay(next);

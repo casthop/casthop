@@ -51,7 +51,13 @@ export function playlistUrlFor(replayId: string): string {
 }
 
 export function publicReplay(row: ReplayRecord, viewerCanEdit: boolean): PublicReplay {
-  return { ...row, playlistUrl: playlistUrlFor(row.id), viewerCanEdit };
+  const { studioId, ...rest } = row;
+  return {
+    ...rest,
+    playlistUrl: playlistUrlFor(row.id),
+    viewerCanEdit,
+    ...(viewerCanEdit ? { studioId } : {}),
+  };
 }
 
 export function hlsFilenamesInPlaylist(text: string): string[] {

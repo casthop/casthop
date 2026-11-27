@@ -23,6 +23,7 @@ let youtubePolls = 0;
 let youtubeBroadcasts = 0;
 let youtubeTokens = 0;
 let youtubeVideos = 0;
+let startEgressFails = false;
 let holdNextYoutube = false;
 let youtubeHold: Promise<void> | null = null;
 let youtubeStarted: (() => void) | null = null;
@@ -221,6 +222,7 @@ before(() => {
       );
     }
     if (url.includes("StartRoomCompositeEgress")) {
+      if (startEgressFails) return new Response("compositor refused", { status: 500 });
       return new Response(JSON.stringify({ egress_id: "eg_chat" }), { status: 200 });
     }
     if (url.includes("StopEgress")) {
@@ -472,6 +474,49 @@ test("youtube poll does not overwrite a stop or studio chat", async () => {
     youtubeStarted = null;
     holdNextYoutube = false;
   }
+});
+
+test("a studio whose go-live failed stops polling YouTube until a host retries", async () => {
+  youtubePolls = 0;
+  const env = makeEnv({ YOUTUBE_API_KEY: "test-key", YOUTUBE_LIVE_CHAT_ID: "LC_env", CASTHOP_RECOVERY_MS: "0" });
+  const { id, cookie } = await createStudio(env);
+  const stub = env.STUDIO.get(env.STUDIO.idFromName(id));
+  const watch = () =>
+    stub.fetch(`https://studio/${id}?action=watch`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  const goLive = () =>
+    app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ live: true }) },
+      env,
+    );
+  startEgressFails = true;
+  try {
+    await goLive();
+    await watch();
+    const failed = await json<PublicStudio>(
+      await app.request(`https://casthop.test/api/studios/${id}`, { headers: { Cookie: cookie } }, env),
+    );
+    assert.equal(failed.livePhase, "failed");
+    const polls = youtubePolls;
+    const realNow = Date.now;
+    try {
+      // Past any pollingIntervalMillis, so only the failed state can hold polling back.
+      Date.now = () => realNow() + 120_000;
+      await watch();
+      Date.now = () => realNow() + 240_000;
+      await watch();
+    } finally {
+      Date.now = realNow;
+    }
+    assert.equal(youtubePolls, polls, "no YouTube calls while the studio is failed");
+  } finally {
+    startEgressFails = false;
+  }
+  const retried = await goLive();
+  assert.equal(retried.status, 200, await retried.clone().text());
+  const before = youtubePolls;
+  await watch();
+  assert.ok(youtubePolls > before, "Retry resumes polling");
 });
 
 test("pin requires a host session", async () => {

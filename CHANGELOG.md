@@ -31,6 +31,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 ### Fixed
 
+- A studio whose Go live failed stops polling YouTube chat and closes Twitch and Kick chat until a host presses Retry or End. It used to keep calling YouTube every few seconds, even after everyone left.
 - Go live while End is still stopping the stream now gets "still stopping" instead of starting a compositor the stop never sees. End also stops any compositor the studio recorded while it was stopping, so nothing keeps streaming while the studio shows Not live.
 - The background egress check no longer undoes a host action that lands while it waits on LiveKit. Taking a guest off stage, turning off a destination, or stopping the stream used to be reverted, and a stopped stream could restart.
 - 9:16 destinations need a custom Egress template; overlapping starts share one portrait compositor. An already-enabled 9:16 row still saves if the template is later unset.

@@ -31,6 +31,8 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 ### Fixed
 
+- The studio list and sign-in look up memberships by account and invites by email through new indexes instead of reading every row in the deployment.
+- Clips are always cut from the 16:9 program. A 9:16 destination no longer writes the clip buffer, so clips stop coming out 720x1280.
 - Go live with a 9:16 destination no longer starts the portrait compositor several times in a few seconds. It now gets the same start grace as 16:9, only one portrait start or restart runs at a time, and a restart stops any leftover portrait compositor so two never publish to the same RTMP URL.
 - Kick chat was broken after Kick left Pusher. It now uses Kick's public Centrifugo feed and reconnects with a fresh guest token when the old one expires.
 - Opening `/studio/:id` as a signed-in co-host invitee now shows the Accept prompt, as the invite email says. It used to show only the guest gate. After accepting, the studio opens as a co-host. Accepting from the guest join page still works.
@@ -58,8 +60,11 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 - Stream keys and full destination URLs are withheld from guests and public GET / WebSocket state.
 - Published LiveKit `devkey` is refused unless LiveKit is loopback.
 - CI rebuilds the committed `.wasm` files from the Rust source in `rust:1.100.0` and fails if the bytes differ, so the binaries every participant's browser runs match the reviewed source.
+- Cookie-authenticated POST, PUT, PATCH and DELETE requests under `/api` are refused when the browser says they come from another origin, including a sibling subdomain or the `http://` version of the site, which SameSite=Lax does not cover.
+- RTMP destinations are refused when the host is an internal address in any spelling (IPv4-mapped IPv6, NAT64, decimal, hex, octal or shortened IPv4), a multicast or special-use range, a single-label name, or a name under `.localhost`, `.local`, `.internal`, `.home.arpa`, `.localdomain` or `.lan`.
 - ISO chunk uploads need a Content-Length of at most 8 MiB and are refused before the body is read. A streamed upload with no length used to be buffered in full first.
 - Inviting a co-host gives the same answer whether or not the email has an account, and no longer returns that person's account id or name. Existing accounts get the invite mail and become co-hosts when they accept on the studio link or next sign in, not straight away. A co-host can leave a studio.
+- Co-host invite mail is rate limited: 10 invites per inviting account and 2 per recipient across all studios every 15 minutes.
 - Replay, clip and live playlists are checked against the tags casthop and ffmpeg write, and only `index.m3u8` may be a playlist. Lone CR line breaks, text after an `#EXTINF` duration, unquoted `URI=`, interstitials and nested playlists used to get past the check and make viewers' players fetch outside URLs.
 - The magic-link response includes the dev sign-in link only when `CASTHOP_DEV_LOGIN=1` is set. Under `bun run dev` the Host header and client IP the old check used are controlled by the client. CI sets the flag; set it in `.dev.vars` to run e2e or `bun run measure` locally.
 - One network can no longer take a studio's whole guest join budget or all 64 guest slots. Each network (an IPv4 address or an IPv6 /64) gets up to 10 new guests a minute and 16 slots, and a full studio frees guests who have not been in the room for a minute.

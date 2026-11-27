@@ -31,6 +31,8 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 ### Fixed
 
+- Go live while End is still stopping the stream now gets "still stopping" instead of starting a compositor the stop never sees. End also stops any compositor the studio recorded while it was stopping, so nothing keeps streaming while the studio shows Not live.
+- The background egress check no longer undoes a host action that lands while it waits on LiveKit. Taking a guest off stage, turning off a destination, or stopping the stream used to be reverted, and a stopped stream could restart.
 - 9:16 destinations need a custom Egress template; overlapping starts share one portrait compositor. An already-enabled 9:16 row still saves if the template is later unset.
 - 9:16 start and crash retries follow the same recovery budget as 16:9. A compositor that never beats is timed out.
 - Studio tiles attach camera video when the track arrives after the first render.
@@ -50,4 +52,8 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 - Stream keys and full destination URLs are withheld from guests and public GET / WebSocket state.
 - Published LiveKit `devkey` is refused unless LiveKit is loopback.
 - Co-host invite mail is rate limited: 10 invites per inviting account and 2 per recipient across all studios every 15 minutes.
+- One network can no longer take a studio's whole guest join budget or all 64 guest slots. Each network (an IPv4 address or an IPv6 /64) gets up to 10 new guests a minute and 16 slots, and a full studio frees guests who have not been in the room for a minute.
+- `bun run dev` listens on `127.0.0.1` only, not every interface. Miniflare's data explorer is off unless you set `X_LOCAL_EXPLORER=true`, and the dev server no longer serves files under `data/`.
+- New studios copy `RTMP_YOUTUBE`, `RTMP_LINKEDIN` and `RTMP_X` only when they are loopback stand-ins. A real ingest URL there used to reach every account that created a studio. Studios created earlier keep what they copied; if you set real keys there, rotate them.
+- `GET /api/studios/:id/ws` only upgrades to the state socket. It used to pass the caller's query string to the studio, so a signed-out caller could run internal actions such as `watch`. The studio now refuses any action that is not a POST or PUT from the Worker.
 - Only the host, co-hosts and guests on stage can start a per-person (ISO) recording. Guests waiting off stage used to be able to fill the session's track slots and push earlier recordings out of storage.

@@ -13,6 +13,12 @@ export const TOKEN_MINT_WINDOW_MS = 60_000;
 export const TOKEN_MINT_MAX = 20;
 export const TOKEN_IP_WINDOW_MS = 60_000;
 export const TOKEN_IP_MAX = 60;
+/** New guest identities one network can take per studio per mint window. */
+export const GUEST_MINT_PER_SOURCE = 10;
+/** Guest slots one network can hold in a studio. */
+export const GUESTS_PER_SOURCE = 16;
+/** A full studio frees guests who have not shown up in the room for this long. */
+export const ABSENT_GUEST_GRACE_MS = 60_000;
 export const SIGNIN_WINDOW_MS = 15 * 60 * 1000;
 export const SIGNIN_IP_MAX = 5;
 export const SIGNIN_EMAIL_MAX = 3;

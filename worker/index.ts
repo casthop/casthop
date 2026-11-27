@@ -612,7 +612,13 @@ app.get("/api/studios/:id", async (c) => {
 
 app.get("/api/studios/:id/ws", async (c) => {
   const id = c.req.param("id");
-  return studioStub(c.env, id).fetch(c.req.raw);
+  if (c.req.header("Upgrade")?.toLowerCase() !== "websocket") {
+    return c.json({ error: "websocket upgrade required" }, 426);
+  }
+  // Forward the upgrade only. The client's URL and query must not reach the action dispatcher.
+  const headers = new Headers(c.req.raw.headers);
+  headers.set("Upgrade", "websocket");
+  return studioStub(c.env, id).fetch(new Request(`https://studio/${id}`, { headers }));
 });
 
 app.post("/api/studios/:id/token", async (c) => {
@@ -673,7 +679,9 @@ app.post("/api/studios/:id/token", async (c) => {
   }
 
   const name = asName(body.name, "Guest");
-  const joined = await doAction(c.env, id, "join", { identity, name, role: "guest" });
+  // "local" means no trusted client address; a shared bucket would cap the whole studio.
+  const source = ip === "local" ? "" : ipBucket(ip);
+  const joined = await doAction(c.env, id, "join", { identity, name, role: "guest", source });
   if (!joined.ok) return new Response(joined.body, { status: joined.status, headers: joined.headers });
   const joinedBody = (await joined.json()) as { onStage?: boolean };
   const canPublish = Boolean(joinedBody.onStage);

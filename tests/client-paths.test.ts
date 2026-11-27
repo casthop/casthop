@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, test } from "node:test";
+import { afterEach, beforeEach, test } from "bun:test";
 import {
   getClip,
   getReplay,
@@ -53,26 +53,53 @@ test("a crafted studio id stays inside its own /api/studios path", async () => {
 });
 
 test("crafted replay and clip ids stay inside their paths", async () => {
-  await getReplay("../auth/logout?x=");
-  await getClip("../studios?x=");
+  for (const id of ["../auth/logout?x="]) {
+    await getReplay(id);
+    await getClip(id);
+  }
   for (const path of seen) {
     assertOwnPath(path, /^\/api\/(replays|clips)\/[^/]+$/);
   }
 });
 
 test("crafted nested studio ids stay inside their own path segments", async () => {
-  const hostile = "../auth/logout?x=";
-  await removeCohost("studio", hostile);
-  await setReplayVisibility("studio", hostile, "public");
-  await setClipVisibility("studio", hostile, "public");
-  await uploadIsoChunk("studio", hostile, 0, new Blob(["x"]), { identity: "host", name: "Host" });
-  await completeIsoTrack("studio", hostile, { identity: "host", name: "Host" });
-  await putLiveFile("studio", "token", hostile, "x", "application/vnd.apple.mpegurl");
-  assertOwnPath(isoDownloadPath("studio", hostile), /^\/api\/studios\/studio\/recordings\/iso\/[^/]+$/);
+  for (const hostile of ["../auth/logout?x="]) {
+    await removeCohost("studio", hostile);
+    await setReplayVisibility("studio", hostile, "public");
+    await setClipVisibility("studio", hostile, "public");
+    await uploadIsoChunk("studio", hostile, 0, new Blob(["x"]), { identity: "host", name: "Host" });
+    await completeIsoTrack("studio", hostile, { identity: "host", name: "Host" });
+    await putLiveFile("studio", "token", hostile, "x", "application/vnd.apple.mpegurl");
+    assertOwnPath(isoDownloadPath("studio", hostile), /^\/api\/studios\/studio\/recordings\/iso\/[^/]+$/);
+  }
   for (const path of seen) {
     assertOwnPath(
       path,
       /^\/api\/studios\/studio\/(cohosts|replays|clips|iso)\/[^/]+(\/(chunks\/0|complete))?$|^\/api\/studios\/studio\/live-hls\/[^/]+$/,
     );
   }
+});
+
+// "%2E%2E" is still a dot segment to the URL parser, so encoding cannot save these ids.
+test("dot ids are refused before any request", async () => {
+  const calls: Array<(id: string) => unknown> = [
+    (id) => getStudio(id),
+    (id) => sendEgressBeat(id, "token", "eg"),
+    (id) => mintToken(id, { name: "Guest", role: "guest" }),
+    (id) => getReplay(id),
+    (id) => getClip(id),
+    (id) => removeCohost("studio", id),
+    (id) => setReplayVisibility("studio", id, "public"),
+    (id) => setClipVisibility("studio", id, "public"),
+    (id) => uploadIsoChunk("studio", id, 0, new Blob(["x"]), { identity: "host", name: "Host" }),
+    (id) => completeIsoTrack("studio", id, { identity: "host", name: "Host" }),
+    (id) => isoDownloadPath("studio", id),
+    (id) => putLiveFile(id, "token", "a.m3u8", "x", "application/vnd.apple.mpegurl"),
+  ];
+  for (const id of ["..", "."]) {
+    for (const call of calls) {
+      await assert.rejects(async () => call(id), /invalid path segment/);
+    }
+  }
+  assert.deepEqual(seen, []);
 });

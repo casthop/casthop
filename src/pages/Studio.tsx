@@ -46,6 +46,7 @@ import { loadSession, saveSession } from "../lib/session";
 import { canConnectToStudio } from "../lib/studio-entry";
 import { SHOT_LIVE_MS, shotFromUrl, shotStudio } from "../lib/studio-shot";
 import { IsoRecorder } from "../lib/iso-recorder";
+import { seg } from "../lib/path-segment";
 import { isHostIdentity } from "../../worker/security";
 import { destAspectOf, type DestAspect, type IsoTrack, type LayoutId, type ParticipantInfo, type PublicDestination } from "../../worker/types";
 import { outputPhase } from "../../worker/egress";
@@ -311,7 +312,7 @@ export function Studio() {
     const connect = () => {
       if (closed) return;
       const proto = location.protocol === "https:" ? "wss" : "ws";
-      ws = new WebSocket(`${proto}://${location.host}/api/studios/${encodeURIComponent(id)}/ws`);
+      ws = new WebSocket(`${proto}://${location.host}/api/studios/${seg(id)}/ws`);
       ws.onmessage = (ev) => {
         const msg = JSON.parse(ev.data) as { type: string; state?: PublicStudio };
         if (msg.type === "state" && msg.state) apply(msg.state);

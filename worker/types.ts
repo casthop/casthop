@@ -129,6 +129,8 @@ export type StudioState = {
   /** Second RoomComposite for 9:16 destinations. Independent encode. */
   portraitEgressId?: string | null;
   portraitHeartbeatAt?: number | null;
+  /** When the portrait compositor started; start grace runs from here until the first beat. */
+  portraitStartedAt?: number | null;
   portraitRetryCount?: number;
   portraitRetryAt?: number | null;
   portraitRecoveringSince?: number | null;
@@ -176,6 +178,8 @@ export type Env = {
   RTMP_X: string;
   EGRESS_TEMPLATE_URL: string;
   CASTHOP_ALLOW_DEV_KEYS?: string;
+  /** "1" puts the magic-link path in the sign-in response. Loopback dev server, tests and CI only. */
+  CASTHOP_DEV_LOGIN?: string;
   CASTHOP_EMPTY_GRACE_MS?: string;
   CASTHOP_COMPOSITOR_GRACE_MS?: string;
   CASTHOP_BACKOFF_MS?: string;
@@ -293,6 +297,7 @@ export type PublicStudio = Omit<
   | "captionCues"
   | "portraitEgressId"
   | "portraitHeartbeatAt"
+  | "portraitStartedAt"
   | "portraitRetryCount"
   | "portraitRetryAt"
   | "portraitRecoveringSince"

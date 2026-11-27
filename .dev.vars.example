@@ -9,10 +9,15 @@ LIVEKIT_API_SECRET=casthop_dev_secret_not_for_production_use_32b
 # HOST_KEY_SECRET=
 # Allow the published devkey with a non-loopback LiveKit URL. Tests only.
 # CASTHOP_ALLOW_DEV_KEYS=1
+# Return the sign-in link in the magic-link response, for e2e, `bun run measure` and
+# /internal/probe. Keep the dev server on 127.0.0.1. Otherwise use the link the Worker logs.
+# CASTHOP_DEV_LOGIN=1
 # Where the Worker reaches LiveKit HTTP.
 LIVEKIT_HTTP_URL=http://127.0.0.1:7880
 # LiveKit WebSocket URL browsers connect to.
 PUBLIC_LIVEKIT_URL=ws://127.0.0.1:7880
+# Local MediaMTX stand-ins. New studios copy these only when they are loopback;
+# owners set real ingest URLs per studio.
 # Default YouTube destination (local MediaMTX stand-in).
 RTMP_YOUTUBE=rtmp://127.0.0.1:1935/live/youtube
 # Default LinkedIn destination (local MediaMTX stand-in).

@@ -26,9 +26,9 @@ import type { Env, IsoTrack, PublicStudio, RecordingList } from "../worker/types
 import { FakeD1 } from "./fake-d1.ts";
 import { FakeR2 } from "./fake-r2.ts";
 
-const YT = "rtmp://ingest.example.com/live/super-secret-youtube-key";
-const LI = "rtmp://ingest.example.com/live/super-secret-linkedin-key";
-const X = "rtmp://ingest.example.com/live/super-secret-x-key";
+const YT = "rtmp://127.0.0.1:1935/live/super-secret-youtube-key";
+const LI = "rtmp://127.0.0.1:1935/live/super-secret-linkedin-key";
+const X = "rtmp://127.0.0.1:1935/live/super-secret-x-key";
 const realFetch = globalThis.fetch;
 
 function fakeCtx(): DurableObjectState {
@@ -59,6 +59,7 @@ function makeEnv(): Env & { _r2: FakeR2 } {
     RTMP_X: X,
     EGRESS_TEMPLATE_URL: "http://127.0.0.1:5173/egress-template",
     CASTHOP_ALLOW_DEV_KEYS: "1",
+    CASTHOP_DEV_LOGIN: "1",
     CASTHOP_TRUST_FORWARDED: "1",
     PUBLIC_ORIGIN: "https://casthop.test",
     ASSETS: { fetch: async () => new Response("ok") },
@@ -359,7 +360,7 @@ test("host can enable ISO, each person uploads chunks, host downloads concat", a
     {
       method: "PUT",
       headers: {
-        "Content-Type": "application/octet-stream",
+        "Content-Type": "application/octet-stream", "Content-Length": "3",
         "X-Casthop-Identity": guestMint.identity,
         "X-Casthop-Guest-Secret": guestMint.guestSecret,
       },
@@ -373,7 +374,7 @@ test("host can enable ISO, each person uploads chunks, host downloads concat", a
     `https://casthop.test/api/studios/${id}/iso/${hostTrack.track.id}/chunks/2`,
     {
       method: "PUT",
-      headers: { "Content-Type": "application/octet-stream", Cookie: cookie },
+      headers: { "Content-Type": "application/octet-stream", "Content-Length": "4", Cookie: cookie },
       body: new TextEncoder().encode("SKIP"),
     },
     env,
@@ -385,7 +386,7 @@ test("host can enable ISO, each person uploads chunks, host downloads concat", a
     `https://casthop.test/api/studios/${id}/iso/${hostTrack.track.id}/chunks/0`,
     {
       method: "PUT",
-      headers: { "Content-Type": "application/octet-stream", Cookie: cookie },
+      headers: { "Content-Type": "application/octet-stream", "Content-Length": "4", Cookie: cookie },
       body: new TextEncoder().encode("AAAA"),
     },
     env,
@@ -398,7 +399,7 @@ test("host can enable ISO, each person uploads chunks, host downloads concat", a
     `https://casthop.test/api/studios/${id}/iso/${hostTrack.track.id}/chunks/1`,
     {
       method: "PUT",
-      headers: { "Content-Type": "application/octet-stream", Cookie: cookie },
+      headers: { "Content-Type": "application/octet-stream", "Content-Length": "4", Cookie: cookie },
       body: new TextEncoder().encode("BBBB"),
     },
     env,
@@ -410,7 +411,7 @@ test("host can enable ISO, each person uploads chunks, host downloads concat", a
     {
       method: "PUT",
       headers: {
-        "Content-Type": "application/octet-stream",
+        "Content-Type": "application/octet-stream", "Content-Length": "3",
         "X-Casthop-Identity": guestMint.identity,
         "X-Casthop-Guest-Secret": guestMint.guestSecret,
       },
@@ -425,7 +426,7 @@ test("host can enable ISO, each person uploads chunks, host downloads concat", a
     {
       method: "PUT",
       headers: {
-        "Content-Type": "application/octet-stream",
+        "Content-Type": "application/octet-stream", "Content-Length": "5",
         "X-Casthop-Identity": guestMint.identity,
         "X-Casthop-Guest-Secret": guestMint.guestSecret,
       },
@@ -515,7 +516,7 @@ test("host can enable ISO, each person uploads chunks, host downloads concat", a
     {
       method: "PUT",
       headers: {
-        "Content-Type": "application/octet-stream",
+        "Content-Type": "application/octet-stream", "Content-Length": "4",
         "X-Casthop-Identity": guestMint.identity,
         "X-Casthop-Guest-Secret": guestMint.guestSecret,
       },
@@ -586,6 +587,32 @@ test("iso-start caps tracks per identity in a session", async () => {
   assert.equal(over.status, 429);
 });
 
+test("a chunk with no Content-Length is refused before its body is read", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "owner@example.com");
+  const id = await createStudio(env, cookie);
+  let pulled = 0;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      pulled += 1;
+      if (pulled > 4) controller.close();
+      else controller.enqueue(new Uint8Array(64 * 1024));
+    },
+  });
+  const res = await app.request(
+    new Request(`https://casthop.test/api/studios/${id}/iso/any/chunks/0`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/octet-stream", Cookie: cookie },
+      body,
+      duplex: "half",
+    } as RequestInit),
+    undefined,
+    env,
+  );
+  assert.equal(res.status, 413);
+  assert.ok(pulled <= 1, `read ${pulled} pulls before refusing`);
+});
+
 test("failed R2 put is not counted on the track", async () => {
   const env = makeEnv();
   const cookie = await signIn(env, "owner@example.com");
@@ -621,7 +648,7 @@ test("failed R2 put is not counted on the track", async () => {
   env._r2.failNextPut = true;
   const failed = await app.request(
     `https://casthop.test/api/studios/${id}/iso/${track.id}/chunks/0`,
-    { method: "PUT", headers: { "Content-Type": "application/octet-stream", Cookie: cookie }, body: new TextEncoder().encode("AAAA") },
+    { method: "PUT", headers: { "Content-Type": "application/octet-stream", "Content-Length": "4", Cookie: cookie }, body: new TextEncoder().encode("AAAA") },
     env,
   );
   assert.equal(failed.status, 502);
@@ -716,7 +743,7 @@ async function putChunk(env: Env, id: string, trackId: string, index: number, te
     `https://casthop.test/api/studios/${id}/iso/${trackId}/chunks/${index}`,
     {
       method: "PUT",
-      headers: { "Content-Type": "application/octet-stream", Cookie: cookie },
+      headers: { "Content-Type": "application/octet-stream", "Content-Length": String(new TextEncoder().encode(text).length), Cookie: cookie },
       body: new TextEncoder().encode(text),
     },
     env,

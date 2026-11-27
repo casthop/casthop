@@ -7,8 +7,12 @@ import {
   asIdentity,
   asName,
   clearCookie,
+  crossOriginCookieWrite,
   devKeyGuardError,
   hostIdentityFor,
+  INVITE_ACCOUNT_MAX,
+  INVITE_EMAIL_MAX,
+  ipBucket,
   isHostIdentity,
   isSecureRequest,
   OAUTH_COOKIE,
@@ -16,6 +20,7 @@ import {
   publicOrigin,
   randomId,
   requestIp,
+  SIGNIN_WINDOW_MS,
   TOKEN_IP_MAX,
   TOKEN_IP_WINDOW_MS,
 } from "./security";
@@ -39,6 +44,7 @@ import {
   accountByEmail,
   accountById,
   allowRate,
+  refundRate,
   deleteCohost,
   deleteInvite,
   ensureDb,
@@ -166,6 +172,7 @@ async function studioPublicState(env: Env, id: string): Promise<PublicStudio | n
 app.use("/api/*", async (c, next) => {
   const err = devKeyGuardError(c.env);
   if (err) return c.json({ error: err }, 503);
+  if (crossOriginCookieWrite(c.req.raw, c.env)) return c.json({ error: "bad origin" }, 403);
   await ensureDb(c.env.DB);
   await next();
   const cookie = c.get("sessionCookie");
@@ -606,7 +613,9 @@ app.get("/api/studios/:id", async (c) => {
   const res = await studioStub(c.env, id).fetch(`https://studio/${id}`);
   if (!res.ok) return new Response(res.body, { status: res.status, headers: res.headers });
   const state = (await res.json()) as PublicStudio;
-  return c.json({ ...state, viewerRole: "guest" as const });
+  const email = sess?.account.email;
+  const cohostInvite = email ? (await invitesForStudio(c.env.DB, id)).some((p) => p.email === email) : false;
+  return c.json({ ...state, viewerRole: "guest" as const, ...(cohostInvite ? { cohostInvite } : {}) });
 });
 
 app.get("/api/studios/:id/ws", async (c) => {
@@ -678,7 +687,9 @@ app.post("/api/studios/:id/token", async (c) => {
   }
 
   const name = asName(body.name, "Guest");
-  const joined = await doAction(c.env, id, "join", { identity, name, role: "guest" });
+  // "local" means no trusted client address; a shared bucket would cap the whole studio.
+  const source = ip === "local" ? "" : ipBucket(ip);
+  const joined = await doAction(c.env, id, "join", { identity, name, role: "guest", source });
   if (!joined.ok) return new Response(joined.body, { status: joined.status, headers: joined.headers });
   const joinedBody = (await joined.json()) as { onStage?: boolean };
   const canPublish = Boolean(joinedBody.onStage);
@@ -935,8 +946,10 @@ app.put("/api/studios/:id/iso/:trackId/chunks/:index", async (c) => {
   if (index === null) return c.json({ error: "chunk required" }, 400);
   const who = await isoCaller(c, id);
   if (who instanceof Response) return who;
-  const declared = Number(c.req.header("content-length") ?? "0");
-  if (declared > ISO_CHUNK_MAX_BYTES) return c.json({ error: "chunk too large" }, 413);
+  // Refuse before reading: without a declared length the body would be buffered whole.
+  if (contentLengthOver(c.req.header("content-length"), ISO_CHUNK_MAX_BYTES)) {
+    return c.json({ error: "chunk too large or missing Content-Length" }, 413);
+  }
   if (!(await allowRate(c.env.DB, `iso:${id}:${who.identity}`, ISO_CHUNK_MAX, ISO_CHUNK_WINDOW_MS))) {
     return c.json({ error: "too many uploads" }, 429);
   }
@@ -1056,30 +1069,56 @@ app.post("/api/studios/:id/cohosts", async (c) => {
   const email = asEmail(body.email);
   if (!email) return c.json({ error: "valid email required" }, 400);
   if (sess.account.email === email) return c.json({ error: "already a member" }, 409);
-  const existingAccount = await accountByEmail(c.env.DB, email);
-  if (existingAccount) {
-    const already = await memberFor(c.env.DB, id, existingAccount.id);
-    if (already) return c.json({ error: "already a member" }, 409);
-    await insertMember(c.env.DB, id, existingAccount.id, "cohost", Date.now());
-    return c.json({ ok: true, member: { accountId: existingAccount.id, email, name: existingAccount.name, role: "cohost" } });
-  }
   const origin = publicOrigin(c.env, c.req.url);
   if (!origin) return c.json({ error: "PUBLIC_ORIGIN required" }, 503);
+  // The same answer whether or not the email has an account, so this is not a lookup.
+  // Nobody becomes a member until they accept or sign in after the invite mail.
+  const invited = c.json({ ok: true, pending: true, email });
+  const existingAccount = await accountByEmail(c.env.DB, email);
+  if (existingAccount && (await memberFor(c.env.DB, id, existingAccount.id))) return invited;
   const pending = await invitesForStudio(c.env.DB, id);
-  if (pending.some((p) => p.email === email)) return c.json({ error: "already invited" }, 409);
+  if (pending.some((p) => p.email === email)) return invited;
+  // Cap invite mail like sign-in. Reserve both slots with allowRate (atomic upsert)
+  // before send so a parallel burst cannot sneak past the cap. Give a slot back if
+  // the other key is full or the mailer fails, so those do not spend the budget.
+  const acctKey = `invite:acct:${sess.account.id}`;
+  const emailKey = `invite:email:${email}`;
+  if (!(await allowRate(c.env.DB, acctKey, INVITE_ACCOUNT_MAX, SIGNIN_WINDOW_MS))) {
+    return c.json({ error: "too many invites" }, 429);
+  }
+  if (!(await allowRate(c.env.DB, emailKey, INVITE_EMAIL_MAX, SIGNIN_WINDOW_MS))) {
+    await refundRate(c.env.DB, acctKey);
+    return c.json({ error: "too many invites" }, 429);
+  }
   await insertInvite(c.env.DB, randomId(10), id, email, Date.now());
   try {
     await mailerFor(c.env).send({
       to: email,
       subject: "Co-host invite for a Casthop studio",
-      text: `You were invited to co-host a studio. Sign in at ${origin} with this email, then open ${origin}/studio/${id}\n`,
+      text: `You were invited to co-host a studio. Sign in at ${origin} with this email, then open ${origin}/studio/${id} and accept the invite.\n`,
     });
   } catch (err) {
     await deleteInvite(c.env.DB, id, email);
+    await refundRate(c.env.DB, acctKey);
+    await refundRate(c.env.DB, emailKey);
     if (err instanceof MailSendError) return c.json({ error: "could not send invite" }, 502);
     throw err;
   }
-  return c.json({ ok: true, pending: true, email });
+  return invited;
+});
+
+app.post("/api/studios/:id/cohosts/accept", async (c) => {
+  const id = c.req.param("id");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const email = sess?.account.email;
+  if (!sess || !email) return c.json({ error: "sign in required" }, 401);
+  if (await memberFor(c.env.DB, id, sess.account.id)) return c.json({ ok: true });
+  const pending = await invitesForStudio(c.env.DB, id);
+  if (!pending.some((p) => p.email === email)) return c.json({ error: "no invite" }, 404);
+  await insertMember(c.env.DB, id, sess.account.id, "cohost", Date.now());
+  await deleteInvite(c.env.DB, id, email);
+  return c.json({ ok: true });
 });
 
 app.delete("/api/studios/:id/cohosts/:accountId", async (c) => {
@@ -1088,7 +1127,9 @@ app.delete("/api/studios/:id/cohosts/:accountId", async (c) => {
   const sess = await loadSession(c);
   attachSessionCookie(c, sess?.cookie);
   const host = await hostAuth(c.env, id, sess?.account);
-  if (!host || host.role !== "owner") return c.json({ error: "owner required" }, 403);
+  // The owner removes co-hosts; a co-host can remove themselves.
+  const leaving = host?.role === "cohost" && sess?.account.id === accountId;
+  if (!host || (host.role !== "owner" && !leaving)) return c.json({ error: "owner required" }, 403);
   const member = await memberFor(c.env.DB, id, accountId);
   if (member?.role !== "cohost") return c.json({ error: "co-host not found" }, 404);
   const target = await accountById(c.env.DB, accountId);

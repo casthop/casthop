@@ -64,6 +64,9 @@ const ja: Messages = {
   guestDefaultOutput: "デフォルトの出力",
   guestInviteBadge: "ゲスト招待",
   guestJoinTitle: "スタジオに参加",
+  cohostInviteNote: "このスタジオの共同ホストに招待されています。",
+  cohostInviteAccept: "承諾して共同ホストとして参加",
+  cohostInviteFailed: "招待を承諾できませんでした",
   guestJoinSub:
     "ダウンロードもアカウントも不要です。ホストがステージに上げるまで、控室で待ちます。",
   guestYourName: "お名前",

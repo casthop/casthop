@@ -1,29 +1,46 @@
 ---
 title: Guests
-description: How guests join a studio from a link, and what the host needs to do.
+description: How guests and co-hosts join a studio, and what each person can do.
 group: Start
 order: 2
 ---
 
-Guests join from a link. They do not need an account.
+Guests join from a link. They do not need an account or an install.
 
-## How it works
+## How a guest joins
 
-1. The host opens a studio and copies the guest link.
-2. The guest opens the link in a browser and enters a name.
-3. The guest waits backstage. They can be seen by the host, but are not in the stream.
+1. The host opens a studio and clicks **Invite guest** to copy the link.
+2. The guest opens the link, types a name, and checks camera and mic.
+3. The guest waits backstage. The host can see them, but they are not in the stream.
 4. The host brings them on stage. Up to six people can be on stage at once.
 
 ![The guest join screen with a green test picture.](/guest.png)
 
 *The green picture is a fake camera in a test capture, not a real guest.*
 
+## Co-hosts
+
+A co-host can run the studio with the owner: bring guests on stage, change the layout, go live and pin chat.
+
+1. The owner clicks **Invite co-host** and enters an email.
+2. The person gets an email with the studio link. The owner sees the same answer whether or not that email has an account.
+3. The person signs in with that email, opens the link and clicks **Accept and join as co-host**. Until they accept, they are not a co-host.
+
+A co-host can leave a studio at any time.
+
 ## Who can do what
 
-- **Hosting needs an account.** The host signs in with an email magic link, or GitHub if you configured it. The owner of a studio, and any co-host they invite, can control it.
-- **Guests cannot impersonate the host.** Identities are assigned by the Worker, and every action is checked on the server.
-- **Guests never see stream keys.** The public studio state only includes a masked suffix of each destination URL. See [Destinations](/docs/destinations).
+- **Hosting needs an account.** The owner and co-hosts sign in with an email link, or GitHub if it is set up.
+- **Guests cannot act as the host.** The server decides who is who and checks every action.
+- **Guests never see stream keys.** They only see the last few characters of each address. See [Destinations](/docs/destinations).
+- **Only people on stage can record their own track.** When **Separate recordings** is on, the host, co-hosts and guests on stage each record in their browser. Guests waiting backstage cannot.
+
+## Guest limits
+
+To stop one person from filling a studio with fake guests, each network (one IPv4 address, or one IPv6 /64 block) can add up to 10 new guests a minute and hold up to 16 guest slots in a studio. When a studio is full, guests who have been gone for more than a minute lose their slot.
+
+If many real guests share one office network, keep this in mind.
 
 ## If a guest cannot connect
 
-TURN for guests behind strict NAT is not built. A guest on a restrictive network may fail to connect for now.
+TURN is not included yet. TURN is a relay server for networks that block direct video. A guest on a strict office or hotel network may fail to connect. Ask them to try another network, or run your own TURN server with LiveKit.

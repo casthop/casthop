@@ -1,68 +1,139 @@
 ---
 title: はじめに
-description: Docker で自分のマシン上に Casthop を起動し、ローカルの RTMP 代替先へライブ配信する。
+description: Docker で自分のマシンに Casthop を起動し、ローカルのテスト用配信先へライブ配信します。
 group: スタート
 order: 1
 ---
 
-対応しているローカル構成は、Linux 上で Docker の host networking を使うやり方です。Docker がホストのネットワークを使うので、ブラウザ、LiveKit の ICE、Egress、RTMP がどれも `127.0.0.1` を見ます。
+Casthop は、ブラウザで動くオープンソースのライブスタジオです。ホストとしてサインインし、ゲストにリンクを送り、最大 6 人をステージに上げ、ミックスした 1 本の映像を複数の配信サイトへ同時に送れます。録画も残ります。
 
-## 始める前に
+このページでは、Linux マシン 1 台で、約 10 分で動かすところまで進めます。有料アカウントは要りません。ここでの「配信サイト」はローカルのテスト用サーバーなので、YouTube に触れずにライブ配信を試せます。
 
-- [Bun](https://bun.com) 1.4 以上（リポジトリは `packageManager` を Bun に固定しています）。npm は使わないでください。
-- Compose 付きの Docker。
-- Linux ホスト。Host networking は Linux 専用です。下の [Docker Desktop](#docker-desktop-macos-と-windows) を見てください。
+## 必要なもの
 
-Rust の toolchain は不要です。事前ビルドの `src/wasm/casthop_media.wasm` が git に入っているので、開発サーバーはそのままで動きます。Rust の crate を変えたときだけ再ビルドしてください（rustc 1.100 以上と `wasm32-unknown-unknown` ターゲットが必要です）。
+- **Linux**、Docker、Docker Compose。macOS と Windows は追加の手順が必要です。[Docker Desktop](#docker-desktop-macos-と-windows) を見てください。
+- **[Bun](https://bun.com) 1.4.5 以上。** Bun は、このリポジトリが使う JavaScript ランタイム兼パッケージマネージャーです。npm は使わないでください。
+- スタジオを開くための **Chrome か、ほかの Chromium 系ブラウザ**。
 
-## 起動する
+Rust は要りません。コンパイル済みの WebAssembly ファイルはリポジトリに入っています。
 
-[Casthop リポジトリ](https://github.com/casthop/casthop) のルートで:
+## クイックスタート
+
+各手順は、[Casthop リポジトリ](https://github.com/casthop/casthop) のルートで実行します。
+
+**1. コードを取得します。**
+
+```bash
+git clone https://github.com/casthop/casthop.git
+cd casthop
+```
+
+**2. 設定のサンプルをコピーします。**
 
 ```bash
 cp .env.example .env
-cp .dev.vars.example .dev.vars   # Worker secrets, gitignored
+cp .dev.vars.example .dev.vars
+```
+
+`.env` は Docker が読みます。`.dev.vars` はアプリサーバーが読みます。どちらも git の管理対象外で、初期値のまま動きます。
+
+**3. 録画用のフォルダーを作ります。**
+
+```bash
 mkdir -p data/recordings data/rtmp && chmod 777 data/recordings
+```
+
+録画の処理は Docker の中で別のユーザーとして動くため、`data/recordings` への書き込み権限が必要です。
+
+**4. メディアサーバーを起動します。**
+
+```bash
 docker compose up -d
+docker compose ps
+```
+
+`redis`、`livekit`、`egress`、`mediamtx` の 4 つのサービスが動いていれば成功です。LiveKit はブラウザ間で音声と映像をやり取りします。Egress はステージを 1 本の映像にミックスして送り出します。MediaMTX は YouTube、LinkedIn、X の代わりを務めます。Redis は LiveKit と Egress をつなぎます。
+
+初回はイメージをダウンロードするため、数分かかることがあります。
+
+**5. アプリをインストールして起動します。**
+
+```bash
 bun install
 bun run dev
 ```
 
-いま読んでいるサイトは `site/` の別パッケージです（`cd site && bun install && bun run dev`）。
+`Local: http://127.0.0.1:5173/` と表示されます。このターミナルは開いたままにしてください。アプリは `127.0.0.1` だけで待ち受けるので、ネットワーク上のほかのマシンからは届きません。
 
-`docker compose up -d` は Redis、LiveKit、LiveKit Egress、MediaMTX を起動します。LiveKit、Redis、MediaMTX は `127.0.0.1` にバインドするので、公開されている `devkey` は LAN からは届きません。
+**6. 正常に動いているか確認します。**
+
+2 つ目のターミナルで実行します。
+
+```bash
+curl http://127.0.0.1:5173/api/health
+```
+
+`{"ok":true,"livekit":{"ok":true},"maxOnStage":6}` と表示されます。`ok` が `false` なら、アプリが LiveKit に届いていません。[トラブルシューティング](#トラブルシューティング) を見てください。
 
 ## 最初の配信
 
-1. [http://127.0.0.1:5173](http://127.0.0.1:5173) を開きます。
-2. メールアドレスを入れてマジックリンクを受け取ります。ローカルでは Worker がコンソールにリンクを出すので、`bun run dev` を動かしているターミナルからコピーしてください。
-3. スタジオを開きます。
-4. ゲストリンクをコピーして、参加してほしい人に送ります。[ゲスト](/docs/guests) を見てください。
-5. 人をステージに上げます。同時に最大 6 人です。
-6. **ライブ配信を開始** を押し、ダイアログで配信先を選んで確定します。Egress の出力が流れ始めるまで、ライブ表示は「開始中」のままです。サイドパネルの各配信先には、それぞれの RTMP 状態が表示されます。
+1. [http://127.0.0.1:5173](http://127.0.0.1:5173) を開き、メールアドレスを入力します。
+2. ローカルではメールは送られません。サインインリンクは、`bun run dev` を動かしているターミナルの `[casthop mail]` の下に表示されます。リンクを開いて **Sign in** をクリックします。
+3. スタジオにタイトルを付けて、**Open studio** をクリックします。
+4. ゲストリンクをコピーして、別のブラウザウィンドウで開くか、誰かに送ります。ゲストにアカウントは要りません。[ゲスト](/docs/guests) を見てください。
+5. ゲストをステージに上げます。ステージには最大 6 人まで上がれます。
+6. **Go live** を押し、配信先を選んで確定します。ステータス表示は最初 **Starting** で、映像が実際に流れ始めると **Live** に変わります。配信先ごとに、それぞれの状態も表示されます。
 
-既定の配信先は、YouTube、LinkedIn、X 向けのローカル MediaMTX 代替です。配信を確認する方法や、本番のインジェスト URL への切り替えは [配信先](/docs/destinations) を見てください。
+送り出した映像を確認するには、`ffprobe rtmp://127.0.0.1:1935/live/youtube` を実行します。録画は `data/recordings/` に書き込まれます。[配信先](/docs/destinations) を見てください。
 
-## 任意: GitHub でサインイン
+## 任意の追加機能
 
-`.dev.vars` に `GITHUB_CLIENT_ID` と `GITHUB_CLIENT_SECRET` を設定します。空のままだと GitHub ボタンは出ません。メールのマジックリンクはどちらでも動きます。
+どれも、`.dev.vars` に設定して `bun run dev` を再起動するまでは無効です。それぞれの説明は [設定](/docs/configuration) にあります。
 
-## 任意: YouTube ライブチャット
+- **GitHub でサインイン:** `GITHUB_CLIENT_ID` と `GITHUB_CLIENT_SECRET`。
+- **スタジオに YouTube のチャットを表示:** `YOUTUBE_API_KEY` と、`YOUTUBE_LIVE_CHAT_ID` または `YOUTUBE_VIDEO_ID`。
+- **Twitch と Kick のチャット:** `TWITCH_CHANNEL` と `KICK_CHATROOM_ID`。
+- **サインインリンクをターミナルではなくブラウザに返す**（テストと `bun run measure` 用）: `CASTHOP_DEV_LOGIN=1`。
 
-スタジオがライブ中、Casthop は YouTube のコメントをスタジオのチャットパネルへ取り込めます。`.dev.vars` に `YOUTUBE_API_KEY` と、`YOUTUBE_LIVE_CHAT_ID` か `YOUTUBE_VIDEO_ID` を置くか、YouTube OAuth のリフレッシュトークンを使います。未設定なら配信先コメントは隠れ、スタジオはエラーになりません。[設定](/docs/configuration) と [配信先](/docs/destinations) を見てください。
+## トラブルシューティング
 
-## カメラなし
+**`permission denied while trying to connect to the Docker daemon socket`**
+ユーザーが `docker` グループに入っていません。`sudo usermod -aG docker $USER` を実行して、ログアウトしてからログインし直すか、Docker のコマンドの前に `sudo` を付けてください。
 
-カメラが無いときは、生成した canvas と無音のオーディオトラックに落ちるので、`/dev/video0` の無い VM でも参加できます。Chrome は `--use-fake-device-for-media-stream` でも起動できます。
+**`Port 5173 is already in use`**
+ほかの開発サーバーが動いています。止めるか、`ss -ltnp | grep 5173` で探してください。録画の処理が `5173` を前提にしているため、Casthop はほかのポートを選びません。
+
+**ヘルスチェックが `"ok":false` になる**
+LiveKit が動いていないか、届きません。`docker compose ps` と `docker compose logs livekit` を確認してください。ポート `7880` が空いている必要があります。
+
+**`Refusing default LiveKit devkey/secret outside local loopback`**
+公開されているテスト用キーのまま、`127.0.0.1` 以外の LiveKit サーバーを指しています。本物のキーを作り（[セルフホスト](/docs/self-hosting) を見てください）、`.dev.vars` に入れてください。
+
+**サインインリンクが届かない**
+受信箱ではなく、`bun run dev` のターミナルを見てください。リンクを何度も請求した場合は、サインインが数分間止まります（15 分ごとに、1 つのネットワークから 5 回、1 つのメールに 3 通まで）。
+
+**Starting のまま進まない**
+Egress がスタジオのページを開けないか、MediaMTX に届いていません。`docker compose logs egress` を確認してください。`bun run dev` が動き続けていることと、`data/recordings` に書き込めることも確かめてください。
+
+**マシンにカメラがない**
+Casthop はテスト用の映像と無音の音声に切り替わるので、サーバーや VM でも参加できます。Chrome を `--use-fake-device-for-media-stream` 付きで起動する方法もあります。
+
+**Bun がバージョンの警告を出す**
+`bun upgrade` を実行してください。このリポジトリは Bun 1.4.5 以上を前提にしています。
 
 ## Docker Desktop (macOS と Windows)
 
-Host networking は Linux 専用です。Docker Desktop では `network_mode: host` を外し、`127.0.0.1:7880-7882`、`127.0.0.1:1935`、`127.0.0.1:8888`、`127.0.0.1:6379`、`127.0.0.1:9090` を公開し、LiveKit の `rtc.node_ip` を `host.docker.internal` に、Egress の `ws_url` と Redis をそのホストに向ける必要があります。同じマシン上のブラウザからの ICE は扱いが面倒です。いまサポートしているのは Linux です。
+compose ファイルは host networking を使いますが、これは Linux でしか動きません。Docker Desktop では次のようにします。
 
-## 動いているか確認する
+- 各サービスから `network_mode: host` を削除します。
+- `127.0.0.1:7880-7882`、`127.0.0.1:1935`、`127.0.0.1:8888`、`127.0.0.1:6379`、`127.0.0.1:9090` を公開します。
+- LiveKit の `rtc.node_ip` を `host.docker.internal` にします。
+- Egress の `ws_url` と Redis を `host.docker.internal` に向けます。
 
-- ヘルス: [http://127.0.0.1:5173/api/health](http://127.0.0.1:5173/api/health)
-- レイテンシプローブ（開発時のみ）: [http://127.0.0.1:5173/internal/probe](http://127.0.0.1:5173/internal/probe)
-- パブリッシャー 2、4、6 人での負荷計測: `bun run measure`
+この方法でも、同じマシン上のブラウザの映像が不安定になることがあります。いまサポートしているのは Linux です。
 
-テスト、perf ゲート、PR の出し方は、リポジトリの [CONTRIBUTING.md](https://github.com/casthop/casthop/blob/main/CONTRIBUTING.md) です。
+## 次のステップ
+
+- [セルフホスト](/docs/self-hosting): サーバーで動かします。
+- [設定](/docs/configuration): すべての設定項目です。
+- テストとプルリクエストの出し方: [CONTRIBUTING.md](https://github.com/casthop/casthop/blob/main/CONTRIBUTING.md)。

@@ -3,52 +3,51 @@
 [![CI](https://github.com/casthop/casthop/actions/workflows/ci.yml/badge.svg)](https://github.com/casthop/casthop/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/github/license/casthop/casthop)](LICENSE)
 
-Casthop is an open-source live studio that runs in the browser. A host signs in, guests join from a link with no account, up to six people sit on stage, and one composite goes out to several RTMP destinations with a recording kept.
+Casthop is an open-source live studio that runs in the browser, and you can run it yourself. You sign in as the host, send guests a link, put up to six people on stage, and stream one mixed video to several sites at once. The show is recorded.
 
 ![The Casthop host studio: a dark booth with a two-person stage, backstage guest, and a white Go live button.](docs/screenshots/studio.png)
 
-## What it does today
+## What it does
 
-In this tree:
+- **Guests join from a link.** No account, no install. They wait backstage until you bring them on. Up to six people on stage.
+- **Co-hosts.** Invite someone by email. They become a co-host once they accept.
+- **Layouts.** Solo, side by side, and screen plus cameras. Screen share, lower-third banner, background blur and noise suppression, all on the device.
+- **Stream to several sites at once.** One mix goes to every RTMP address you add, each with its own status. If a stream drops, it retries on its own.
+- **Wide and vertical together.** Each destination can take 16:9 or a stacked 9:16 version for Shorts, Reels or TikTok.
+- **Recording, replays and clips.** The mixed show is saved as an MP4. Publish it as a private or public replay. While live, Clip saves the last 30 or 60 seconds.
+- **Per-person tracks.** Turn on Separate recordings and each person on stage records their own audio and video in their browser.
+- **Chat.** Studio chat, plus YouTube, Twitch and Kick comments while live. Pin one onto the video.
+- **Live captions.** English, off by default. Each speaker is transcribed on their own device and only text reaches the studio. Show them on the stream or keep them off it; a `captions.vtt` is saved for the show.
 
-- **Host studio and guest join.** Hosting is an account session (email magic link, optional GitHub). Guests join from a link, wait backstage, and do not need an account.
-- **Stage and layouts.** Up to six people on stage. Solo, side-by-side, and screen-plus-cameras. Screen share, mic/camera toggles, and a lower-third banner.
-- **Camera blur and noise suppression.** Background blur uses MediaPipe Selfie Segmenter on-device (loads only when blur is on, from this origin). RNNoise runs in an AudioWorklet before LiveKit publish.
-- **One encode, several RTMP destinations.** LiveKit Egress transcodes once and fans out. Default local stand-ins for YouTube, LinkedIn, and X; custom `rtmp:` URLs are allowed. Per-destination status, crash retry with backoff.
-- **16:9 and 9:16 at once.** Each destination picks widescreen or vertical. The 9:16 output is a second composite (stacked cameras, captions) encoded on its own Egress compositor, not on guests.
-- **Live waits for real output.** The studio pill stays on Starting until Egress is producing (stream bytes/duration, or a short settle after RTMP `started_at`). It is not Live just because the compositor process exists.
-- **Recording and replay.** Egress writes an MP4 of the composite (`data/recordings/` locally). Package it with `casthop-post hls` and `POST /api/studios/:id/replays` to store HLS on R2. Private replays are owner/co-host only; public ones play at `/watch/:id`. While live, Clip (C) saves the last 30 or 60 seconds from that program buffer; clips list next to the replay with a download.
-- **Separate recordings.** Hosts can turn this on before going live: each person on stage records in their browser and uploads chunks during the show (R2). After the show, the host downloads those tracks from the Recordings panel.
-- **Studio chat and YouTube Live chat.** People in the room can chat. While live, the Worker can poll YouTube `liveChatMessages.list` and show those comments in the studio panel. Hosts and co-hosts can pin one onto the compositor overlay. Needs Worker secrets (`YOUTUBE_API_KEY` plus a live chat or video id, or a YouTube OAuth refresh token). Unset, the feature stays hidden and the studio does not error. Twitch and Kick chat join the same panel when `TWITCH_CHANNEL` (channel name) and/or `KICK_CHATROOM_ID` (numeric chatroom id) are set. X chat is not supported yet because X has no free chat API; LinkedIn comments are not wired.
-- **Live captions (English, off by default).** The host turns them on in Settings. Each speaker is transcribed on their own device with a small Whisper model in a Web Worker; only text reaches the studio, no audio. Captions can be drawn on the stream or kept off it, and a `captions.vtt` is saved for the show. The model files are self-hosted, see [Configuration](site/src/content/docs/en/configuration.mdx).
-- **Co-hosts.** The owner can invite co-hosts by email.
+Not done yet: TURN for guests on strict networks, and X and LinkedIn chat.
 
-Media plane: LiveKit (SFU) + Egress + Redis + an RTMP edge. Control plane: Cloudflare Worker, Durable Objects, D1. Browser media hot paths are Rust compiled to WASM in `crates/casthop-media`. Details: [Architecture](site/src/content/docs/en/architecture.mdx).
+How it is built: LiveKit, Egress, Redis and an RTMP server for media, and a Cloudflare Worker with Durable Objects and D1 for the app. The audio and video hot paths are Rust compiled to WebAssembly. See [Architecture](site/src/content/docs/en/architecture.mdx).
 
 ## Quick start
 
-Linux with Docker host networking is the supported local path. Install [Bun](https://bun.com) 1.4+; do not use npm.
+You need Linux with Docker, and [Bun](https://bun.com) 1.4.5 or newer. Do not use npm.
 
 ```bash
+git clone https://github.com/casthop/casthop.git && cd casthop
 cp .env.example .env
-cp .dev.vars.example .dev.vars   # Worker secrets, gitignored
+cp .dev.vars.example .dev.vars
 mkdir -p data/recordings data/rtmp && chmod 777 data/recordings
-docker compose up -d
+docker compose up -d       # starts LiveKit, Egress, Redis and MediaMTX
 bun install
-bun run dev
+bun run dev                # prints Local: http://127.0.0.1:5173/
 ```
 
-Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Email yourself a magic link (the Worker prints it in the console), open a studio, copy the guest link, put people on stage, Go Live. Optional GitHub OAuth and YouTube Live chat are Worker secrets in `.dev.vars`; see [Configuration](site/src/content/docs/en/configuration.mdx).
+Check it: `curl http://127.0.0.1:5173/api/health` should print `{"ok":true,"livekit":{"ok":true},"maxOnStage":6}`.
 
-Default destinations are local MediaMTX stand-ins (`rtmp://127.0.0.1:1935/live/youtube`, `/live/linkedin`, `/live/x`). Health: [http://127.0.0.1:5173/api/health](http://127.0.0.1:5173/api/health).
+Then open [http://127.0.0.1:5173](http://127.0.0.1:5173) and enter your email. No mail is sent locally: the sign-in link is printed in the `bun run dev` terminal. Open a studio, copy the guest link, bring people on stage and press **Go live**. The default destinations are local test servers, so nothing goes public.
 
-Full local notes (Docker Desktop, no camera, rebuilding WASM): [Getting started](site/src/content/docs/en/getting-started.mdx). Tests and PR flow: [CONTRIBUTING.md](CONTRIBUTING.md).
+Step by step, with expected results and troubleshooting: [Getting started](site/src/content/docs/en/getting-started.mdx). Every setting: [Configuration](site/src/content/docs/en/configuration.mdx).
 
 ## Self-hosting
 
-Run LiveKit, Egress, Redis, and an RTMP edge yourself. Deploy the Worker (`wrangler deploy`) with D1 and Durable Objects. Put `LIVEKIT_API_SECRET` and a dedicated `HOST_KEY_SECRET` in Worker secrets, never in git. Generate real LiveKit keys (`lk generate-keys`); the published `devkey` is loopback-only.
+Run the media servers on your own machine, then deploy the app with `bun run build && bunx wrangler deploy`. Use your own LiveKit keys (`lk generate-keys`). The public `devkey` only works on `127.0.0.1`. See [Self-hosting](site/src/content/docs/en/self-hosting.mdx).
 
-See [Self-hosting](site/src/content/docs/en/self-hosting.mdx) and [Configuration](site/src/content/docs/en/configuration.mdx).
+A hosted version of Casthop is coming. Self-hosting stays free.
 
 ## Languages
 

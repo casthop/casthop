@@ -14,9 +14,18 @@ export const TOKEN_MINT_WINDOW_MS = 60_000;
 export const TOKEN_MINT_MAX = 20;
 export const TOKEN_IP_WINDOW_MS = 60_000;
 export const TOKEN_IP_MAX = 60;
+/** New guest identities one network can take per studio per mint window. */
+export const GUEST_MINT_PER_SOURCE = 10;
+/** Guest slots one network can hold in a studio. */
+export const GUESTS_PER_SOURCE = 16;
+/** A full studio frees guests who have not shown up in the room for this long. */
+export const ABSENT_GUEST_GRACE_MS = 60_000;
 export const SIGNIN_WINDOW_MS = 15 * 60 * 1000;
 export const SIGNIN_IP_MAX = 5;
 export const SIGNIN_EMAIL_MAX = 3;
+/** Co-host invites per inviting account, and per recipient across all studios, per SIGNIN_WINDOW_MS. */
+export const INVITE_ACCOUNT_MAX = 10;
+export const INVITE_EMAIL_MAX = 2;
 export const CHAT_WINDOW_MS = 10_000;
 export const CHAT_MAX = 8;
 export const SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
@@ -33,16 +42,6 @@ export function isLoopbackHost(host: string): boolean {
   const h = normalizeHost(host);
   if (h === "localhost" || h === "::1" || h === "::" || h === "0.0.0.0") return true;
   return /^127\.\d+\.\d+\.\d+$/.test(h);
-}
-
-export function isPrivateHost(host: string): boolean {
-  const h = normalizeHost(host);
-  if (/^(10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(h)) return true;
-  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(h)) return true;
-  if (h.includes(":") && (h.startsWith("fd") || h.startsWith("fc") || h.startsWith("fe8") || h.startsWith("fe9") || h.startsWith("fea") || h.startsWith("feb"))) {
-    return true;
-  }
-  return false;
 }
 
 export function isLoopbackUrl(raw: string | undefined): boolean {
@@ -82,6 +81,32 @@ export function originAllowed(request: Request): boolean {
   } catch {
     return false;
   }
+}
+
+const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/**
+ * A cookie-authenticated write from another origin. SameSite=Lax already stops other sites;
+ * this also stops a sibling origin on the same site (uploads.example.com, or http:// vs https://).
+ * Requests with neither Origin nor Sec-Fetch-Site are not from a browser and are left alone.
+ */
+export function crossOriginCookieWrite(request: Request, env: Pick<Env, "PUBLIC_ORIGIN">): boolean {
+  if (!UNSAFE_METHODS.has(request.method)) return false;
+  const cookies = request.headers.get("Cookie") ?? "";
+  if (!cookies.split(";").some((part) => part.trim().startsWith(`${SESSION_COOKIE}=`))) return false;
+  const origin = request.headers.get("Origin");
+  if (origin) {
+    const allowed = new Set<string>();
+    try {
+      allowed.add(new URL(request.url).origin);
+      if (env.PUBLIC_ORIGIN?.trim()) allowed.add(new URL(env.PUBLIC_ORIGIN.trim()).origin);
+    } catch {
+      return true;
+    }
+    return !allowed.has(origin);
+  }
+  const site = request.headers.get("Sec-Fetch-Site");
+  return site !== null && site !== "same-origin" && site !== "none";
 }
 
 export function claimIsHeld(startedAt: number | undefined, now = Date.now()): boolean {
@@ -166,6 +191,59 @@ export function publicStateHasFullRtmpUrl(json: string, secretUrl: string): bool
 
 const KINDS = new Set(["youtube", "linkedin", "x", "custom"]);
 
+type HostClass = "public" | "loopback" | "internal";
+
+function ipv4Class(octets: number[]): HostClass {
+  const [a = 0, b = 0, c = 0] = octets;
+  if (a === 127) return "loopback";
+  if (a === 0 || a === 10 || a >= 224) return "internal";
+  if (a === 100 && b >= 64 && b <= 127) return "internal";
+  if (a === 169 && b === 254) return "internal";
+  if (a === 172 && b >= 16 && b <= 31) return "internal";
+  if (a === 192 && (b === 168 || (b === 0 && c === 0))) return "internal";
+  if (a === 198 && (b === 18 || b === 19)) return "internal";
+  return "public";
+}
+
+function ipv6Class(literal: string): HostClass {
+  const [head = "", tail = ""] = literal.split("::");
+  const front = head ? head.split(":") : [];
+  const back = tail ? tail.split(":") : [];
+  const fill = literal.includes("::") ? 8 - front.length - back.length : 0;
+  const words = [...front, ...Array<string>(Math.max(0, fill)).fill("0"), ...back].map((g) => parseInt(g || "0", 16));
+  if (words.length !== 8 || words.some((n) => !Number.isInteger(n))) return "internal";
+  const [w0 = 0, w1 = 0, w2 = 0, w3 = 0, w4 = 0, w5 = 0, w6 = 0, w7 = 0] = words;
+  const v4 = [w6 >> 8, w6 & 0xff, w7 >> 8, w7 & 0xff];
+  const zeroHigh = w0 === 0 && w1 === 0 && w2 === 0 && w3 === 0 && w4 === 0;
+  if (zeroHigh && w5 === 0 && w6 === 0 && w7 === 1) return "loopback";
+  // IPv4-mapped, IPv4-compatible and NAT64 addresses reach the embedded IPv4 address.
+  if (zeroHigh && (w5 === 0xffff || w5 === 0)) return ipv4Class(v4);
+  if (w0 === 0x64 && w1 === 0xff9b && w2 === 0 && w3 === 0 && w4 === 0 && w5 === 0) return ipv4Class(v4);
+  if ((w0 & 0xfe00) === 0xfc00 || (w0 & 0xffc0) === 0xfe80 || (w0 & 0xff00) === 0xff00) return "internal";
+  return "public";
+}
+
+const INTERNAL_SUFFIXES = [".local", ".internal", ".home.arpa", ".localdomain", ".lan"];
+
+/** Classify an RTMP host. Spellings other than the canonical one (167772161, 0x0a000001, 127.1) are "internal". */
+export function rtmpHostClass(host: string): HostClass {
+  const lower = host.toLowerCase();
+  let canonical: string;
+  try {
+    canonical = new URL(`http://${lower}`).hostname;
+  } catch {
+    return "internal";
+  }
+  if (canonical !== lower || !canonical) return "internal";
+  if (canonical.startsWith("[")) return ipv6Class(canonical.slice(1, -1));
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(canonical)) return ipv4Class(canonical.split(".").map(Number));
+  if (canonical === "localhost" || canonical.endsWith(".localhost")) return "loopback";
+  // A single label (redis, intranet) or a trailing dot resolves through local search domains.
+  if (!canonical.includes(".") || canonical.endsWith(".")) return "internal";
+  if (INTERNAL_SUFFIXES.some((s) => canonical.endsWith(s))) return "internal";
+  return "public";
+}
+
 export function parseRtmpUrl(raw: unknown, opts: { allowLoopback: boolean }): string | null {
   if (raw == null) return "";
   if (typeof raw !== "string") return null;
@@ -179,9 +257,11 @@ export function parseRtmpUrl(raw: unknown, opts: { allowLoopback: boolean }): st
     return null;
   }
   if (parsed.protocol !== "rtmp:" && parsed.protocol !== "rtmps:") return null;
-  const host = parsed.hostname;
-  if (isLoopbackHost(host) && !opts.allowLoopback) return null;
-  if (isPrivateHost(host)) return null;
+  // Hostnames are not resolved here, so a public name that points at an internal address
+  // still passes. This only refuses what the URL itself says.
+  const kind = rtmpHostClass(parsed.hostname);
+  if (kind === "internal") return null;
+  if (kind === "loopback" && !opts.allowLoopback) return null;
   return url;
 }
 
@@ -239,9 +319,20 @@ export function sanitizeDestinations(
   return out;
 }
 
+/** Sockets one studio keeps open. Every state write is sent to each of them. */
+export const MAX_STUDIO_SOCKETS = 256;
+
+// Control characters are invisible but JSON-escape to six bytes each, and chat rides in every broadcast.
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/g;
+
 export function asName(value: unknown, fallback = "Guest"): string {
   if (typeof value !== "string") return fallback;
-  return value.trim().slice(0, 40) || fallback;
+  return value.replace(CONTROL_CHARS, "").trim().slice(0, 40) || fallback;
+}
+
+export function asChatText(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value.replace(CONTROL_CHARS, " ").trim().slice(0, 400);
 }
 
 export function asIdentity(value: unknown): string {
@@ -349,6 +440,21 @@ export function clientIp(
     if (forwarded) return forwarded.slice(0, 64);
   }
   return "local";
+}
+
+/** Rate-limit key for a client address. One IPv6 host usually holds a whole /64, so group by it. */
+export function ipBucket(ip: string): string {
+  const addr = ip.toLowerCase().replace(/%.*$/, "");
+  if (!addr.includes(":")) return addr;
+  const mapped = addr.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (mapped) return mapped[1]!;
+  const [head = "", tail = ""] = addr.split("::");
+  const front = head ? head.split(":") : [];
+  const back = tail ? tail.split(":") : [];
+  const groups = addr.includes("::") ? [...front, ...Array<string>(Math.max(0, 8 - front.length - back.length)).fill("0"), ...back] : front;
+  const prefix = groups.slice(0, 4).map((g) => parseInt(g || "0", 16));
+  if (prefix.length < 4 || prefix.some((n) => !Number.isInteger(n) || n < 0 || n > 0xffff)) return addr;
+  return `${prefix.map((n) => n.toString(16)).join(":")}::/64`;
 }
 
 export function requestIp(c: { req: { raw: Request }; env: Pick<Env, "CASTHOP_TRUST_FORWARDED"> }): string {

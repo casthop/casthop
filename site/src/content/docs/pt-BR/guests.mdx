@@ -1,29 +1,46 @@
 ---
 title: Convidados
-description: Como convidados entram num estúdio por um link, e o que o apresentador precisa fazer.
+description: Como convidados e co-anfitriões entram em um estúdio e o que cada pessoa pode fazer.
 group: Começar
 order: 2
 ---
 
-Convidados entram por um link. Não precisam de conta.
+Convidados entram por um link. Não precisam de conta nem de instalação.
 
-## Como funciona
+## Como um convidado entra
 
-1. O apresentador abre um estúdio e copia o link de convidado.
-2. O convidado abre o link no navegador e informa um nome.
-3. O convidado espera nos bastidores. O apresentador vê, mas a pessoa ainda não está na transmissão.
-4. O apresentador adiciona a pessoa ao palco. Cabem até seis ao mesmo tempo.
+1. O anfitrião abre um estúdio e clica em **Invite guest** para copiar o link.
+2. O convidado abre o link, digita um nome e testa a câmera e o microfone.
+3. O convidado espera nos bastidores. O anfitrião consegue vê-lo, mas ele não está na transmissão.
+4. O anfitrião coloca o convidado no palco. Até seis pessoas podem estar no palco ao mesmo tempo.
 
 ![A tela de entrada do convidado com uma imagem de teste verde.](/guest.png)
 
 *A imagem verde é uma câmera falsa numa captura de teste, não um convidado de verdade.*
 
-## Quem pode o quê
+## Co-anfitriões
 
-- **Apresentar exige conta.** O apresentador entra com magic link por e-mail, ou GitHub se você configurou. O dono do estúdio, e qualquer coapresentador que ele convidar, controla a sala.
-- **Convidados não se passam pelo apresentador.** As identidades vêm do Worker, e cada ação é checada no servidor.
-- **Convidados nunca veem chaves de stream.** O estado público do estúdio só traz um sufixo mascarado de cada URL de destino. Veja [Destinos](/docs/destinations).
+Um co-anfitrião pode comandar o estúdio junto com o dono: colocar convidados no palco, mudar o layout, entrar ao vivo e fixar mensagens do chat.
 
-## Se um convidado não conecta
+1. O dono clica em **Invite co-host** e digita um e-mail.
+2. A pessoa recebe um e-mail com o link do estúdio. O dono vê a mesma resposta, tenha esse e-mail uma conta ou não.
+3. A pessoa entra com esse e-mail, abre o link e clica em **Accept and join as co-host**. Até aceitar, ela não é co-anfitriã.
 
-TURN para convidados atrás de NAT restrito ainda não existe. Numa rede travada, o convidado pode falhar por enquanto.
+Um co-anfitrião pode sair de um estúdio a qualquer momento.
+
+## Quem pode fazer o quê
+
+- **Ser anfitrião exige uma conta.** O dono e os co-anfitriões entram com um link por e-mail, ou com o GitHub, se estiver configurado.
+- **Convidados não agem como anfitrião.** O servidor decide quem é quem e confere cada ação.
+- **Convidados nunca veem chaves de transmissão.** Só veem os últimos caracteres de cada endereço. Veja [Destinos](/docs/destinations).
+- **Só quem está no palco grava a própria faixa.** Com **Separate recordings** ligado, o anfitrião, os co-anfitriões e os convidados no palco gravam cada um no próprio navegador. Convidados que esperam nos bastidores não gravam.
+
+## Limites para convidados
+
+Para impedir que uma pessoa encha um estúdio de convidados falsos, cada rede (um endereço IPv4, ou um bloco IPv6 /64) pode adicionar até 10 convidados novos por minuto e ocupar até 16 vagas de convidado em um estúdio. Quando o estúdio está cheio, convidados ausentes há mais de um minuto perdem a vaga.
+
+Se muitos convidados de verdade usam a mesma rede de um escritório, tenha isso em mente.
+
+## Se um convidado não conseguir conectar
+
+O TURN ainda não está incluído. TURN é um servidor de retransmissão para redes que bloqueiam o vídeo direto. Um convidado em uma rede restrita de escritório ou de hotel pode falhar ao conectar. Peça que tente outra rede, ou rode seu próprio servidor TURN com o LiveKit.

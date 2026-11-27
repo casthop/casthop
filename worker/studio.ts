@@ -28,17 +28,22 @@ import {
 } from "./iso";
 import { storeFor } from "./tenant";
 import {
+  ABSENT_GUEST_GRACE_MS,
+  asChatText,
   asIdentity,
   asName,
   randomId,
   CHAT_MAX,
   CHAT_WINDOW_MS,
   claimIsHeld,
+  GUEST_MINT_PER_SOURCE,
   GUEST_STALE_MS,
+  GUESTS_PER_SOURCE,
   HOST_IDENTITY,
   isHostIdentity,
   isLoopbackUrl,
   MAX_PARTICIPANTS,
+  MAX_STUDIO_SOCKETS,
   publicState,
   sanitizeDestinations,
   TOKEN_MINT_MAX,
@@ -60,6 +65,7 @@ import {
   beginPortraitRecovery,
   beginRecovery,
   compositorGraceMs,
+  everyOutputFailed,
   egressIsProducing,
   emptyGraceMs,
   destsForAspect,
@@ -125,10 +131,13 @@ const UNLOCKED_ACTIONS = new Set([
 export class StudioDurableObject {
   private launching = false;
   private portraitLaunching = false;
+  private portraitRestarting = false;
+  private stopsInFlight = 0;
   ctx: DurableObjectState;
   env: Env;
   private chatHits = new Map<string, { n: number; t: number }>();
   private mintHits = { n: 0, t: 0 };
+  private sourceMints = new Map<string, { n: number; t: number }>();
   private youtubeToken: YoutubeTokenCache | null = null;
   private platformHub: PlatformHub | null = null;
   private writeChain: Promise<void> = Promise.resolve();
@@ -147,10 +156,13 @@ export class StudioDurableObject {
     const url = new URL(request.url);
 
     if (request.headers.get("Upgrade") === "websocket") {
+      // Check before accepting: an accepted socket is kept and gets every state write.
+      const state = await this.getState();
+      if (!state) return json({ error: "Studio not found" }, 404);
+      if (this.ctx.getWebSockets().length >= MAX_STUDIO_SOCKETS) return json({ error: "too many connections" }, 503);
       const pair = new WebSocketPair();
       this.ctx.acceptWebSocket(pair[1]);
-      const state = await this.getState();
-      if (state) pair[1].send(JSON.stringify({ type: "state", state: publicState(state, { includeUrls: false }) }));
+      pair[1].send(JSON.stringify({ type: "state", state: publicState(state, { includeUrls: false }) }));
       return new Response(null, { status: 101, webSocket: pair[0] });
     }
 
@@ -186,7 +198,12 @@ export class StudioDurableObject {
         isoTracks: [],
         bannerTitle: body.title,
         bannerSubtitle: "Building in public, episode 1",
-        destinations: defaultDestinations(this.env),
+        // RTMP_* are deployment-wide. A real ingest URL carries the operator's
+        // stream key, and any account can create a studio, so only local
+        // stand-ins are copied in. Owners add real URLs per studio.
+        destinations: defaultDestinations(this.env).map((d) =>
+          !d.url || isLoopbackUrl(d.url) ? d : { ...d, url: "", enabled: false },
+        ),
         participants: [],
         chat: [],
         pinnedChat: null,
@@ -242,43 +259,7 @@ export class StudioDurableObject {
       });
     }
 
-    if (action === "join") {
-      const identity = asIdentity(body.identity);
-      const name = asName(body.name, "Guest");
-      const role = body.role === "host" && isHost ? "host" : "guest";
-      if (!identity) return json({ error: "identity required" }, 400);
-      if ((state.kickedIdentities ?? []).includes(identity)) {
-        if (role !== "host") return json({ error: "removed from studio" }, 403);
-        state.kickedIdentities = (state.kickedIdentities ?? []).filter((id) => id !== identity);
-      }
-      if (isHostIdentity(identity) && !isHost) return json({ error: "host identity reserved" }, 403);
-      this.pruneGuests(state);
-      const existing = state.participants.find((p) => p.identity === identity);
-      if (!existing) {
-        if (role !== "host") {
-          if (!this.allowMint()) return json({ error: "too many joins" }, 429);
-          const guests = state.participants.filter((p) => p.role === "guest").length;
-          if (guests >= MAX_PARTICIPANTS) return json({ error: "studio is full" }, 409);
-        }
-        state.participants.push({
-          identity,
-          name,
-          role,
-          onStage: role === "host",
-          joinedAt: Date.now(),
-        });
-      } else {
-        if (existing.role === "host" && role !== "host") {
-          return json({ error: "cannot impersonate host" }, 403);
-        }
-        existing.name = name;
-        existing.joinedAt = Date.now();
-      }
-      state.emptySince = null;
-      await this.putState(state);
-      const person = state.participants.find((p) => p.identity === identity)!;
-      return json({ ...publicState(state, { includeUrls: isHost }), onStage: person.onStage, role: person.role });
-    }
+    if (action === "join") return this.join(state, body, isHost);
 
     if (action === "remove") {
       if (!isHost) return json({ error: "host key required" }, 403);
@@ -588,7 +569,7 @@ export class StudioDurableObject {
       const person = await this.chatAuthor(state, body, isHost);
       if (!person) return json({ error: "chat auth required" }, 403);
       if (!this.allowChat(person.identity)) return json({ error: "slow down" }, 429);
-      const trimmed = typeof body.text === "string" ? body.text.trim().slice(0, 400) : "";
+      const trimmed = asChatText(body.text);
       if (!trimmed) return json({ error: "empty" }, 400);
       state.chat.push({
         id: crypto.randomUUID(),
@@ -635,7 +616,7 @@ export class StudioDurableObject {
         const person = await this.chatAuthor(state, parsed as unknown as Record<string, unknown>, isHost);
         if (!person) return;
         if (!this.allowChat(person.identity)) return;
-        const text = typeof parsed.text === "string" ? parsed.text.trim().slice(0, 400) : "";
+        const text = asChatText(parsed.text);
         if (!text) return;
         state.chat.push({
           id: crypto.randomUUID(),
@@ -679,6 +660,8 @@ export class StudioDurableObject {
       await this.scheduleWatch(Date.now() + WATCH_MS);
       return json(publicState(state, { includeUrls: true }));
     }
+    // A stop still waiting on LiveKit would not see a compositor started now.
+    if (!fromWatch && this.stopsInFlight > 0) return json({ error: "still stopping" }, 409);
     const claimed = claimIsHeld(state.liveStartingAt) && !state.egressId;
     if (!fromWatch && (this.launching || claimed || (claimIsHeld(state.liveStartingAt) && !state.wantLive))) {
       return json({ error: "already starting" }, 409);
@@ -854,16 +837,31 @@ export class StudioDurableObject {
   }
 
   private async stopLive(stale: StudioState, reason: string): Promise<Response> {
-    // Write the last spoken lines first; the flush re-reads state, so ours must come after.
-    await this.flushCaptions();
-    const state = (await this.getState()) ?? stale;
+    this.stopsInFlight += 1;
+    try {
+      // Write the last spoken lines first; the flush re-reads state, so ours must come after.
+      await this.flushCaptions();
+      return await this.runStopLive((await this.getState()) ?? stale, reason);
+    } finally {
+      this.stopsInFlight -= 1;
+    }
+  }
+
+  private async runStopLive(state: StudioState, reason: string): Promise<Response> {
     state.wantLive = false;
     state.liveStartingAt = undefined;
     state.egressRetryAt = null;
     state.emptySince = null;
     await this.putState(state);
-    await this.stopRoomEgress(state);
-    const latest = (await this.getState()) ?? state;
+    const stopped = await this.stopRoomEgress(state);
+    // A compositor recorded after our ListEgress was not in the stop set. Stop it too
+    // before clearing its id, or it keeps streaming while the studio shows Not live.
+    const recorded = (await this.getState()) ?? state;
+    const missed = [recorded.egressId, recorded.portraitEgressId].filter(
+      (id): id is string => typeof id === "string" && !stopped.has(id),
+    );
+    for (const id of missed) await this.stopOneEgress(id);
+    const latest = missed.length ? ((await this.getState()) ?? recorded) : recorded;
     latest.wantLive = false;
     latest.live = false;
     latest.liveFailed = false;
@@ -918,7 +916,7 @@ export class StudioDurableObject {
     const latest = await this.getState();
     if (!latest) return;
     await this.pollDestChat(latest);
-    await this.tickPlatforms(latest.wantLive);
+    await this.tickPlatforms(chatActive(latest));
   }
 
   // Twitch and Kick hold sockets. Each reconnects on its own backoff; the alarm only revives due ones.
@@ -1041,14 +1039,17 @@ export class StudioDurableObject {
     state.captionLine = null;
   }
 
+  private async dropDestChat(state: StudioState): Promise<void> {
+    if (!state.destChat?.youtube) return;
+    state.destChat = undefined;
+    await this.putState(state);
+  }
+
   private async pollDestChat(state: StudioState): Promise<void> {
     const youtube = destChatProviders.find((p) => p.id === "youtube");
     if (!youtube?.configured(this.env)) return;
-    if (!state.wantLive) {
-      if (state.destChat?.youtube) {
-        state.destChat = undefined;
-        await this.putState(state);
-      }
+    if (!chatActive(state)) {
+      await this.dropDestChat(state);
       return;
     }
     const now = Date.now();
@@ -1061,11 +1062,8 @@ export class StudioDurableObject {
       const { page, liveChatId, cache } = await youtube.poll(this.env, cursor ?? {}, this.youtubeToken);
       this.youtubeToken = cache;
       const fresh = (await this.getState()) ?? state;
-      if (!fresh.wantLive) {
-        if (fresh.destChat?.youtube) {
-          fresh.destChat = undefined;
-          await this.putState(fresh);
-        }
+      if (!chatActive(fresh)) {
+        await this.dropDestChat(fresh);
         return;
       }
       if (!page || !liveChatId) {
@@ -1089,11 +1087,8 @@ export class StudioDurableObject {
     } catch (err) {
       console.warn("youtube chat poll", err);
       const fresh = (await this.getState()) ?? state;
-      if (!fresh.wantLive) {
-        if (fresh.destChat?.youtube) {
-          fresh.destChat = undefined;
-          await this.putState(fresh);
-        }
+      if (!chatActive(fresh)) {
+        await this.dropDestChat(fresh);
         return;
       }
       const nextPollAt = now + DEST_CHAT_BACKOFF_MS;
@@ -1256,6 +1251,14 @@ export class StudioDurableObject {
         }
         state.egressId = info.egressId;
         await this.putState(state);
+        if (dropped) await this.retryFailedStreams(state, info, "landscape");
+        // Retries run first; fail the studio only once they are used up.
+        const latest = (await this.getState()) ?? state;
+        if (!latest.wantLive || latest.liveFailed) return;
+        if (everyOutputFailed(latest.destinations, "landscape")) {
+          await this.markFailed(latest, "Every destination failed");
+          return;
+        }
         await this.scheduleWatch(Date.now() + nextWatchMs(false));
         return;
       }
@@ -1344,6 +1347,7 @@ export class StudioDurableObject {
       if (state.portraitEgressId === egressId) {
         state.portraitEgressId = null;
         state.portraitHeartbeatAt = null;
+        state.portraitStartedAt = null;
       }
       await this.putState(state);
       try {
@@ -1533,10 +1537,11 @@ export class StudioDurableObject {
     await this.putState(fresh);
   }
 
-  private async ensurePortraitEgress(state: StudioState): Promise<void> {
+  private async ensurePortraitEgress(state: StudioState, fromRestart = false): Promise<void> {
     const urls = enabledUrls(state.destinations, "portrait");
     if (!urls.length || !state.wantLive) return;
     if (state.portraitEgressId || this.portraitLaunching) return;
+    if (this.portraitRestarting && !fromRestart) return;
     if (state.portraitRetryAt && Date.now() < state.portraitRetryAt) return;
     const budget = recoveryBudgetMs(this.env.CASTHOP_RECOVERY_MS);
     const portDests = destsForAspect(state.destinations, "portrait").filter((d) => d.enabled && d.url);
@@ -1572,7 +1577,9 @@ export class StudioDurableObject {
         return;
       }
       latest.portraitEgressId = egressId;
-      latest.portraitHeartbeatAt = Date.now();
+      // Only a real egress-beat sets the heartbeat; until then start grace applies.
+      latest.portraitHeartbeatAt = null;
+      latest.portraitStartedAt = Date.now();
       latest.portraitRetryAt = null;
       setDestStatuses(latest.destinations, "connecting", null, "portrait");
       await this.putState(latest);
@@ -1590,6 +1597,36 @@ export class StudioDurableObject {
   }
 
   private async restartPortraitEgress(state: StudioState, error: string): Promise<void> {
+    // A watch pass and a webhook must not each restart 9:16.
+    if (this.portraitRestarting || this.portraitLaunching) return;
+    this.portraitRestarting = true;
+    try {
+      await this.restartPortraitLocked(state, error);
+    } finally {
+      this.portraitRestarting = false;
+    }
+  }
+
+  /** Stops active portrait compositors other than the one we track, so two never share an RTMP URL. */
+  private async stopStrayPortraitEgress(state: StudioState): Promise<void> {
+    // Without the main egress id we cannot tell the 16:9 compositor from a stray, so stop nothing.
+    if (!state.egressId) return;
+    try {
+      for (const item of parseEgressList(await listEgressRaw(this.env, state.id))) {
+        if (!isActiveHealth(item.status)) continue;
+        // A 16:9 restart can change egressId while we loop, so decide from fresh state.
+        const latest = (await this.getState()) ?? state;
+        if (!latest.egressId) return;
+        if (item.egressId === latest.egressId || item.egressId === latest.portraitEgressId) continue;
+        if (skipIds(latest.abandonedEgressIds, latest.egressId).includes(item.egressId)) continue;
+        await this.abandonEgress(latest, item.egressId);
+      }
+    } catch (err) {
+      console.warn("stop stray portrait egress", err);
+    }
+  }
+
+  private async restartPortraitLocked(state: StudioState, error: string): Promise<void> {
     beginPortraitRecovery(state);
     const budget = recoveryBudgetMs(this.env.CASTHOP_RECOVERY_MS);
     if (portraitRecoveryTimedOut(state, Date.now(), budget)) {
@@ -1599,13 +1636,15 @@ export class StudioDurableObject {
     const id = state.portraitEgressId;
     setDestStatuses(state.destinations, "retrying", error, "portrait");
     if (id) await this.abandonEgress(state, id);
+    await this.stopStrayPortraitEgress((await this.getState()) ?? state);
     const latest = (await this.getState()) ?? state;
     if (!latest.wantLive || latest.liveFailed) return;
     latest.portraitEgressId = null;
     latest.portraitHeartbeatAt = null;
+    latest.portraitStartedAt = null;
     latest.portraitRecoveringSince = state.portraitRecoveringSince ?? latest.portraitRecoveringSince;
     await this.putState(latest);
-    if (enabledUrls(latest.destinations, "portrait").length) await this.ensurePortraitEgress(latest);
+    if (enabledUrls(latest.destinations, "portrait").length) await this.ensurePortraitEgress(latest, true);
   }
 
   private async markPortraitFailed(state: StudioState, error: string): Promise<void> {
@@ -1643,7 +1682,7 @@ export class StudioDurableObject {
     if (!state.portraitEgressId) return false;
     const at = state.portraitHeartbeatAt;
     if (!at) {
-      const started = state.liveStartingAt ?? state.liveStartedAt ?? 0;
+      const started = state.portraitStartedAt ?? state.liveStartingAt ?? state.liveStartedAt ?? 0;
       const grace = compositorGraceMs(this.env.CASTHOP_COMPOSITOR_GRACE_MS);
       return started > 0 && now - started >= grace;
     }
@@ -1655,7 +1694,8 @@ export class StudioDurableObject {
     return true;
   }
 
-  private async stopRoomEgress(state: StudioState): Promise<void> {
+  /** Stops every compositor in the room it can find and returns the ids it stopped. */
+  private async stopRoomEgress(state: StudioState): Promise<Set<string>> {
     const ids = new Set<string>();
     if (state.egressId) ids.add(state.egressId);
     if (state.portraitEgressId) ids.add(state.portraitEgressId);
@@ -1668,12 +1708,15 @@ export class StudioDurableObject {
     } catch (err) {
       console.warn("list egress on stop", err);
     }
-    for (const id of ids) {
-      try {
-        await stopEgress(this.env, id);
-      } catch (err) {
-        console.warn("stop egress", err);
-      }
+    for (const id of ids) await this.stopOneEgress(id);
+    return ids;
+  }
+
+  private async stopOneEgress(id: string): Promise<void> {
+    try {
+      await stopEgress(this.env, id);
+    } catch (err) {
+      console.warn("stop egress", err);
     }
   }
 
@@ -1721,6 +1764,101 @@ export class StudioDurableObject {
     const person = state.participants.find((p) => p.identity === identity);
     if (!person) return null;
     return { identity: person.identity, name: person.name };
+  }
+
+  private async join(current: StudioState, body: Record<string, unknown>, isHost: boolean): Promise<Response> {
+    let state = current;
+    const identity = asIdentity(body.identity);
+    const name = asName(body.name, "Guest");
+    const role = body.role === "host" && isHost ? "host" : "guest";
+    const source = typeof body.source === "string" ? body.source.slice(0, 64) : "";
+    if (!identity) return json({ error: "identity required" }, 400);
+    if ((state.kickedIdentities ?? []).includes(identity)) {
+      if (role !== "host") return json({ error: "removed from studio" }, 403);
+      state.kickedIdentities = (state.kickedIdentities ?? []).filter((id) => id !== identity);
+    }
+    if (isHostIdentity(identity) && !isHost) return json({ error: "host identity reserved" }, 403);
+    this.pruneGuests(state);
+    const existing = state.participants.find((p) => p.identity === identity);
+    if (!existing) {
+      if (role !== "host") {
+        const admitted = await this.admitGuest(state, source);
+        if (admitted instanceof Response) return admitted;
+        state = admitted;
+      }
+      state.participants.push({
+        identity,
+        name,
+        role,
+        onStage: role === "host",
+        joinedAt: Date.now(),
+      });
+      if (role !== "host" && source) await this.rememberGuestSource(state, identity, source);
+    } else {
+      if (existing.role === "host" && role !== "host") {
+        return json({ error: "cannot impersonate host" }, 403);
+      }
+      existing.name = name;
+      existing.joinedAt = Date.now();
+    }
+    state.emptySince = null;
+    await this.putState(state);
+    const person = state.participants.find((p) => p.identity === identity)!;
+    return json({ ...publicState(state, { includeUrls: isHost }), onStage: person.onStage, role: person.role });
+  }
+
+  // Guest slots serve everyone with the invite link. One network gets a share of the join
+  // budget and slots, and a full studio frees guests who never showed up in the room.
+  private async admitGuest(state: StudioState, source: string): Promise<StudioState | Response> {
+    if (source && !this.allowSourceMint(source)) return json({ error: "too many joins" }, 429);
+    if (!this.allowMint()) return json({ error: "too many joins" }, 429);
+    if (source) {
+      const sources = await this.guestSources();
+      const mine = state.participants.filter((p) => p.role === "guest" && sources[p.identity] === source).length;
+      if (mine >= GUESTS_PER_SOURCE) return json({ error: "too many guests from this network" }, 429);
+    }
+    if (guestCount(state) < MAX_PARTICIPANTS) return state;
+    let present: string[];
+    try {
+      present = parseParticipantIdentities(await listRoomParticipantsRaw(this.env, state.id));
+    } catch {
+      return json({ error: "studio is full" }, 409);
+    }
+    // ListParticipants is a network await: continue from a fresh copy.
+    const fresh = (await this.getState()) ?? state;
+    this.pruneGuests(fresh);
+    const now = Date.now();
+    fresh.participants = fresh.participants.filter(
+      (p) => p.role === "host" || p.onStage || present.includes(p.identity) || now - p.joinedAt < ABSENT_GUEST_GRACE_MS,
+    );
+    if (guestCount(fresh) >= MAX_PARTICIPANTS) return json({ error: "studio is full" }, 409);
+    return fresh;
+  }
+
+  // Kept apart from StudioState: participants are broadcast to everyone, addresses are not.
+  private async guestSources(): Promise<Record<string, string>> {
+    return (await this.ctx.storage.get<Record<string, string>>("guest-sources")) ?? {};
+  }
+
+  private async rememberGuestSource(state: StudioState, identity: string, source: string): Promise<void> {
+    const known = new Set(state.participants.map((p) => p.identity));
+    const kept = Object.entries(await this.guestSources()).filter(([id]) => known.has(id));
+    await this.ctx.storage.put("guest-sources", { ...Object.fromEntries(kept), [identity]: source });
+  }
+
+  private allowSourceMint(source: string): boolean {
+    const now = Date.now();
+    if (this.sourceMints.size > 1024) {
+      for (const [key, hit] of this.sourceMints) if (now - hit.t > TOKEN_MINT_WINDOW_MS) this.sourceMints.delete(key);
+    }
+    const row = this.sourceMints.get(source) ?? { n: 0, t: now };
+    if (now - row.t > TOKEN_MINT_WINDOW_MS) {
+      row.n = 0;
+      row.t = now;
+    }
+    row.n += 1;
+    this.sourceMints.set(source, row);
+    return row.n <= GUEST_MINT_PER_SOURCE;
   }
 
   private pruneGuests(state: StudioState): void {
@@ -1784,6 +1922,15 @@ function allowHit(hits: Map<string, { n: number; t: number }>, key: string, max:
   row.n += 1;
   hits.set(key, row);
   return row.n <= max;
+}
+
+/** Platform chat runs only while live. A failed studio stays quiet until a host retries or ends it. */
+function chatActive(state: StudioState): boolean {
+  return state.wantLive && !state.liveFailed;
+}
+
+function guestCount(state: StudioState): number {
+  return state.participants.filter((p) => p.role === "guest").length;
 }
 
 function json(data: unknown, status = 200): Response {

@@ -282,7 +282,7 @@ test("external token signs in, sets the session cookie and redirects", async () 
   assert.equal(body.name, "Ada Lovelace");
 });
 
-test("external token applies pending co-host invites", async () => {
+test("external token sign-in does not grant co-host until the invite is accepted", async () => {
   const env = hostedEnv();
   const studio = await createTenantStudio(env, "acme", "boss@example.com");
   const bossCookie = await ownerCookie(env, "boss@example.com");
@@ -293,8 +293,12 @@ test("external token applies pending co-host invites", async () => {
   );
   assert.equal(invite.status, 200);
   const cookie = await ownerCookie(env, "guest@example.com");
-  const state = await app.request(`${ORIGIN}/api/studios/${studio.id}/cohosts`, { headers: { Cookie: cookie } }, env);
-  assert.equal(state.status, 200);
+  const before = await app.request(`${ORIGIN}/api/studios/${studio.id}/cohosts`, { headers: { Cookie: cookie } }, env);
+  assert.notEqual(before.status, 200);
+  const accept = await app.request(`${ORIGIN}/api/studios/${studio.id}/cohosts/accept`, { method: "POST", headers: { Cookie: cookie } }, env);
+  assert.equal(accept.status, 200);
+  const after = await app.request(`${ORIGIN}/api/studios/${studio.id}/cohosts`, { headers: { Cookie: cookie } }, env);
+  assert.equal(after.status, 200);
 });
 
 test("external token without next goes home", async () => {

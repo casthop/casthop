@@ -1536,6 +1536,20 @@ a {
   margin-bottom: 10px;
 }
 
+.cohost-invite {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  margin-bottom: 18px;
+  border: 1px solid #d9dce3;
+  border-radius: 12px;
+}
+
+.cohost-invite p {
+  margin: 0;
+  color: #16171c;
+}
+
 .guest h1 {
   margin: 0 0 8px;
   font-size: 36px;

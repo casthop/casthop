@@ -11,6 +11,7 @@ import {
   DEV_API_KEY,
   DEV_API_SECRET,
   devKeyGuardError,
+  ipBucket,
   isLoopbackUrl,
   originAllowed,
   publicOrigin,
@@ -135,6 +136,41 @@ test("parseRtmpUrl accepts rtmp/rtmps and rejects junk / private hosts", () => {
   assert.equal(parseRtmpUrl("rtmp://[fd12::1]/live/k", { allowLoopback: true }), null);
   assert.equal(parseRtmpUrl("rtmp://[fe80::1]/live/k", { allowLoopback: true }), null);
   assert.equal(parseRtmpUrl("x".repeat(600), { allowLoopback: true }), null);
+});
+
+test("parseRtmpUrl refuses internal targets however they are spelled", () => {
+  const internal = [
+    "rtmp://[::ffff:10.0.0.1]:1935/live/k",
+    "rtmp://[::ffff:169.254.169.254]/live/k",
+    "rtmp://[0:0:0:0:0:ffff:a00:1]/live/k",
+    "rtmp://[64:ff9b::a00:1]/live/k",
+    "rtmp://167772161:1935/live/k",
+    "rtmp://0x0a000001/live/k",
+    "rtmp://012.0.0.1/live/k",
+    "rtmps://192.168.1.10/live/k",
+    "rtmp://172.20.0.5/live/k",
+    "rtmp://224.0.0.1/live/k",
+    "rtmp://redis/live/k",
+    "rtmp://ingest.internal/live/k",
+    "rtmp://printer.local/live/k",
+    "rtmp://localhost./live/k",
+  ];
+  for (const url of internal) {
+    assert.equal(parseRtmpUrl(url, { allowLoopback: true }), null, url);
+    assert.equal(parseRtmpUrl(url, { allowLoopback: false }), null, url);
+  }
+  const loopback = ["rtmp://[::ffff:127.0.0.1]/live/k", "rtmp://2130706433/live/k", "rtmp://127.1/live/k", "rtmp://studio.localhost/live/k"];
+  for (const url of loopback) assert.equal(parseRtmpUrl(url, { allowLoopback: false }), null, url);
+  assert.equal(parseRtmpUrl("rtmp://localhost:1935/live/x", { allowLoopback: true }), "rtmp://localhost:1935/live/x");
+  assert.equal(parseRtmpUrl("rtmp://studio.localhost/live/x", { allowLoopback: true }), "rtmp://studio.localhost/live/x");
+  for (const ok of [
+    "rtmp://a.rtmp.youtube.com/live2/key",
+    "rtmps://live-api-s.facebook.com:443/rtmp/key",
+    "rtmp://203.0.113.9/live/key",
+    "rtmp://[2001:db8::1]/live/key",
+  ]) {
+    assert.equal(parseRtmpUrl(ok, { allowLoopback: false }), ok, ok);
+  }
   assert.equal(isLoopbackUrl("http://[::1]:7880"), true);
   assert.equal(isLoopbackUrl("ws://127.0.0.2:7880"), true);
 });
@@ -276,4 +312,15 @@ test("denoise worklet primes silence and does not splice raw input on underrun",
   const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../src/worklets/denoise-processor.js"), "utf8");
   assert.match(src, /this\.outWrite = FRAME/);
   assert.match(src, /if \(queued < output\.length\) \{\s*output\.fill\(0\)/s);
+});
+
+test("ipBucket groups IPv6 by /64 and leaves IPv4 alone", () => {
+  assert.equal(ipBucket("203.0.113.7"), "203.0.113.7");
+  assert.equal(ipBucket("2001:db8:1:2:aaaa:bbbb:cccc:dddd"), "2001:db8:1:2::/64");
+  assert.equal(ipBucket("2001:DB8:1:2::1"), "2001:db8:1:2::/64");
+  assert.equal(ipBucket("2001:db8:0001:0002:ffff::9"), "2001:db8:1:2::/64");
+  assert.equal(ipBucket("2001:db8::1"), "2001:db8:0:0::/64");
+  assert.equal(ipBucket("fe80::1%eth0"), "fe80:0:0:0::/64");
+  assert.equal(ipBucket("::ffff:198.51.100.4"), "198.51.100.4");
+  assert.equal(ipBucket("local"), "local");
 });

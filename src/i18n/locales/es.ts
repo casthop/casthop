@@ -64,6 +64,9 @@ const es: Messages = {
   guestDefaultOutput: "Salida predeterminada",
   guestInviteBadge: "Invitación de invitado",
   guestJoinTitle: "Entrar al estudio",
+  cohostInviteNote: "Te invitaron a ser coanfitrión de este estudio.",
+  cohostInviteAccept: "Aceptar y entrar como coanfitrión",
+  cohostInviteFailed: "No se pudo aceptar la invitación",
   guestJoinSub:
     "Sin descarga ni cuenta. Esperarás entre bastidores hasta que el anfitrión te agregue a escena.",
   guestYourName: "Tu nombre",

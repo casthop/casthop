@@ -18,9 +18,9 @@ import { FakeD1 } from "./fake-d1.ts";
 import { FakeR2 } from "./fake-r2.ts";
 import { hlsFilesForSegments, hlsPlaylist } from "./replay-fixture.ts";
 
-const YT = "rtmp://ingest.example.com/live/super-secret-youtube-key";
-const LI = "rtmp://ingest.example.com/live/super-secret-linkedin-key";
-const X = "rtmp://ingest.example.com/live/super-secret-x-key";
+const YT = "rtmp://127.0.0.1:1935/live/super-secret-youtube-key";
+const LI = "rtmp://127.0.0.1:1935/live/super-secret-linkedin-key";
+const X = "rtmp://127.0.0.1:1935/live/super-secret-x-key";
 
 let egressStarts = 0;
 const realFetch = globalThis.fetch;
@@ -52,6 +52,7 @@ function makeEnv(overrides: Partial<Env> = {}): Env {
     RTMP_X: X,
     EGRESS_TEMPLATE_URL: "http://127.0.0.1:5173/egress-template",
     CASTHOP_ALLOW_DEV_KEYS: "1",
+    CASTHOP_DEV_LOGIN: "1",
     CASTHOP_TRUST_FORWARDED: "1",
     PUBLIC_ORIGIN: "https://casthop.test",
     ASSETS: { fetch: async () => new Response("ok") },

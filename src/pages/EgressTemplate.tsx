@@ -5,6 +5,7 @@ import { startProgramCompose, type ProgramCompose } from "../lib/program-compose
 import { getStudio, sendEgressBeat } from "../lib/api";
 import { startLiveProgramBuffer } from "../lib/live-program-buffer";
 import { CaptionTracker } from "../lib/caption-overlay";
+import { egressLayoutMode, isPortraitLayout, shouldWriteLiveBuffer } from "../lib/egress-layout";
 import { HEARTBEAT_BEAT_MS } from "../../worker/egress";
 import type { LayoutMode } from "../lib/wasm";
 
@@ -25,12 +26,9 @@ export function EgressTemplate() {
     const url = q.get("url");
     const token = q.get("token");
     const initialLayout = (q.get("layout") || "grid").toLowerCase();
-    const portrait = initialLayout === "portrait" || initialLayout === "vertical" || initialLayout === "9:16";
-    const layout: LayoutMode = portrait
-      ? "portrait"
-      : initialLayout === "solo" || initialLayout === "side" || initialLayout === "screen"
-        ? initialLayout
-        : "grid";
+    const portrait = isPortraitLayout(initialLayout);
+    const writesLiveBuffer = shouldWriteLiveBuffer(initialLayout);
+    const layout: LayoutMode = egressLayoutMode(initialLayout);
     const outW = portrait ? VERT_W : 1280;
     const outH = portrait ? VERT_H : 720;
     canvas.width = outW;
@@ -107,7 +105,7 @@ export function EgressTemplate() {
       const signalReady = () => console.log("START_RECORDING");
       if (url && token) {
         void room.connect(url, token).then(signalReady).then(() => {
-          if (!cancelled && studioId) {
+          if (!cancelled && studioId && writesLiveBuffer) {
             liveBuffer = startLiveProgramBuffer({ canvas, audios, studioId, token });
           }
         }).catch((err) => {

@@ -26,6 +26,8 @@ export class FakeD1 implements D1Database {
       "rate_limits",
       "replays",
       "clips",
+      "used_jtis",
+      "service_nonces",
     ]) {
       this.tables.set(name, []);
     }
@@ -396,6 +398,53 @@ export class FakeD1 implements D1Database {
     if (q === norm(Q.countClipsByStudio)) {
       const n = this.rows("clips").filter((r) => r.studio_id === binds[0]).length;
       return { results: [{ n }], changes: 0 };
+    }
+    if (q === norm(Q.studioTenant)) {
+      const rows = this.rows("studios").filter((r) => r.id === binds[0]);
+      return { results: rows.map((r) => ({ tenant_id: r.tenant_id ?? null })), changes: 0 };
+    }
+    if (q === norm(Q.setStudioTenant)) {
+      for (const r of this.rows("studios")) if (r.id === binds[1]) r.tenant_id = binds[0];
+      return { results: [], changes: 1 };
+    }
+    if (q === norm(Q.studiosByTenant)) {
+      const results = this.rows("studios")
+        .filter((r) => r.tenant_id === binds[0])
+        .map((r) => ({ id: r.id, title: r.title, owner_id: r.owner_id, created_at: r.created_at }))
+        .sort((a, b) => Number(a.created_at) - Number(b.created_at));
+      return { results, changes: 0 };
+    }
+    const byStudio: [string, string, string][] = [
+      [Q.deleteStudioMembers, "studio_members", "studio_id"],
+      [Q.deleteStudioInvites, "studio_invites", "studio_id"],
+      [Q.deleteStudioReplays, "replays", "studio_id"],
+      [Q.deleteStudioClips, "clips", "studio_id"],
+      [Q.deleteStudio, "studios", "id"],
+    ];
+    for (const [sqlText, table, col] of byStudio) {
+      if (q !== norm(sqlText)) continue;
+      this.tables.set(
+        table,
+        this.rows(table).filter((r) => r[col] !== binds[0]),
+      );
+      return { results: [], changes: 1 };
+    }
+    for (const [insertSql, pruneSql, table, col] of [
+      [Q.insertJti, Q.deleteExpiredJtis, "used_jtis", "jti"],
+      [Q.insertNonce, Q.deleteExpiredNonces, "service_nonces", "nonce"],
+    ] as const) {
+      if (q === norm(insertSql)) {
+        if (this.rows(table).some((r) => r[col] === binds[0])) throw new Error(`UNIQUE ${col}`);
+        this.rows(table).push({ [col]: binds[0], exp: binds[1] });
+        return { results: [], changes: 1 };
+      }
+      if (q === norm(pruneSql)) {
+        this.tables.set(
+          table,
+          this.rows(table).filter((r) => Number(r.exp) >= Number(binds[0])),
+        );
+        return { results: [], changes: 1 };
+      }
     }
     if (q === norm(Q.bumpRate)) {
       const [key, nowBind, , windowBind] = binds;

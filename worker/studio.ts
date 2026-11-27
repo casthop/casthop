@@ -10,6 +10,7 @@ import {
   mixedFilename,
   parseChunkIndex,
 } from "./iso";
+import { storeFor } from "./tenant";
 import {
   asIdentity,
   asName,
@@ -367,7 +368,7 @@ export class StudioDurableObject {
       await this.putState(state);
       for (const droppedId of plan.dropped) {
         try {
-          await deleteIsoTrackObjects(this.env.RECORDINGS, state.id, droppedId);
+          await deleteIsoTrackObjects((await storeFor(this.env, state.id)).RECORDINGS, state.id, droppedId);
         } catch {
           /* list no longer points at these objects */
         }
@@ -478,6 +479,19 @@ export class StudioDurableObject {
     if (action === "stop-live") {
       if (!isHost) return json({ error: "host key required" }, 403);
       return this.stopLive(state, "stopped");
+    }
+
+    // Hosted mode: the Worker removes a studio for good. Needs the host key, which only the Worker can derive.
+    if (action === "destroy") {
+      if (!isHost) return json({ error: "host key required" }, 403);
+      try {
+        await this.stopLive(state, "stopped");
+      } catch {
+        /* egress may already be gone */
+      }
+      await this.ctx.storage.deleteAlarm();
+      await this.ctx.storage.deleteAll();
+      return json({ ok: true });
     }
 
     if (action === "live") {

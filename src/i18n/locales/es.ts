@@ -21,6 +21,7 @@ const es: Messages = {
   homeEmailMe: "Enviarme un enlace",
   homeSending: "Enviando…",
   homeGitHub: "Continuar con GitHub",
+  homeSignInExternal: "Inicia sesión desde tu panel.",
   homeInvalidLink: "Ese enlace de acceso no es válido o ya caducó.",
   homeSendFailed: "No se pudo enviar el enlace",
   homeOpenStudio: "Abrir un estudio",

@@ -80,6 +80,14 @@ export const SCHEMA = [
     files INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS clips_studio ON clips(studio_id, created_at)`,
+  `CREATE TABLE IF NOT EXISTS used_jtis (
+    jti TEXT PRIMARY KEY,
+    exp INTEGER NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS service_nonces (
+    nonce TEXT PRIMARY KEY,
+    exp INTEGER NOT NULL
+  )`,
 ] as const;
 
 export const LIST_REPLAYS_PER_STUDIO = 20;
@@ -142,6 +150,18 @@ export const Q = {
   listClipsForAccount: `SELECT id, studio_id, title, visibility, duration_ms, seconds, created_at, bytes, files FROM (SELECT c.id, c.studio_id, c.title, c.visibility, c.duration_ms, c.seconds, c.created_at, c.bytes, c.files, ROW_NUMBER() OVER (PARTITION BY c.studio_id ORDER BY c.created_at DESC) AS rn FROM clips c INNER JOIN studio_members m ON m.studio_id = c.studio_id WHERE m.account_id = ?) WHERE rn <= ${LIST_CLIPS_PER_STUDIO} ORDER BY studio_id, created_at DESC`,
   updateClipVisibility: "UPDATE clips SET visibility = ? WHERE id = ?",
   countClipsByStudio: "SELECT COUNT(*) AS n FROM clips WHERE studio_id = ?",
+  studioTenant: "SELECT tenant_id FROM studios WHERE id = ?",
+  setStudioTenant: "UPDATE studios SET tenant_id = ? WHERE id = ?",
+  studiosByTenant: "SELECT id, title, owner_id, created_at FROM studios WHERE tenant_id = ? ORDER BY created_at",
+  deleteStudioMembers: "DELETE FROM studio_members WHERE studio_id = ?",
+  deleteStudioInvites: "DELETE FROM studio_invites WHERE studio_id = ?",
+  deleteStudioReplays: "DELETE FROM replays WHERE studio_id = ?",
+  deleteStudioClips: "DELETE FROM clips WHERE studio_id = ?",
+  deleteStudio: "DELETE FROM studios WHERE id = ?",
+  insertJti: "INSERT INTO used_jtis (jti, exp) VALUES (?, ?)",
+  deleteExpiredJtis: "DELETE FROM used_jtis WHERE exp < ?",
+  insertNonce: "INSERT INTO service_nonces (nonce, exp) VALUES (?, ?)",
+  deleteExpiredNonces: "DELETE FROM service_nonces WHERE exp < ?",
 } as const;
 
 const migrated = new WeakSet<object>();
@@ -230,6 +250,12 @@ export async function ensureDb(db: D1Database): Promise<void> {
     } catch {
       /* already present */
     }
+    try {
+      await db.prepare("ALTER TABLE studios ADD COLUMN tenant_id TEXT").run();
+    } catch {
+      /* already present */
+    }
+    await db.prepare("CREATE INDEX IF NOT EXISTS studios_tenant ON studios(tenant_id)").run();
     migrated.add(db);
   }
   const now = Date.now();
@@ -538,4 +564,48 @@ export async function countClipsForStudio(db: D1Database, studioId: string): Pro
 
 export async function updateClipVisibility(db: D1Database, id: string, visibility: ReplayVisibility): Promise<void> {
   await run(db, Q.updateClipVisibility, visibility, id);
+}
+
+export async function studioTenantId(db: D1Database, studioId: string): Promise<string | null> {
+  const row = await first<{ tenant_id: string | null }>(db, Q.studioTenant, studioId);
+  return row?.tenant_id ?? null;
+}
+
+export async function setStudioTenant(db: D1Database, studioId: string, tenantId: string): Promise<void> {
+  await run(db, Q.setStudioTenant, tenantId, studioId);
+}
+
+export type TenantStudioRow = { id: string; title: string; owner_id: string | null; created_at: number };
+
+export async function studiosOfTenant(db: D1Database, tenantId: string): Promise<TenantStudioRow[]> {
+  return all<TenantStudioRow>(db, Q.studiosByTenant, tenantId);
+}
+
+export async function deleteStudioRows(db: D1Database, studioId: string): Promise<void> {
+  await db.batch([
+    db.prepare(Q.deleteStudioMembers).bind(studioId),
+    db.prepare(Q.deleteStudioInvites).bind(studioId),
+    db.prepare(Q.deleteStudioReplays).bind(studioId),
+    db.prepare(Q.deleteStudioClips).bind(studioId),
+    db.prepare(Q.deleteStudio).bind(studioId),
+  ]);
+}
+
+/** True the first time a one-time value is seen, false on reuse. Expired rows are pruned on the way. */
+async function claimOnce(db: D1Database, prune: string, insert: string, value: string, expMs: number): Promise<boolean> {
+  await run(db, prune, Date.now());
+  try {
+    await run(db, insert, value, expMs);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function claimJti(db: D1Database, jti: string, expSeconds: number): Promise<boolean> {
+  return claimOnce(db, Q.deleteExpiredJtis, Q.insertJti, jti, expSeconds * 1000);
+}
+
+export function claimNonce(db: D1Database, nonce: string, expMs: number): Promise<boolean> {
+  return claimOnce(db, Q.deleteExpiredNonces, Q.insertNonce, nonce, expMs);
 }

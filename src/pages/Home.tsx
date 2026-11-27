@@ -19,6 +19,7 @@ export function Home() {
   const { t } = useI18n();
   const [me, setMe] = useState<AccountMe | null | undefined>(undefined);
   const [github, setGithub] = useState(false);
+  const [external, setExternal] = useState(false);
   const [studios, setStudios] = useState<StudioRecord[]>([]);
   const [title, setTitle] = useState<string | null>(null);
   const [email, setEmail] = useState("");
@@ -37,6 +38,7 @@ export function Home() {
     (async () => {
       const cfg = await getConfig().catch(() => ({
         github: false,
+        signin: "default" as const,
         signedIn: false,
         livekitUrl: "",
         maxOnStage: 6,
@@ -44,6 +46,7 @@ export function Home() {
       }));
       if (cancelled) return;
       setGithub(cfg.github);
+      setExternal(cfg.signin === "external");
       if (!cfg.signedIn) {
         setMe(null);
         return;
@@ -120,8 +123,12 @@ export function Home() {
         {me === null ? (
           <>
             <h1>{t("homeSignIn")}</h1>
-            <p className="lede">{t("homeSignInLede")}</p>
-            {sentTo ? (
+            {external ? (
+              <p className="lede">{t("homeSignInExternal")}</p>
+            ) : (
+              <p className="lede">{t("homeSignInLede")}</p>
+            )}
+            {external ? null : sentTo ? (
               <p className="sent-note">{t("homeLinkSent", { email: sentTo })}</p>
             ) : (
               <form onSubmit={onSignIn}>

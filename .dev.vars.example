@@ -60,3 +60,13 @@ EGRESS_TEMPLATE_URL=http://127.0.0.1:5173/egress-template
 # CASTHOP_HEARTBEAT_MS=
 # Override RTMP retry backoff. Unset = 1s, 2s, 4s, 8s, 16s, 30s. Set 0 in tests.
 # CASTHOP_BACKOFF_MS=
+
+# Hosted mode (optional). Every line is off unless set. See the Configuration docs.
+# Comma list of kid:secret (secret 32+ chars). Enables GET /api/auth/external.
+# CASTHOP_EXTERNAL_AUTH_KEYS=
+# Required with the keys above: the token `iss` claim.
+# CASTHOP_EXTERNAL_AUTH_ISSUER=
+# Set to "external" to turn off magic-link and GitHub sign-in.
+# CASTHOP_SIGNIN=
+# Comma list of kid:secret (secret 32+ chars). Enables the signed /api/service/* API.
+# CASTHOP_SERVICE_KEYS=

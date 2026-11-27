@@ -348,6 +348,10 @@ export class StudioDurableObject {
     if (action === "iso-start") {
       const person = await this.isoAuthor(state, body, isHost);
       if (!person) return json({ error: "iso auth required" }, 403);
+      // Only people the host put on stage record. Green-room guests would take the
+      // session's track slots and push older recordings out of history.
+      const onStage = isHost || state.participants.some((p) => p.identity === person.identity && p.onStage);
+      if (!onStage) return json({ error: "not on stage" }, 403);
       if (!state.separateRecordings || !state.isoSessionId) return json({ error: "not recording" }, 409);
       const sessionId = typeof body.sessionId === "string" ? body.sessionId : "";
       if (sessionId !== state.isoSessionId) return json({ error: "not recording" }, 409);

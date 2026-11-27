@@ -53,8 +53,10 @@ import {
   listReplaysForStudio,
   listClipsForStudio,
   listStudiosFor,
+  maxStudiosPerAccount,
   memberFor,
   membersOf,
+  ownedStudioCount,
   replayById,
   clipById,
   studioById,
@@ -303,6 +305,10 @@ app.post("/api/studios", async (c) => {
   attachSessionCookie(c, sess.cookie);
   // Hosted studios are created by the signed service API so they carry a tenant.
   if (signinExternal(c.env)) return c.json({ error: "signin_external" }, 403);
+  // Sign-up is open and per-studio quotas (recordings, Egress) do not bound one account.
+  if ((await ownedStudioCount(c.env.DB, sess.account.id)) >= maxStudiosPerAccount(c.env.CASTHOP_MAX_STUDIOS)) {
+    return c.json({ error: "studio limit reached" }, 429);
+  }
   const body = (await c.req.json().catch(() => ({}))) as { title?: string };
   const title = asName(body.title, "Weekly product update");
   const created = await createStudio(c.env, { ownerId: sess.account.id, title });

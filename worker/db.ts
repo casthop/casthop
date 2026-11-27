@@ -90,6 +90,9 @@ export const SCHEMA = [
   )`,
 ] as const;
 
+/** The studio list returns at most this many, newest first. */
+export const LIST_STUDIOS_MAX = 200;
+export const DEFAULT_MAX_STUDIOS = 20;
 export const LIST_REPLAYS_PER_STUDIO = 20;
 export const LIST_CLIPS_PER_STUDIO = 20;
 
@@ -117,8 +120,8 @@ export const Q = {
   deleteOauth: "DELETE FROM oauth_states WHERE state = ?",
   insertStudio: "INSERT INTO studios (id, title, created_at, owner_id, tenant_id) VALUES (?, ?, ?, ?, ?)",
   studioById: "SELECT id, title, created_at, owner_id FROM studios WHERE id = ?",
-  listStudios:
-    "SELECT s.id, s.title, s.owner_id, s.created_at, m.role FROM studios s INNER JOIN studio_members m ON m.studio_id = s.id WHERE m.account_id = ? ORDER BY s.created_at DESC",
+  listStudios: `SELECT s.id, s.title, s.owner_id, s.created_at, m.role FROM studios s INNER JOIN studio_members m ON m.studio_id = s.id WHERE m.account_id = ? ORDER BY s.created_at DESC LIMIT ${LIST_STUDIOS_MAX}`,
+  countOwnedStudios: "SELECT COUNT(*) AS n FROM studio_members WHERE account_id = ? AND role = 'owner'",
   insertMember: "INSERT INTO studio_members (studio_id, account_id, role, created_at) VALUES (?, ?, ?, ?)",
   memberByStudioAccount: "SELECT studio_id, account_id, role, created_at FROM studio_members WHERE studio_id = ? AND account_id = ?",
   membersByStudio:
@@ -374,6 +377,17 @@ export async function insertStudioRow(db: D1Database, id: string, title: string,
 
 export async function studioById(db: D1Database, id: string): Promise<{ id: string; title: string; created_at: number; owner_id: string | null } | null> {
   return first(db, Q.studioById, id);
+}
+
+export async function ownedStudioCount(db: D1Database, accountId: string): Promise<number> {
+  const row = await first<{ n: number }>(db, Q.countOwnedStudios, accountId);
+  return row?.n ?? 0;
+}
+
+/** CASTHOP_MAX_STUDIOS, or the default when unset or not a positive whole number. */
+export function maxStudiosPerAccount(raw: string | undefined): number {
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_MAX_STUDIOS;
 }
 
 export async function listStudiosFor(db: D1Database, accountId: string): Promise<StudioRecord[]> {

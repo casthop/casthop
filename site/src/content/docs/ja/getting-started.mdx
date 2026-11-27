@@ -91,7 +91,7 @@ curl http://127.0.0.1:5173/api/health
 どれも、`.dev.vars` に設定して `bun run dev` を再起動するまでは無効です。それぞれの説明は [設定](/docs/configuration) にあります。
 
 - **GitHub でサインイン:** `GITHUB_CLIENT_ID` と `GITHUB_CLIENT_SECRET`。
-- **スタジオに YouTube のチャットを表示:** `YOUTUBE_API_KEY` と、`YOUTUBE_LIVE_CHAT_ID` または `YOUTUBE_VIDEO_ID`。
+- **スタジオに YouTube のチャットを表示:** `YOUTUBE_API_KEY` と、`YOUTUBE_LIVE_CHAT_ID` または `YOUTUBE_VIDEO_ID`。 表示するスタジオを `YOUTUBE_CHAT_STUDIO_ID` に設定します。
 - **Twitch と Kick のチャット:** `TWITCH_CHANNEL` と `KICK_CHATROOM_ID`。
 - **サインインリンクをターミナルではなくブラウザに返す**（テストと `bun run measure` 用）: `CASTHOP_DEV_LOGIN=1`。
 

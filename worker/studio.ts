@@ -111,6 +111,7 @@ const UNLOCKED_ACTIONS = new Set([
 export class StudioDurableObject {
   private launching = false;
   private portraitLaunching = false;
+  private portraitRestarting = false;
   private stopsInFlight = 0;
   ctx: DurableObjectState;
   env: Env;
@@ -1212,6 +1213,7 @@ export class StudioDurableObject {
       if (state.portraitEgressId === egressId) {
         state.portraitEgressId = null;
         state.portraitHeartbeatAt = null;
+        state.portraitStartedAt = null;
       }
       await this.putState(state);
       try {
@@ -1401,10 +1403,11 @@ export class StudioDurableObject {
     await this.putState(fresh);
   }
 
-  private async ensurePortraitEgress(state: StudioState): Promise<void> {
+  private async ensurePortraitEgress(state: StudioState, fromRestart = false): Promise<void> {
     const urls = enabledUrls(state.destinations, "portrait");
     if (!urls.length || !state.wantLive) return;
     if (state.portraitEgressId || this.portraitLaunching) return;
+    if (this.portraitRestarting && !fromRestart) return;
     if (state.portraitRetryAt && Date.now() < state.portraitRetryAt) return;
     const budget = recoveryBudgetMs(this.env.CASTHOP_RECOVERY_MS);
     const portDests = destsForAspect(state.destinations, "portrait").filter((d) => d.enabled && d.url);
@@ -1440,7 +1443,9 @@ export class StudioDurableObject {
         return;
       }
       latest.portraitEgressId = egressId;
-      latest.portraitHeartbeatAt = Date.now();
+      // Only a real egress-beat sets the heartbeat; until then start grace applies.
+      latest.portraitHeartbeatAt = null;
+      latest.portraitStartedAt = Date.now();
       latest.portraitRetryAt = null;
       setDestStatuses(latest.destinations, "connecting", null, "portrait");
       await this.putState(latest);
@@ -1458,6 +1463,36 @@ export class StudioDurableObject {
   }
 
   private async restartPortraitEgress(state: StudioState, error: string): Promise<void> {
+    // A watch pass and a webhook must not each restart 9:16.
+    if (this.portraitRestarting || this.portraitLaunching) return;
+    this.portraitRestarting = true;
+    try {
+      await this.restartPortraitLocked(state, error);
+    } finally {
+      this.portraitRestarting = false;
+    }
+  }
+
+  /** Stops active portrait compositors other than the one we track, so two never share an RTMP URL. */
+  private async stopStrayPortraitEgress(state: StudioState): Promise<void> {
+    // Without the main egress id we cannot tell the 16:9 compositor from a stray, so stop nothing.
+    if (!state.egressId) return;
+    try {
+      for (const item of parseEgressList(await listEgressRaw(this.env, state.id))) {
+        if (!isActiveHealth(item.status)) continue;
+        // A 16:9 restart can change egressId while we loop, so decide from fresh state.
+        const latest = (await this.getState()) ?? state;
+        if (!latest.egressId) return;
+        if (item.egressId === latest.egressId || item.egressId === latest.portraitEgressId) continue;
+        if (skipIds(latest.abandonedEgressIds, latest.egressId).includes(item.egressId)) continue;
+        await this.abandonEgress(latest, item.egressId);
+      }
+    } catch (err) {
+      console.warn("stop stray portrait egress", err);
+    }
+  }
+
+  private async restartPortraitLocked(state: StudioState, error: string): Promise<void> {
     beginPortraitRecovery(state);
     const budget = recoveryBudgetMs(this.env.CASTHOP_RECOVERY_MS);
     if (portraitRecoveryTimedOut(state, Date.now(), budget)) {
@@ -1467,13 +1502,15 @@ export class StudioDurableObject {
     const id = state.portraitEgressId;
     setDestStatuses(state.destinations, "retrying", error, "portrait");
     if (id) await this.abandonEgress(state, id);
+    await this.stopStrayPortraitEgress((await this.getState()) ?? state);
     const latest = (await this.getState()) ?? state;
     if (!latest.wantLive || latest.liveFailed) return;
     latest.portraitEgressId = null;
     latest.portraitHeartbeatAt = null;
+    latest.portraitStartedAt = null;
     latest.portraitRecoveringSince = state.portraitRecoveringSince ?? latest.portraitRecoveringSince;
     await this.putState(latest);
-    if (enabledUrls(latest.destinations, "portrait").length) await this.ensurePortraitEgress(latest);
+    if (enabledUrls(latest.destinations, "portrait").length) await this.ensurePortraitEgress(latest, true);
   }
 
   private async markPortraitFailed(state: StudioState, error: string): Promise<void> {
@@ -1511,7 +1548,7 @@ export class StudioDurableObject {
     if (!state.portraitEgressId) return false;
     const at = state.portraitHeartbeatAt;
     if (!at) {
-      const started = state.liveStartingAt ?? state.liveStartedAt ?? 0;
+      const started = state.portraitStartedAt ?? state.liveStartingAt ?? state.liveStartedAt ?? 0;
       const grace = compositorGraceMs(this.env.CASTHOP_COMPOSITOR_GRACE_MS);
       return started > 0 && now - started >= grace;
     }

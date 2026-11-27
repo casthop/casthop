@@ -11,6 +11,7 @@ import {
   DEV_API_KEY,
   DEV_API_SECRET,
   devKeyGuardError,
+  ipBucket,
   isLoopbackUrl,
   originAllowed,
   publicOrigin,
@@ -276,4 +277,15 @@ test("denoise worklet primes silence and does not splice raw input on underrun",
   const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../src/worklets/denoise-processor.js"), "utf8");
   assert.match(src, /this\.outWrite = FRAME/);
   assert.match(src, /if \(queued < output\.length\) \{\s*output\.fill\(0\)/s);
+});
+
+test("ipBucket groups IPv6 by /64 and leaves IPv4 alone", () => {
+  assert.equal(ipBucket("203.0.113.7"), "203.0.113.7");
+  assert.equal(ipBucket("2001:db8:1:2:aaaa:bbbb:cccc:dddd"), "2001:db8:1:2::/64");
+  assert.equal(ipBucket("2001:DB8:1:2::1"), "2001:db8:1:2::/64");
+  assert.equal(ipBucket("2001:db8:0001:0002:ffff::9"), "2001:db8:1:2::/64");
+  assert.equal(ipBucket("2001:db8::1"), "2001:db8:0:0::/64");
+  assert.equal(ipBucket("fe80::1%eth0"), "fe80:0:0:0::/64");
+  assert.equal(ipBucket("::ffff:198.51.100.4"), "198.51.100.4");
+  assert.equal(ipBucket("local"), "local");
 });

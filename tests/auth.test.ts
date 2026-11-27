@@ -1459,8 +1459,12 @@ test("sign-in mail limits treat one IPv6 /64 as one client and cap each inbox ov
     assert.equal((await ask("2001:db8:aa:2::1", "inbox@example.com")).status, 200);
     assert.equal(mailsTo("inbox@example.com"), SIGNIN_EMAIL_MAX + 1, "another /64 still gets a link");
 
-    for (let net = 10; net < 20; net++) await ask(`2001:db8:bb:${net}::1`, "flooded@example.com");
+    for (let net = 10; net < 10 + SIGNIN_TO_MAX + 5; net++) await ask(`2001:db8:bb:${net}::1`, "flooded@example.com");
     assert.equal(mailsTo("flooded@example.com"), SIGNIN_TO_MAX, "many networks share one ceiling per inbox");
+
+    for (let i = 0; i < 5; i++) await ask("2001:db8:cc:1::1", "spam@example.com");
+    const row = env._db.rows("rate_limits").find((r) => r.key === "signin:to:spam@example.com");
+    assert.equal(row?.count, SIGNIN_EMAIL_MAX, "throttled requests do not use the inbox budget");
   } finally {
     console.log = origLog;
   }

@@ -442,6 +442,12 @@ export class FakeD1 implements D1Database {
         return { results: [], changes: 1 };
       }
     }
+    if (q === norm(Q.peekRate)) {
+      const [key, nowBind, windowBind] = binds;
+      const row = this.rows("rate_limits").find((r) => r.key === key);
+      const live = row && Number(nowBind) - Number(row.window_start) <= Number(windowBind);
+      return { results: live ? [{ count: row.count }] : [], changes: 0 };
+    }
     if (q === norm(Q.bumpRate)) {
       const [key, nowBind, , windowBind] = binds;
       const now = Number(nowBind);

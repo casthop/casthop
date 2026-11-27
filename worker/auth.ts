@@ -35,6 +35,8 @@ import {
   accountByGithub,
   accountById,
   allowRate,
+  countRate,
+  rateHasRoom,
   applyInvites,
   consumeMagic,
   deleteOauth,
@@ -208,7 +210,8 @@ export async function issueMagicLink(c: AppCtx, email: string): Promise<{ ok: tr
   if (!(await allowRate(c.env.DB, `signin:email:${email}:${client}`, SIGNIN_EMAIL_MAX, SIGNIN_WINDOW_MS))) {
     return { ok: true };
   }
-  if (!(await allowRate(c.env.DB, `signin:to:${email}`, SIGNIN_TO_MAX, SIGNIN_WINDOW_MS))) {
+  // Only sent mail counts toward the inbox cap, so throttled requests cannot lock a user out.
+  if (!(await rateHasRoom(c.env.DB, `signin:to:${email}`, SIGNIN_TO_MAX, SIGNIN_WINDOW_MS))) {
     return { ok: true };
   }
   const token = randomId(32);
@@ -224,6 +227,7 @@ export async function issueMagicLink(c: AppCtx, email: string): Promise<{ ok: tr
     subject: "Sign in to Casthop",
     text: `Open this link and click Sign in. It expires in 15 minutes.\n\n${loginUrl}\n`,
   });
+  await countRate(c.env.DB, `signin:to:${email}`, SIGNIN_WINDOW_MS);
   return showDevLogin(c, ip) ? { ok: true, devLogin: loginPath } : { ok: true };
 }
 

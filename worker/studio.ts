@@ -134,6 +134,10 @@ export class StudioDurableObject {
     }
 
     const action = url.searchParams.get("action") ?? "";
+    // Actions are Worker-built POST/PUT calls. A GET is only the public state read.
+    if (action && request.method !== "POST" && request.method !== "PUT") {
+      return json({ error: "unknown action" }, 400);
+    }
 
     if (request.method === "PUT" && action === "create") {
       const body = (await request.json()) as {

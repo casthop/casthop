@@ -16,6 +16,13 @@ test("dev server does not serve recordings under data/", () => {
   assert.ok(config.server?.fs?.deny?.includes(`${dataDir}/**`));
 });
 
+test("dev server keeps Vite's default denies and blocks .dev.vars", () => {
+  const deny = config.server?.fs?.deny ?? [];
+  for (const pattern of [".env", ".env.*", "*.{crt,pem}", "**/.git/**", ".dev.vars*"]) {
+    assert.ok(deny.includes(pattern), `${pattern} must stay denied`);
+  }
+});
+
 test("Miniflare data explorer is off unless opted in", () => {
   assert.equal(process.env.X_LOCAL_EXPLORER, "false");
 });

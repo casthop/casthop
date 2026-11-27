@@ -278,32 +278,32 @@ export async function serveClipDownload(env: Env, clip: ClipRecord): Promise<Res
   if (!playlistObj) return jsonError("not found", 404);
   const playlist = await playlistObj.text();
   const names = hlsFilenamesInPlaylist(playlist).filter((name) => !name.endsWith(".m3u8"));
-  const parts: Uint8Array[] = [];
+  const objects: R2ObjectBody[] = [];
   let total = 0;
   for (const name of names) {
     if (!isHlsFilename(name)) return jsonError("not found", 404);
     const obj = await env.RECORDINGS.get(clipObjectKey(clip.studioId, clip.id, name));
     if (!obj) return jsonError("not found", 404);
-    const payload = new Uint8Array(await obj.arrayBuffer());
-    parts.push(payload);
-    total += payload.byteLength;
+    objects.push(obj);
+    total += obj.size;
   }
-  if (parts.length === 0) return jsonError("not found", 404);
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const part of parts) {
-    out.set(part, offset);
-    offset += part.byteLength;
-  }
+  if (objects.length === 0) return jsonError("not found", 404);
+  // Pipe segments one by one so the clip is never held in memory.
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+  void (async () => {
+    for (const obj of objects) await obj.body.pipeTo(writable, { preventClose: true });
+    await writable.close();
+  })().catch((err) => writable.abort(err));
   const first = names[0] ?? "clip.mp4";
   const ext = first.endsWith(".webm") ? "webm" : "mp4";
   const headers = new Headers();
   headers.set("Content-Type", ext === "webm" ? "video/webm" : "video/mp4");
+  headers.set("Content-Length", String(total));
   headers.set("Content-Disposition", `attachment; filename="clip-${clip.id}.${ext}"`);
   headers.set("Cache-Control", clip.visibility === "public" ? "public, max-age=0, must-revalidate" : "private, no-store");
   headers.set("Vary", "Cookie");
   headers.set("X-Content-Type-Options", "nosniff");
-  return new Response(out, { headers });
+  return new Response(readable, { headers });
 }
 
 export async function canViewClip(

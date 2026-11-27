@@ -43,14 +43,16 @@ async function liveRoom(wantLive: boolean) {
     }),
   );
   assert.equal(res.status, 200);
-  const state = t.store.get("state") as { wantLive: boolean; chat: PlatformMessage[] };
+  const state = t.store.get("state") as { wantLive: boolean };
   state.wantLive = wantLive;
   t.puts.length = 0;
-  return { ...t, state };
+  // getState() returns a normalized copy, so read what was put, not the object above.
+  const stored = () => t.store.get("state") as { chat: PlatformMessage[] };
+  return { ...t, stored };
 }
 
 test("a burst of platform messages lands in one write, behind the lock", async () => {
-  const { room, state, puts } = await liveRoom(true);
+  const { room, stored, puts } = await liveRoom(true);
   let release: () => void = () => undefined;
   const held = room["serialize"](() => new Promise<void>((r) => (release = r)));
 
@@ -65,15 +67,16 @@ test("a burst of platform messages lands in one write, behind the lock", async (
   await held;
   await flushed;
   assert.deepEqual(puts, ["state"]);
-  assert.equal(state.chat.length, 100);
-  assert.equal(state.chat[99]?.id, "twitch:149");
-  assert.equal(new Set(state.chat.map((m) => m.id)).size, 100);
+  const { chat } = stored();
+  assert.equal(chat.length, 100);
+  assert.equal(chat[99]?.id, "twitch:149");
+  assert.equal(new Set(chat.map((m) => m.id)).size, 100);
 });
 
 test("buffered messages are dropped when the studio is not live", async () => {
-  const { room, state, puts } = await liveRoom(false);
+  const { room, stored, puts } = await liveRoom(false);
   room["bufferPlatformMessages"]([msg(1), msg(2)]);
   await room["flushPlatformMessages"]();
   assert.equal(puts.length, 0);
-  assert.equal(state.chat.length, 0);
+  assert.equal(stored().chat.length, 0);
 });

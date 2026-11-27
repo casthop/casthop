@@ -50,7 +50,7 @@ Auth: keep the owner / co-host / guest / signed-out / expired matrix in `tests/a
 
 ### End-to-end
 
-Needs compose + `bun run dev` (same setup as above).
+Needs compose + `bun run dev` (same setup as above). These flows sign in through the dev shortcut, so add `CASTHOP_DEV_LOGIN=1` to `.dev.vars` first (also needed for `bun run measure` and `/internal/probe`).
 
 ```bash
 bunx --bun @e2e-dev/web install chromium   # once per machine; Linux may need --with-deps

@@ -188,8 +188,14 @@ export async function findOrCreateGithubAccount(env: Env, github: { id: string; 
 }
 
 function showDevLogin(c: AppCtx, ip: string): boolean {
-  // Wrangler still attaches `cf` locally. Loopback Host + loopback/local IP is the gate.
-  return allowDevLogin(c.env) && isLoopbackUrl(c.req.url) && (ip === "local" || isLoopbackHost(ip));
+  // In the Vite dev server the Host header and CF-Connecting-IP come from the client
+  // (Miniflare stamps 127.0.0.1), so they cannot prove a local peer. Opt in explicitly too.
+  return (
+    c.env.CASTHOP_DEV_LOGIN === "1" &&
+    allowDevLogin(c.env) &&
+    isLoopbackUrl(c.req.url) &&
+    (ip === "local" || isLoopbackHost(ip))
+  );
 }
 
 export async function issueMagicLink(c: AppCtx, email: string): Promise<{ ok: true; devLogin?: string }> {

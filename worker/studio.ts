@@ -138,6 +138,10 @@ export class StudioDurableObject {
     }
 
     const action = url.searchParams.get("action") ?? "";
+    // Actions are Worker-built POST/PUT calls. A GET is only the public state read.
+    if (action && request.method !== "POST" && request.method !== "PUT") {
+      return json({ error: "unknown action" }, 400);
+    }
 
     if (request.method === "PUT" && action === "create") {
       const body = (await request.json()) as {
@@ -980,16 +984,20 @@ export class StudioDurableObject {
 
     try {
       const listed = parseEgressList(await listEgressRaw(this.env, latest.id));
-      const landSkip = skipIds(latest.abandonedEgressIds, latest.portraitEgressId);
-      const portSkip = skipIds(latest.abandonedEgressIds, latest.egressId);
-      const active = pickActiveEgress(listed, latest.egressId, landSkip);
-      const portrait = pickActiveEgress(listed, latest.portraitEgressId ?? null, portSkip);
-      if (active) await this.applyEgress(latest, active, "poll", identities);
+      // A stage, destinations or stop write may have landed during ListEgress.
+      // Writing `latest` back here would undo it.
+      const current = await this.getState();
+      if (!current?.wantLive || current.liveFailed) return;
+      const landSkip = skipIds(current.abandonedEgressIds, current.portraitEgressId);
+      const portSkip = skipIds(current.abandonedEgressIds, current.egressId);
+      const active = pickActiveEgress(listed, current.egressId, landSkip);
+      const portrait = pickActiveEgress(listed, current.portraitEgressId ?? null, portSkip);
+      if (active) await this.applyEgress(current, active, "poll", identities);
       if (portrait) {
-        const fresh = (await this.getState()) ?? latest;
+        const fresh = (await this.getState()) ?? current;
         await this.applyEgress(fresh, portrait, "poll", identities);
       }
-      const after = (await this.getState()) ?? latest;
+      const after = (await this.getState()) ?? current;
       if (!after.wantLive) return;
       const wantPort = enabledUrls(after.destinations, "portrait").length > 0;
       if (wantPort && !after.portraitEgressId) {
@@ -1279,26 +1287,29 @@ export class StudioDurableObject {
         identities = null;
       }
     }
+    // Re-read after ListParticipants so these writes do not undo a concurrent one.
+    const fresh = roomFinished ? state : await this.getState();
+    if (!fresh || (!fresh.wantLive && !fresh.live)) return identities;
     if (occupied) {
-      if (state.emptySince) {
-        state.emptySince = null;
-        await this.putState(state);
+      if (fresh.emptySince) {
+        fresh.emptySince = null;
+        await this.putState(fresh);
       }
       return identities;
     }
     const now = Date.now();
     const grace = emptyGraceMs(this.env.CASTHOP_EMPTY_GRACE_MS);
-    if (!state.emptySince) {
-      state.emptySince = now;
-      await this.putState(state);
+    if (!fresh.emptySince) {
+      fresh.emptySince = now;
+      await this.putState(fresh);
       await this.scheduleWatch(now + grace);
       return identities;
     }
-    if (now - state.emptySince < grace) {
-      await this.scheduleWatch(state.emptySince + grace);
+    if (now - fresh.emptySince < grace) {
+      await this.scheduleWatch(fresh.emptySince + grace);
       return identities;
     }
-    await this.stopLive(state, "Studio empty");
+    await this.stopLive(fresh, "Studio empty");
     return identities;
   }
 

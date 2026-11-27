@@ -469,10 +469,22 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
       },
     },
     {
-      name: "GET studio ws",
+      name: "GET studio ws without upgrade",
       path: `/api/studios/${id}/ws`,
       init: {},
-      expect: { owner: 200, cohost: 200, guest: 200, signedOut: 200, expired: 200, outsider: 200 },
+      expect: { owner: 426, cohost: 426, guest: 426, signedOut: 426, expired: 426, outsider: 426 },
+    },
+    {
+      name: "GET studio ws ?action=watch",
+      path: `/api/studios/${id}/ws?action=watch`,
+      init: {},
+      expect: { owner: 426, cohost: 426, guest: 426, signedOut: 426, expired: 426, outsider: 426 },
+    },
+    {
+      name: "GET studio ws ?action=webhook",
+      path: `/api/studios/${id}/ws?action=webhook`,
+      init: {},
+      expect: { owner: 426, cohost: 426, guest: 426, signedOut: 426, expired: 426, outsider: 426 },
     },
     {
       name: "POST token host",
@@ -1080,6 +1092,42 @@ test("guest join budget is shared out per network, not taken by one requester", 
   for (let i = 0; i < GUEST_MINT_PER_SOURCE; i++) assert.equal((await mint("2001:db8:7:7::1")).status, 200);
   assert.equal((await mint("2001:db8:7:7::abcd")).status, 429, "same /64, same share");
   assert.equal((await mint("203.0.113.9")).status, 200);
+});
+
+test("the ws route forwards only the upgrade, never the client's query, to the studio", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "ada@example.com");
+  const { id } = await createStudio(env, cookie);
+  const real = env.STUDIO;
+  const seen: Request[] = [];
+  env.STUDIO = {
+    idFromName: (name: string) => real.idFromName(name),
+    get: () => ({
+      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+        seen.push(input instanceof Request && init === undefined ? input : new Request(input, init));
+        return new Response(null, { status: 200 });
+      },
+    }),
+  } as unknown as DurableObjectNamespace;
+  const res = await app.request(`https://casthop.test/api/studios/${id}/ws?action=watch`, { headers: { Upgrade: "WebSocket" } }, env);
+  assert.equal(res.status, 200);
+  assert.equal(seen.length, 1);
+  assert.equal(new URL(seen[0]!.url).search, "");
+  assert.equal(seen[0]!.method, "GET");
+  assert.equal(seen[0]!.headers.get("Upgrade"), "websocket");
+});
+
+test("the studio refuses actions that do not come as POST or PUT", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "ada@example.com");
+  const { id } = await createStudio(env, cookie);
+  const stub = env.STUDIO.get(env.STUDIO.idFromName(id));
+  for (const action of ["watch", "webhook", "stage"]) {
+    const res = await stub.fetch(new Request(`https://studio/${id}?action=${action}`));
+    assert.equal(res.status, 400, action);
+  }
+  const plain = await stub.fetch(new Request(`https://studio/${id}`));
+  assert.equal(plain.status, 200);
 });
 
 test("host destination POST without url keeps the stored stream key", async () => {

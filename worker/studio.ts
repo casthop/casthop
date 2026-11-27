@@ -2,6 +2,7 @@ import { DEST_CHAT_BACKOFF_MS, destChatProviders, type YoutubeTokenCache } from 
 import { defaultDestinations, destAspectOf, MAX_ON_STAGE, type Env, type IsoTrack, type LayoutId, type StudioState } from "./types";
 import {
   ISO_CHUNK_MAX_BYTES,
+  isoChunkFits,
   deleteIsoTrackObjects,
   isoKindOk,
   isoMimeOk,
@@ -350,11 +351,16 @@ export class StudioDurableObject {
       if (!track || track.identity !== person.identity) return json({ error: "track not found" }, 404);
       if (track.complete) return json({ error: "track complete" }, 409);
       if (index > track.chunks) return json({ error: "chunk required" }, 400);
-      if (index === track.chunks) {
+      const isNew = index === track.chunks;
+      if (isNew && !isoChunkFits(state.isoTracks ?? [], track, bytes)) {
+        return json({ error: "recording too large" }, 413);
+      }
+      // Without commit this only validates; the Worker commits after the R2 put succeeds.
+      if (body.commit === true && isNew) {
         track.bytes += bytes;
         track.chunks = index + 1;
+        await this.putState(state);
       }
-      await this.putState(state);
       return json({ track });
     }
 

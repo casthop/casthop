@@ -2,6 +2,8 @@ import type { IsoTrack } from "./types";
 
 export const ISO_CHUNK_MAX_BYTES = 8 * 1024 * 1024;
 export const ISO_MAX_CHUNKS = 20_000;
+export const ISO_TRACK_MAX_BYTES = 2 * 1024 * 1024 * 1024;
+export const ISO_SESSION_MAX_BYTES = 10 * 1024 * 1024 * 1024;
 export const ISO_CHUNK_WINDOW_MS = 60_000;
 /** Camera + screen at a 2 s timeslice is 60 PUTs/min; extra headroom is for retries. */
 export const ISO_CHUNK_MAX = 180;
@@ -27,6 +29,12 @@ export function isoTracksForStart(tracks: IsoTrack[], identity: string, sessionI
   if (drop.length < overflow) return null;
   const dropSet = new Set(drop);
   return { kept: tracks.filter((row) => !dropSet.has(row.id)), dropped: drop };
+}
+
+/** False if adding this chunk would pass the per-track or per-session byte cap. */
+export function isoChunkFits(tracks: IsoTrack[], track: IsoTrack, bytes: number): boolean {
+  const sessionBytes = tracks.filter((row) => row.sessionId === track.sessionId).reduce((sum, row) => sum + row.bytes, 0);
+  return track.bytes + bytes <= ISO_TRACK_MAX_BYTES && sessionBytes + bytes <= ISO_SESSION_MAX_BYTES;
 }
 
 export function isoPrefix(studioId: string, trackId: string): string {

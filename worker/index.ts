@@ -721,20 +721,23 @@ app.put("/api/studios/:id/iso/:trackId/chunks/:index", async (c) => {
   const buf = await c.req.arrayBuffer();
   if (buf.byteLength > ISO_CHUNK_MAX_BYTES) return c.json({ error: "chunk too large" }, 413);
   if (buf.byteLength < 1) return c.json({ error: "empty chunk" }, 400);
-  const res = await doAction(c.env, id, "iso-chunk", {
+  const chunk = {
     identity: who.identity,
     guestSecret: who.guestSecret,
     hostKey: who.hostKey,
     trackId,
     index,
     bytes: buf.byteLength,
-  });
-  if (!res.ok) return new Response(res.body, { status: res.status, headers: res.headers });
+  };
+  // Validate, write to R2, then count: a failed put never leaves a phantom chunk.
+  const check = await doAction(c.env, id, "iso-chunk", chunk);
+  if (!check.ok) return new Response(check.body, { status: check.status, headers: check.headers });
   try {
     await c.env.RECORDINGS.put(isoChunkKey(id, trackId, index), buf);
   } catch {
     return c.json({ error: "upload failed" }, 502);
   }
+  const res = await doAction(c.env, id, "iso-chunk", { ...chunk, commit: true });
   return new Response(res.body, { status: res.status, headers: res.headers });
 });
 

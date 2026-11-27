@@ -62,6 +62,7 @@ function makeEnv(overrides: Partial<Env> = {}): Env {
     RTMP_X: X,
     EGRESS_TEMPLATE_URL: "http://127.0.0.1:5173/egress-template",
     CASTHOP_ALLOW_DEV_KEYS: "1",
+    CASTHOP_DEV: "1",
     CASTHOP_DEV_LOGIN: "1",
     CASTHOP_TRUST_FORWARDED: "1",
     PUBLIC_ORIGIN: "https://casthop.test",

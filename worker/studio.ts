@@ -30,6 +30,8 @@ import {
   isLoopbackUrl,
   MAX_PARTICIPANTS,
   MAX_STUDIO_SOCKETS,
+  MAX_STUDIO_SOCKETS_PER_IP,
+  STUDIO_WS_IP_HEADER,
   publicState,
   sanitizeDestinations,
   TOKEN_MINT_MAX,
@@ -145,8 +147,14 @@ export class StudioDurableObject {
       const state = await this.getState();
       if (!state) return json({ error: "Studio not found" }, 404);
       if (this.ctx.getWebSockets().length >= MAX_STUDIO_SOCKETS) return json({ error: "too many connections" }, 503);
+      const bucket = (request.headers.get(STUDIO_WS_IP_HEADER) ?? "").trim().slice(0, 64) || "unknown";
+      // "local" is every client when the Worker has no real IP (dev, or self-hosted
+      // without CASTHOP_TRUST_FORWARDED). Do not let that shared bucket lock the room at 8.
+      if (bucket !== "local" && this.ctx.getWebSockets(bucket).length >= MAX_STUDIO_SOCKETS_PER_IP) {
+        return json({ error: "too many connections from this network" }, 429);
+      }
       const pair = new WebSocketPair();
-      this.ctx.acceptWebSocket(pair[1]);
+      this.ctx.acceptWebSocket(pair[1], [bucket]);
       pair[1].send(JSON.stringify({ type: "state", state: publicState(state, { includeUrls: false }) }));
       return new Response(null, { status: 101, webSocket: pair[0] });
     }

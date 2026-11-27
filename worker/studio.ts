@@ -861,7 +861,7 @@ export class StudioDurableObject {
     const latest = await this.getState();
     if (!latest) return;
     await this.pollDestChat(latest);
-    await this.tickPlatforms(latest.wantLive);
+    await this.tickPlatforms(chatActive(latest));
   }
 
   // Twitch and Kick hold sockets. Each reconnects on its own backoff; the alarm only revives due ones.
@@ -903,14 +903,17 @@ export class StudioDurableObject {
     }).catch((err) => console.warn("platform chat write", err));
   }
 
+  private async dropDestChat(state: StudioState): Promise<void> {
+    if (!state.destChat?.youtube) return;
+    state.destChat = undefined;
+    await this.putState(state);
+  }
+
   private async pollDestChat(state: StudioState): Promise<void> {
     const youtube = destChatProviders.find((p) => p.id === "youtube");
     if (!youtube?.configured(this.env)) return;
-    if (!state.wantLive) {
-      if (state.destChat?.youtube) {
-        state.destChat = undefined;
-        await this.putState(state);
-      }
+    if (!chatActive(state)) {
+      await this.dropDestChat(state);
       return;
     }
     const now = Date.now();
@@ -923,11 +926,8 @@ export class StudioDurableObject {
       const { page, liveChatId, cache } = await youtube.poll(this.env, cursor ?? {}, this.youtubeToken);
       this.youtubeToken = cache;
       const fresh = (await this.getState()) ?? state;
-      if (!fresh.wantLive) {
-        if (fresh.destChat?.youtube) {
-          fresh.destChat = undefined;
-          await this.putState(fresh);
-        }
+      if (!chatActive(fresh)) {
+        await this.dropDestChat(fresh);
         return;
       }
       if (!page || !liveChatId) {
@@ -951,11 +951,8 @@ export class StudioDurableObject {
     } catch (err) {
       console.warn("youtube chat poll", err);
       const fresh = (await this.getState()) ?? state;
-      if (!fresh.wantLive) {
-        if (fresh.destChat?.youtube) {
-          fresh.destChat = undefined;
-          await this.putState(fresh);
-        }
+      if (!chatActive(fresh)) {
+        await this.dropDestChat(fresh);
         return;
       }
       const nextPollAt = now + DEST_CHAT_BACKOFF_MS;
@@ -1622,6 +1619,11 @@ export class StudioDurableObject {
       }
     }
   }
+}
+
+/** Platform chat runs only while live. A failed studio stays quiet until a host retries or ends it. */
+function chatActive(state: StudioState): boolean {
+  return state.wantLive && !state.liveFailed;
 }
 
 function json(data: unknown, status = 200): Response {

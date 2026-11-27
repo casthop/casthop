@@ -59,6 +59,23 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun run check:wasm
 
+  # Every participant's browser runs the committed .wasm files. Rebuild them from this
+  # commit's Rust source in the image they were built with and require identical bytes.
+  wasm-reproducible:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: rust:1.100.0
+    steps:
+      - uses: actions/checkout@v7
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - run: rustup target add wasm32-unknown-unknown
+      - run: cargo install wasm-bindgen-cli --version 0.2.100 --locked
+      - run: bash scripts/build-wasm.sh
+      - name: Committed wasm matches the source
+        run: |
+          git status --short -- src/wasm
+          git diff --exit-code --stat -- src/wasm
+
   audit:
     runs-on: ubuntu-latest
     env:

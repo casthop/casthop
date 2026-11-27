@@ -57,6 +57,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 - Stream keys and full destination URLs are withheld from guests and public GET / WebSocket state.
 - Published LiveKit `devkey` is refused unless LiveKit is loopback.
+- CI rebuilds the committed `.wasm` files from the Rust source in `rust:1.100.0` and fails if the bytes differ, so the binaries every participant's browser runs match the reviewed source.
 - ISO chunk uploads need a Content-Length of at most 8 MiB and are refused before the body is read. A streamed upload with no length used to be buffered in full first.
 - Inviting a co-host gives the same answer whether or not the email has an account, and no longer returns that person's account id or name. Existing accounts get the invite mail and become co-hosts when they accept on the studio link or next sign in, not straight away. A co-host can leave a studio.
 - Replay, clip and live playlists are checked against the tags casthop and ffmpeg write, and only `index.m3u8` may be a playlist. Lone CR line breaks, text after an `#EXTINF` duration, unquoted `URI=`, interstitials and nested playlists used to get past the check and make viewers' players fetch outside URLs.

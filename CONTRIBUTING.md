@@ -19,7 +19,11 @@ bun run dev                 # http://127.0.0.1:5173
 
 Worker secrets live in `.dev.vars` (gitignored). Do not commit `.env`, `.dev.vars`, stream keys, or anything from `data/`.
 
-You do not need a Rust toolchain to run the UI. Prebuilt `src/wasm/casthop_media.wasm` is committed. Rebuild only if you change `crates/casthop-media` (rustc 1.100+ and `wasm32-unknown-unknown`): `bun run build:wasm`.
+You do not need a Rust toolchain to run the UI. Prebuilt `src/wasm/casthop_media.wasm` is committed. Rebuild only if you change `crates/casthop-media`. CI rebuilds the `.wasm` files in `rust:1.100.0` and fails if the committed bytes differ, so build in that image:
+
+```bash
+docker run --rm -v "$PWD":/w -w /w rust:1.100.0 bash -c 'cargo install wasm-bindgen-cli --version 0.2.100 --locked && bash scripts/build-wasm.sh'
+```
 
 Docs site: `cd site && bun install && bun run dev`.
 
@@ -86,7 +90,7 @@ Never force-push to `main`. Never delete source. Never commit secrets. Never add
 
 ## CI
 
-Jobs (all must pass): `lint` (rustfmt), `typecheck`, `test`, `rust` (test + clippy), `wasm` budget, `audit` (`bun audit` + `cargo audit`), `perf` (Chrome compositor budget), `e2e` (Go Live → MediaMTX), `e2e-studio` (UI flows, no secrets, no model), `e2e-site` (marketing site header). Dependabot: `.github/dependabot.yml`.
+Jobs (all must pass): `lint` (rustfmt), `typecheck`, `test`, `rust` (test + clippy), `wasm` budget, `wasm-reproducible` (rebuild in `rust:1.100.0`, bytes must match `src/wasm`), `audit` (`bun audit` + `cargo audit`), `perf` (Chrome compositor budget), `e2e` (Go Live → MediaMTX), `e2e-studio` (UI flows, no secrets, no model), `e2e-site` (marketing site header). Dependabot: `.github/dependabot.yml`.
 
 ## Code review
 

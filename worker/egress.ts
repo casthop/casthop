@@ -205,6 +205,12 @@ export function livePhaseOf(state: StudioState, now = Date.now()): LivePhase {
   return "retrying";
 }
 
+/** True when destinations are enabled and every one has failed (none live, connecting or retrying). */
+export function allDestsFailed(destinations: readonly Destination[]): boolean {
+  const rows = destinations.filter((d) => d.enabled && d.url);
+  return rows.length > 0 && rows.every((d) => d.status === "failed");
+}
+
 /** Strip ingest URLs so guests never see a stream key in an error string. */
 export function publicError(raw: string | null | undefined): string | null {
   if (!raw) return null;
@@ -410,11 +416,12 @@ export function applyStreamResults(
       d.status = d.status === "idle" ? "idle" : "stopped";
       continue;
     }
-    if (!producing) {
+    const stream = matchStreamForDest(d, bound, used);
+    // A failed stream is reported even before anything is producing.
+    if (!producing && stream?.status !== "failed") {
       d.status = d.status === "failed" || d.status === "retrying" ? d.status : "connecting";
       continue;
     }
-    const stream = matchStreamForDest(d, bound, used);
     if (!stream) {
       d.status = d.status === "failed" || d.status === "retrying" ? d.status : "connecting";
       continue;
@@ -641,7 +648,8 @@ export function streamOutputStarted(stream: StreamResult, now = Date.now()): boo
 
 /** LiveKit stream duration / bytes, or started_at after the RTMP settle. */
 export function egressOutputStarted(info: ParsedEgress, now = Date.now()): boolean {
-  return info.streams.some((stream) => streamOutputStarted(stream, now));
+  // Failed streams keep their started_at; only an active stream is output.
+  return info.streams.some((stream) => stream.status === "active" && streamOutputStarted(stream, now));
 }
 
 function streamStillActive(stream: StreamResult): boolean {

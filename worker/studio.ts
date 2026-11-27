@@ -48,6 +48,7 @@ import {
   beginPortraitRecovery,
   beginRecovery,
   compositorGraceMs,
+  allDestsFailed,
   egressIsProducing,
   emptyGraceMs,
   destsForAspect,
@@ -1114,7 +1115,12 @@ export class StudioDurableObject {
           return;
         }
         state.egressId = info.egressId;
+        if (allDestsFailed(state.destinations)) {
+          await this.markFailed(state, "Every destination failed");
+          return;
+        }
         await this.putState(state);
+        if (dropped) await this.retryFailedStreams(state, info, "landscape");
         await this.scheduleWatch(Date.now() + nextWatchMs(false));
         return;
       }

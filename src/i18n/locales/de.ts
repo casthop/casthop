@@ -21,6 +21,7 @@ const de: Messages = {
   homeEmailMe: "Link per E-Mail schicken",
   homeSending: "Wird gesendet…",
   homeGitHub: "Weiter mit GitHub",
+  homeSignInExternal: "Melde dich über dein Dashboard an.",
   homeInvalidLink: "Dieser Anmeldelink ist ungültig oder abgelaufen.",
   homeSendFailed: "Link konnte nicht gesendet werden",
   homeOpenStudio: "Studio öffnen",

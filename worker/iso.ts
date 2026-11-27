@@ -1,4 +1,5 @@
 import type { IsoTrack } from "./types";
+import type { ObjectStore } from "./tenant";
 
 export const ISO_CHUNK_MAX_BYTES = 8 * 1024 * 1024;
 export const ISO_MAX_CHUNKS = 20_000;
@@ -91,7 +92,7 @@ export function downloadChunkKeys(keys: string[], prefix: string, chunks: number
   });
 }
 
-export async function listIsoChunkKeys(bucket: R2Bucket, studioId: string, trackId: string): Promise<string[]> {
+export async function listIsoChunkKeys(bucket: ObjectStore, studioId: string, trackId: string): Promise<string[]> {
   const prefix = isoPrefix(studioId, trackId);
   const keys: string[] = [];
   let cursor: string | undefined;
@@ -103,12 +104,12 @@ export async function listIsoChunkKeys(bucket: R2Bucket, studioId: string, track
   return keys;
 }
 
-export async function deleteIsoTrackObjects(bucket: R2Bucket, studioId: string, trackId: string): Promise<void> {
+export async function deleteIsoTrackObjects(bucket: ObjectStore, studioId: string, trackId: string): Promise<void> {
   const keys = await listIsoChunkKeys(bucket, studioId, trackId);
   if (keys.length) await bucket.delete(keys);
 }
 
-export function concatChunkStream(bucket: R2Bucket, keys: string[]): ReadableStream<Uint8Array> {
+export function concatChunkStream(bucket: ObjectStore, keys: string[]): ReadableStream<Uint8Array> {
   let i = 0;
   return new ReadableStream({
     async pull(controller) {

@@ -8,6 +8,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 ### Added
 
+- Optional hosted-mode hooks for a separate control plane, all off unless their env var is set: a tenant id on studios with a `t/<tenant>/` R2 prefix, a signed sign-in handoff (`/api/auth/external`), `CASTHOP_SIGNIN=external` to turn off magic-link and GitHub sign-in, and a signed `/api/service/*` API to create, list and delete studios and tenants.
 - Host studio in the browser: stage, layouts (solo, side by side, screen + cams), screen share, lower-third banner, mic/camera, guest invite.
 - Guest join from a link with no account. Up to six people on stage; others wait backstage.
 - Accounts: email magic link, optional GitHub OAuth, owner and co-host sessions. Auth matrix for Worker routes.
@@ -31,6 +32,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 ### Fixed
 
+- The background egress check no longer undoes a host action that lands while it waits on LiveKit. Taking a guest off stage, turning off a destination, or stopping the stream used to be reverted, and a stopped stream could restart.
 - 9:16 destinations need a custom Egress template; overlapping starts share one portrait compositor. An already-enabled 9:16 row still saves if the template is later unset.
 - 9:16 start and crash retries follow the same recovery budget as 16:9. A compositor that never beats is timed out.
 - Studio tiles attach camera video when the track arrives after the first render.
@@ -49,3 +51,5 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 - Stream keys and full destination URLs are withheld from guests and public GET / WebSocket state.
 - Published LiveKit `devkey` is refused unless LiveKit is loopback.
+- `GET /api/studios/:id/ws` only upgrades to the state socket. It used to pass the caller's query string to the studio, so a signed-out caller could run internal actions such as `watch`. The studio now refuses any action that is not a POST or PUT from the Worker.
+- Only the host, co-hosts and guests on stage can start a per-person (ISO) recording. Guests waiting off stage used to be able to fill the session's track slots and push earlier recordings out of storage.

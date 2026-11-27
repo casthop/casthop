@@ -21,6 +21,7 @@ const ja: Messages = {
   homeEmailMe: "リンクをメールで送る",
   homeSending: "送信中…",
   homeGitHub: "GitHub で続ける",
+  homeSignInExternal: "ダッシュボードからサインインしてください。",
   homeInvalidLink: "このログインリンクは無効か、期限切れです。",
   homeSendFailed: "リンクを送れませんでした",
   homeOpenStudio: "スタジオを開く",

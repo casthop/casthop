@@ -21,6 +21,7 @@ const fr: Messages = {
   homeEmailMe: "M’envoyer un lien",
   homeSending: "Envoi…",
   homeGitHub: "Continuer avec GitHub",
+  homeSignInExternal: "Connectez-vous depuis votre tableau de bord.",
   homeInvalidLink: "Ce lien de connexion est invalide ou a expiré.",
   homeSendFailed: "Impossible d’envoyer le lien",
   homeOpenStudio: "Ouvrir un studio",

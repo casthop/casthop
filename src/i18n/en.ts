@@ -19,6 +19,7 @@ export const en = {
   homeEmailMe: "Email me a link",
   homeSending: "Sending…",
   homeGitHub: "Continue with GitHub",
+  homeSignInExternal: "Sign in from your dashboard.",
   homeInvalidLink: "That sign-in link is invalid or expired.",
   homeSendFailed: "Could not send a link",
   homeOpenStudio: "Open a studio",

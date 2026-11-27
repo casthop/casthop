@@ -118,3 +118,62 @@ With **Show on stream** on, the latest line is drawn on the program. With it off
 ## Stream keys
 
 Stream keys are not environment variables. They live in Durable Object storage, never in the repo. The public API only returns a masked suffix such as `rtmp://…/xxxx`, plus a `hasKey` flag.
+
+## Hosted mode (optional)
+
+Hooks for a separate control plane that runs Casthop for many teams. Each one is off unless its variable is set. With none set, nothing changes.
+
+| Name | Purpose |
+|---|---|
+| `CASTHOP_EXTERNAL_AUTH_KEYS` | Comma list of `kid:secret` (secret 32+ characters). Enables `GET /api/auth/external`. Otherwise it returns 404. |
+| `CASTHOP_EXTERNAL_AUTH_ISSUER` | Required with the keys. The token `iss` must equal it. Unset means 404. |
+| `CASTHOP_SIGNIN` | `external` turns off magic-link and GitHub sign-in (403 `signin_external`). Existing sessions and guest join keep working. `/api/config` returns `signin: "external"`. |
+| `CASTHOP_SERVICE_KEYS` | Comma list of `kid:secret` (secret 32+ characters). Enables `/api/service/*`. Otherwise every route there returns 404. |
+
+### Sign-in handoff
+
+`GET /api/auth/external?token=<jwt>&next=<path>` signs the user in and redirects to `next`. `next` must start with a single `/` (no `//`, no backslash). Anything else goes to `/`.
+
+The token is a compact JWS, HS256, with header `{"alg":"HS256","typ":"JWT","kid":"<kid>"}`.
+
+| Claim | Rule |
+|---|---|
+| `iss` | Equals `CASTHOP_EXTERNAL_AUTH_ISSUER`. |
+| `aud` | `casthop`. |
+| `sub` | External user id, a string. |
+| `email` | Valid email. The account is found or created by it, and pending invites are applied. |
+| `exp` | Unix seconds, in the future and at most 120 s from now. |
+| `iat` | Unix seconds. |
+| `jti` | String, 128 characters or fewer. One use only. |
+| `name` | Optional. |
+| `tenant` | Optional. If present it must be a valid tenant id. |
+
+### Service API
+
+Every request to `/api/service/*` carries these headers:
+
+| Header | Value |
+|---|---|
+| `X-Casthop-Key-Id` | The `kid`. |
+| `X-Casthop-Timestamp` | Unix seconds. Must be within 300 s of the Worker clock. |
+| `X-Casthop-Nonce` | 16 to 64 characters of `A-Za-z0-9_-`. Used once. |
+| `X-Casthop-Signature` | Lowercase hex HMAC-SHA256. |
+
+The signature is the HMAC-SHA256 of this string, keyed with the secret:
+
+```text
+${timestamp}\n${nonce}\n${METHOD}\n${pathname+search}\n${sha256hex(body)}
+```
+
+`body` is the raw request body, or the empty string when there is none. A bad signature, stale timestamp, unknown key or reused nonce returns 401 `{"error":"bad_signature"}`.
+
+| Route | Does |
+|---|---|
+| `POST /api/service/studios` | Body `{tenantId, ownerEmail, ownerName?, name?}`. Creates a studio for the tenant. Returns 201 `{studio:{id,name,tenantId,ownerId}}`. |
+| `GET /api/service/tenants/:tenantId/studios` | Returns `{studios:[{id,name,ownerId,createdAt}]}`. |
+| `DELETE /api/service/studios/:id?tenantId=…` | Ends live output, deletes the studio's state, rows and files. 404 if it is not in that tenant. Returns `{deleted:true}`. |
+| `DELETE /api/service/tenants/:tenantId` | Does the same for every studio of the tenant, then removes everything under `t/<tenantId>/`. Returns `{deleted:n}`. |
+
+Accounts are never deleted by these routes.
+
+A tenant id matches `^[a-z0-9][a-z0-9_-]{0,62}$`. Files of a studio with a tenant id are stored under `t/<tenantId>/` in the recordings bucket. Studios without one keep their keys.

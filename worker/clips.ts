@@ -9,6 +9,7 @@ import {
   playlistError,
 } from "./replays";
 import { randomId } from "./security";
+import type { StoreEnv } from "./tenant";
 
 export const CLIP_SECONDS = [30, 60] as const;
 export type ClipSeconds = (typeof CLIP_SECONDS)[number];
@@ -161,7 +162,7 @@ export function sliceHlsPlaylist(text: string, seconds: number): HlsSlice | { er
   return { playlist: lines.join("\n"), files, durationMs: Math.round(acc * 1000) };
 }
 
-export async function deletePrefix(env: Env, prefix: string): Promise<void> {
+export async function deletePrefix(env: StoreEnv, prefix: string): Promise<void> {
   if (typeof env.RECORDINGS.list !== "function") return;
   let cursor: string | undefined;
   for (;;) {
@@ -177,16 +178,16 @@ export async function deletePrefix(env: Env, prefix: string): Promise<void> {
   }
 }
 
-export async function deleteLivePrefix(env: Env, studioId: string): Promise<void> {
+export async function deleteLivePrefix(env: StoreEnv, studioId: string): Promise<void> {
   await deletePrefix(env, livePrefix(studioId));
 }
 
-export async function deleteClipPrefix(env: Env, studioId: string, clipId: string): Promise<void> {
+export async function deleteClipPrefix(env: StoreEnv, studioId: string, clipId: string): Promise<void> {
   await deletePrefix(env, clipPrefix(studioId, clipId));
 }
 
 export async function putLiveHlsFile(
-  env: Env,
+  env: StoreEnv,
   studioId: string,
   file: string,
   bytes: Uint8Array,
@@ -214,7 +215,7 @@ export async function putLiveHlsFile(
   }
 }
 
-async function trimLivePrefix(env: Env, studioId: string, playlist: string): Promise<void> {
+async function trimLivePrefix(env: StoreEnv, studioId: string, playlist: string): Promise<void> {
   const keep = new Set(hlsFilenamesInPlaylist(playlist));
   keep.add(HLS_INDEX);
   const listed = await env.RECORDINGS.list({ prefix: livePrefix(studioId), limit: 1000 });
@@ -226,14 +227,14 @@ async function trimLivePrefix(env: Env, studioId: string, playlist: string): Pro
   if (drop.length) await env.RECORDINGS.delete(drop);
 }
 
-export async function loadLivePlaylist(env: Env, studioId: string): Promise<string | null> {
+export async function loadLivePlaylist(env: StoreEnv, studioId: string): Promise<string | null> {
   const obj = await env.RECORDINGS.get(liveObjectKey(studioId, HLS_INDEX));
   if (!obj) return null;
   return obj.text();
 }
 
 export async function copyLiveSliceToClip(
-  env: Env,
+  env: StoreEnv,
   studioId: string,
   clipId: string,
   slice: HlsSlice,
@@ -260,7 +261,7 @@ export async function copyLiveSliceToClip(
   return { bytes, files: slice.files.length };
 }
 
-export async function serveClipObject(env: Env, clip: ClipRecord, file: string): Promise<Response> {
+export async function serveClipObject(env: StoreEnv, clip: ClipRecord, file: string): Promise<Response> {
   if (!isHlsFilename(file)) return jsonError("not found", 404);
   const obj = await env.RECORDINGS.get(clipObjectKey(clip.studioId, clip.id, file));
   if (!obj) return jsonError("not found", 404);
@@ -273,7 +274,7 @@ export async function serveClipObject(env: Env, clip: ClipRecord, file: string):
   return new Response(obj.body, { headers });
 }
 
-export async function serveClipDownload(env: Env, clip: ClipRecord): Promise<Response> {
+export async function serveClipDownload(env: StoreEnv, clip: ClipRecord): Promise<Response> {
   const playlistObj = await env.RECORDINGS.get(clipObjectKey(clip.studioId, clip.id, HLS_INDEX));
   if (!playlistObj) return jsonError("not found", 404);
   const playlist = await playlistObj.text();

@@ -182,6 +182,11 @@ export type Env = {
   CASTHOP_RECOVERY_MS?: string;
   CASTHOP_HEARTBEAT_MS?: string;
   CASTHOP_TRUST_FORWARDED?: string;
+  /** Hosted mode. Each is off unless set; see the configuration docs. */
+  CASTHOP_SIGNIN?: string;
+  CASTHOP_EXTERNAL_AUTH_KEYS?: string;
+  CASTHOP_EXTERNAL_AUTH_ISSUER?: string;
+  CASTHOP_SERVICE_KEYS?: string;
   PUBLIC_ORIGIN?: string;
   GITHUB_CLIENT_ID?: string;
   GITHUB_CLIENT_SECRET?: string;

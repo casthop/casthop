@@ -470,11 +470,13 @@ export class StudioDurableObject {
         return json(publicState(state, { includeUrls: true }));
       }
       const chatId = typeof body.chatId === "string" ? body.chatId.slice(0, 80) : "";
-      const msg = state.chat.find((m) => m.id === chatId);
+      // Re-read: `state` predates the awaits above, so a comment saved since then would be missing.
+      const latest = (await this.getState()) ?? state;
+      const msg = latest.chat.find((m) => m.id === chatId);
       if (!msg) return json({ error: "comment not found" }, 404);
-      state.pinnedChat = { id: msg.id, name: msg.name, text: msg.text, source: msg.source };
-      await this.putState(state);
-      return json(publicState(state, { includeUrls: true }));
+      latest.pinnedChat = { id: msg.id, name: msg.name, text: msg.text, source: msg.source };
+      await this.putState(latest);
+      return json(publicState(latest, { includeUrls: true }));
     }
 
     if (action === "chat") {
@@ -483,7 +485,9 @@ export class StudioDurableObject {
       if (!this.allowChat(person.identity)) return json({ error: "slow down" }, 429);
       const trimmed = typeof body.text === "string" ? body.text.trim().slice(0, 400) : "";
       if (!trimmed) return json({ error: "empty" }, 400);
-      state.chat.push({
+      // Re-read so a write that landed during the awaits above is not overwritten (losing the comment).
+      const latest = (await this.getState()) ?? state;
+      latest.chat.push({
         id: crypto.randomUUID(),
         from: person.identity,
         name: person.name,
@@ -491,9 +495,9 @@ export class StudioDurableObject {
         at: Date.now(),
         source: "studio",
       });
-      state.chat = state.chat.slice(-100);
-      await this.putState(state);
-      return json(publicState(state, { includeUrls: false }));
+      latest.chat = latest.chat.slice(-100);
+      await this.putState(latest);
+      return json(publicState(latest, { includeUrls: false }));
     }
 
     return json({ error: "unknown action" }, 400);

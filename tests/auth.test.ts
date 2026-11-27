@@ -3,7 +3,10 @@ import { after, before, test } from "node:test";
 import { app, StudioDurableObject } from "../worker/index.ts";
 import { GUEST_TOKEN_TTL_SEC, HOST_TOKEN_TTL_SEC } from "../worker/livekit.ts";
 import { DEV_API_KEY, DEV_API_SECRET, HOST_IDENTITY, SESSION_COOKIE } from "../worker/security.ts";
-import type { Env, PublicReplay, PublicStudio, StudioRecord } from "../worker/types.ts";
+import type { Env, PublicClip, PublicReplay, PublicStudio, StudioRecord } from "../worker/types.ts";
+import { insertClip } from "../worker/db.ts";
+import { clipObjectKey } from "../worker/clips.ts";
+import { HLS_INDEX } from "../worker/replays.ts";
 import { FakeD1 } from "./fake-d1.ts";
 import { FakeR2 } from "./fake-r2.ts";
 import { hlsFiles } from "./replay-fixture.ts";
@@ -267,6 +270,32 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
   assert.ok(privateReplay.id);
   assert.ok(publicReplay.id);
 
+  const clipPlaylist = "#EXTM3U\n#EXT-X-VERSION:7\n#EXTINF:4.0,\nseg0.m4s\n#EXT-X-ENDLIST\n";
+  const privateClip = {
+    id: "clippriv01",
+    studioId: id,
+    title: "Private clip",
+    visibility: "private" as const,
+    durationMs: 4000,
+    seconds: 30 as const,
+    createdAt: Date.now(),
+    bytes: 8,
+    files: 2,
+  };
+  const publicClipRow = {
+    ...privateClip,
+    id: "clippub001",
+    title: "Public clip",
+    visibility: "public" as const,
+    seconds: 60 as const,
+  };
+  await insertClip(env.DB, privateClip);
+  await insertClip(env.DB, publicClipRow);
+  for (const clip of [privateClip, publicClipRow]) {
+    await env.RECORDINGS.put(clipObjectKey(id, clip.id, HLS_INDEX), clipPlaylist);
+    await env.RECORDINGS.put(clipObjectKey(id, clip.id, "seg0.m4s"), "seg0");
+  }
+
   const guestMint = await json<{ token: string; identity: string; guestSecret: string; canPublish: boolean; expiresIn: number }>(
     await app.request(
       `https://casthop.test/api/studios/${id}/token`,
@@ -408,6 +437,8 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
         assert.ok(mine);
         assert.ok(mine.replays.some((r) => r.id === privateReplay.id && r.visibility === "private"));
         assert.ok(mine.replays.some((r) => r.id === publicReplay.id && r.visibility === "public"));
+        assert.ok(mine.clips.some((c) => c.id === privateClip.id && c.visibility === "private"));
+        assert.ok(mine.clips.some((c) => c.id === publicClipRow.id && c.visibility === "public"));
       },
     },
     {
@@ -643,6 +674,67 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
     {
       name: "GET public replay HLS",
       path: `/api/replays/${publicReplay.id}/hls/index.m3u8`,
+      init: {},
+      expect: { owner: 200, cohost: 200, guest: 200, signedOut: 200, expired: 404, outsider: 200 },
+    },
+    {
+      name: "GET studio clips",
+      path: `/api/studios/${id}/clips`,
+      init: {},
+      expect: { owner: 200, cohost: 200, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
+    },
+    {
+      name: "POST studio clip",
+      path: `/api/studios/${id}/clips`,
+      init: { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ seconds: 60 }) },
+      expect: { owner: 409, cohost: 409, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
+    },
+    {
+      name: "PATCH clip visibility",
+      path: `/api/studios/${id}/clips/${privateClip.id}`,
+      init: {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visibility: "private" }),
+      },
+      expect: { owner: 200, cohost: 200, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
+    },
+    {
+      name: "PUT live HLS",
+      path: `/api/studios/${id}/live-hls/init.mp4`,
+      init: { method: "PUT", headers: { "Content-Length": "4" }, body: "init" },
+      expect: { owner: 409, cohost: 409, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
+    },
+    {
+      name: "GET private clip",
+      path: `/api/clips/${privateClip.id}`,
+      init: {},
+      expect: { owner: 200, cohost: 200, guest: 401, signedOut: 401, expired: 404, outsider: 403 },
+    },
+    {
+      name: "GET public clip",
+      path: `/api/clips/${publicClipRow.id}`,
+      init: {},
+      expect: { owner: 200, cohost: 200, guest: 200, signedOut: 200, expired: 404, outsider: 200 },
+      check: (who, body, status) => {
+        if (status !== 200) return;
+        const row = body as PublicClip;
+        if (who === "owner" || who === "cohost") {
+          assert.equal(row.studioId, id);
+          return;
+        }
+        assert.equal(row.studioId, undefined);
+      },
+    },
+    {
+      name: "GET private clip HLS",
+      path: `/api/clips/${privateClip.id}/hls/${HLS_INDEX}`,
+      init: {},
+      expect: { owner: 200, cohost: 200, guest: 401, signedOut: 401, expired: 404, outsider: 403 },
+    },
+    {
+      name: "GET public clip file",
+      path: `/api/clips/${publicClipRow.id}/file`,
       init: {},
       expect: { owner: 200, cohost: 200, guest: 200, signedOut: 200, expired: 404, outsider: 200 },
     },

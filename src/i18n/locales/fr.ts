@@ -36,6 +36,14 @@ const fr: Messages = {
   roleCohost: "Co-hôte",
   replayPublic: "Public",
   replayPrivate: "Privé",
+  clip: "Clip",
+  clipLength: "Durée du clip",
+  clipSeconds: "{seconds}s",
+  clipLast: "Clipper les {seconds}s dernières",
+  clipHint: "Clipper les {seconds}s dernières (C)",
+  clipSaving: "Enregistrement du clip…",
+  clipSaved: "Clip enregistré",
+  clipDownload: "Télécharger",
   memberLine: "{name} · {role}",
   pendingLine: "{email} · en attente",
 
@@ -200,6 +208,7 @@ const fr: Messages = {
   errPin: "Impossible d’épingler",
   errStage: "Impossible de mettre à jour la scène",
   errSave: "Enregistrement impossible",
+  errClip: "Impossible d’enregistrer le clip",
   errIso: "Impossible de mettre à jour les enregistrements",
   errIsoUpload: "Impossible d’envoyer votre enregistrement",
 };

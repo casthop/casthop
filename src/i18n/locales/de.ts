@@ -36,6 +36,14 @@ const de: Messages = {
   roleCohost: "Co-Host",
   replayPublic: "Öffentlich",
   replayPrivate: "Privat",
+  clip: "Clip",
+  clipLength: "Clip-Länge",
+  clipSeconds: "{seconds}s",
+  clipLast: "Letzte {seconds}s clippen",
+  clipHint: "Letzte {seconds}s clippen (C)",
+  clipSaving: "Clip wird gespeichert…",
+  clipSaved: "Clip gespeichert",
+  clipDownload: "Herunterladen",
   memberLine: "{name} · {role}",
   pendingLine: "{email} · ausstehend",
 
@@ -200,6 +208,7 @@ const de: Messages = {
   errPin: "Anheften fehlgeschlagen",
   errStage: "Bühne konnte nicht aktualisiert werden",
   errSave: "Speichern fehlgeschlagen",
+  errClip: "Clip konnte nicht gespeichert werden",
   errIso: "Aufnahmen konnten nicht aktualisiert werden",
   errIsoUpload: "Deine Aufnahme konnte nicht hochgeladen werden",
 };

@@ -3,6 +3,7 @@ import { Room, RoomEvent, Track } from "livekit-client";
 import { pickComposeBackend, VERT_H, VERT_W } from "../lib/compositor";
 import { startProgramCompose, type ProgramCompose } from "../lib/program-compose";
 import { getStudio, sendEgressBeat } from "../lib/api";
+import { startLiveProgramBuffer } from "../lib/live-program-buffer";
 import { HEARTBEAT_BEAT_MS } from "../../worker/egress";
 import type { LayoutMode } from "../lib/wasm";
 
@@ -38,6 +39,7 @@ export function EgressTemplate() {
     const audios: HTMLMediaElement[] = [];
     const videoEls: HTMLVideoElement[] = [];
     let compose: ProgramCompose | null = null;
+    let liveBuffer: { stop: () => void; addAudio: (el: HTMLMediaElement) => void } | null = null;
     let cancelled = false;
 
     const attach = (track: Track) => {
@@ -53,6 +55,7 @@ export function EgressTemplate() {
         el.style.opacity = "0";
         document.body.appendChild(el);
         audios.push(el);
+        liveBuffer?.addAudio(el);
         void el.play().catch(() => undefined);
         return;
       }
@@ -80,6 +83,10 @@ export function EgressTemplate() {
       track.detach().forEach((el) => el.remove());
     };
 
+    const fromToken = templateFromToken(token);
+    const studioId = fromToken.room;
+    const egressId = q.get("egressId") || fromToken.egressId;
+
     void (async () => {
       compose = await startProgramCompose({
         canvas,
@@ -98,7 +105,11 @@ export function EgressTemplate() {
       room.on(RoomEvent.TrackUnsubscribed, (track) => detach(track));
       const signalReady = () => console.log("START_RECORDING");
       if (url && token) {
-        void room.connect(url, token).then(signalReady).catch((err) => {
+        void room.connect(url, token).then(signalReady).then(() => {
+          if (!cancelled && studioId) {
+            liveBuffer = startLiveProgramBuffer({ canvas, audios, studioId, token });
+          }
+        }).catch((err) => {
           console.error("egress template connect", err);
         });
       } else {
@@ -106,9 +117,6 @@ export function EgressTemplate() {
       }
     })();
 
-    const fromToken = templateFromToken(token);
-    const studioId = fromToken.room;
-    const egressId = q.get("egressId") || fromToken.egressId;
     const pullMeta = () => {
       if (!studioId) return;
       void getStudio(studioId).then((s) => {
@@ -132,6 +140,7 @@ export function EgressTemplate() {
     return () => {
       cancelled = true;
       window.clearInterval(metaTimer);
+      liveBuffer?.stop();
       compose?.stop();
       room.disconnect();
       videoEls.forEach((v) => v.remove());

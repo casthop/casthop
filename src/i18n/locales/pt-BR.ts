@@ -36,6 +36,14 @@ const ptBR: Messages = {
   roleCohost: "Coapresentador",
   replayPublic: "Público",
   replayPrivate: "Privado",
+  clip: "Clipe",
+  clipLength: "Duração do clipe",
+  clipSeconds: "{seconds}s",
+  clipLast: "Clipar últimos {seconds}s",
+  clipHint: "Clipar últimos {seconds}s (C)",
+  clipSaving: "Salvando clipe…",
+  clipSaved: "Clipe salvo",
+  clipDownload: "Baixar",
   memberLine: "{name} · {role}",
   pendingLine: "{email} · pendente",
 
@@ -200,6 +208,7 @@ const ptBR: Messages = {
   errPin: "Falha ao fixar",
   errStage: "Falha ao atualizar o palco",
   errSave: "Falha ao salvar",
+  errClip: "Não foi possível salvar o clipe",
   errIso: "Não foi possível atualizar as gravações",
   errIsoUpload: "Não foi possível enviar sua gravação",
 };

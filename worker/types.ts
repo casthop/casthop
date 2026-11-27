@@ -214,6 +214,17 @@ export type PublicReplay = Omit<ReplayRecord, "studioId"> & {
   viewerCanEdit: boolean;
 };
 
+export type ClipRecord = ReplayRecord & {
+  seconds: 30 | 60;
+};
+
+export type PublicClip = Omit<ClipRecord, "studioId"> & {
+  studioId?: string;
+  playlistUrl: string;
+  downloadUrl: string;
+  viewerCanEdit: boolean;
+};
+
 export type StudioRecord = {
   id: string;
   title: string;
@@ -221,6 +232,7 @@ export type StudioRecord = {
   createdAt: number;
   role: MemberRole;
   replays: ReplayRecord[];
+  clips: ClipRecord[];
 };
 
 export type StudioMember = {

@@ -182,6 +182,20 @@ export function Home() {
                         ))}
                       </ul>
                     ) : null}
+                    {s.clips?.length ? (
+                      <ul className="replay-list">
+                        {s.clips.map((clip) => (
+                          <li className="replay-row" key={clip.id}>
+                            <a href={`/api/clips/${clip.id}/file`}>{clip.title}</a>
+                            <span>
+                              {clip.visibility === "public" ? t("replayPublic") : t("replayPrivate")}
+                              {" · "}
+                              <a href={`/api/clips/${clip.id}/file`}>{t("clipDownload")}</a>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
                   </div>
                 ))}
               </section>

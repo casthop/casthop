@@ -1,4 +1,4 @@
-import { LIST_REPLAYS_PER_STUDIO, Q, SCHEMA } from "../worker/db.ts";
+import { LIST_CLIPS_PER_STUDIO, LIST_REPLAYS_PER_STUDIO, Q, SCHEMA } from "../worker/db.ts";
 
 type Row = Record<string, unknown>;
 
@@ -25,6 +25,7 @@ export class FakeD1 implements D1Database {
       "studio_invites",
       "rate_limits",
       "replays",
+      "clips",
     ]) {
       this.tables.set(name, []);
     }
@@ -339,6 +340,62 @@ export class FakeD1 implements D1Database {
       row.bytes = Math.max(0, Number(row.bytes) + Number(bytesDelta));
       row.files = Math.max(0, Number(row.files ?? 0) + Number(filesDelta));
       return { results: [{ bytes: row.bytes, files: row.files }], changes: 1 };
+    }
+    if (q === norm(Q.insertClip)) {
+      const [id, studio_id, title, visibility, duration_ms, seconds, created_at, bytes, files] = binds;
+      this.rows("clips").push({
+        id,
+        studio_id,
+        title,
+        visibility,
+        duration_ms,
+        seconds,
+        created_at,
+        bytes,
+        files: files ?? 0,
+      });
+      return { results: [], changes: 1 };
+    }
+    if (q === norm(Q.clipById)) {
+      return { results: this.rows("clips").filter((r) => r.id === binds[0]).map(clone), changes: 0 };
+    }
+    if (q === norm(Q.listClipsByStudio)) {
+      const results = this.rows("clips")
+        .filter((r) => r.studio_id === binds[0])
+        .map(clone)
+        .sort((a, b) => Number(b.created_at) - Number(a.created_at));
+      return { results, changes: 0 };
+    }
+    if (q === norm(Q.listClipsForAccount)) {
+      const studioIds = new Set(
+        this.rows("studio_members").filter((m) => m.account_id === binds[0]).map((m) => m.studio_id),
+      );
+      const grouped = new Map<string, Row[]>();
+      const sorted = this.rows("clips")
+        .filter((r) => studioIds.has(r.studio_id))
+        .sort((a, b) => {
+          const studios = String(a.studio_id).localeCompare(String(b.studio_id));
+          if (studios !== 0) return studios;
+          return Number(b.created_at) - Number(a.created_at);
+        });
+      for (const row of sorted) {
+        const list = grouped.get(String(row.studio_id)) ?? [];
+        if (list.length >= LIST_CLIPS_PER_STUDIO) continue;
+        list.push(clone(row));
+        grouped.set(String(row.studio_id), list);
+      }
+      return { results: [...grouped.values()].flat(), changes: 0 };
+    }
+    if (q === norm(Q.updateClipVisibility)) {
+      const [visibility, id] = binds;
+      for (const r of this.rows("clips")) {
+        if (r.id === id) r.visibility = visibility;
+      }
+      return { results: [], changes: 1 };
+    }
+    if (q === norm(Q.countClipsByStudio)) {
+      const n = this.rows("clips").filter((r) => r.studio_id === binds[0]).length;
+      return { results: [{ n }], changes: 0 };
     }
     if (q === norm(Q.bumpRate)) {
       const [key, nowBind, , windowBind] = binds;

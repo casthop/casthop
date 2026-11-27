@@ -1,5 +1,5 @@
 import { Hono, type Context } from "hono";
-import type { AppEnv, Env, PublicStudio, ReplayRecord } from "./types";
+import type { AppEnv, ClipRecord, Env, PublicStudio, ReplayRecord } from "./types";
 import { MAX_ON_STAGE } from "./types";
 import { StudioDurableObject } from "./studio";
 import {
@@ -48,15 +48,20 @@ import {
   insertMember,
   insertStudioRow,
   insertReplay,
+  insertClip,
   invitesForStudio,
   countReplaysForStudio,
+  countClipsForStudio,
   listReplaysForStudio,
+  listClipsForStudio,
   listStudiosFor,
   memberFor,
   membersOf,
   replayById,
+  clipById,
   studioById,
   updateReplayVisibility,
+  updateClipVisibility,
 } from "./db";
 import { MailSendError, mailerFor } from "./mail";
 import {
@@ -106,7 +111,24 @@ import {
   replayUsageFromFiles,
   replayWouldExceedQuota,
   serveReplayObject,
+  parseVisibility,
 } from "./replays";
+import {
+  canViewClip,
+  copyLiveSliceToClip,
+  deleteClipPrefix,
+  deleteLivePrefix,
+  liveHlsWritable,
+  loadLivePlaylist,
+  MAX_CLIPS_PER_STUDIO,
+  newClipId,
+  parseClipSeconds,
+  publicClip,
+  putLiveHlsFile,
+  serveClipDownload,
+  serveClipObject,
+  sliceHlsPlaylist,
+} from "./clips";
 
 export { StudioDurableObject };
 
@@ -134,6 +156,12 @@ function errorStatus(err: unknown): number | undefined {
 
 function rateError(err: unknown): err is Error & { status: number } {
   return errorStatus(err) === 429;
+}
+
+async function studioPublicState(env: Env, id: string): Promise<PublicStudio | null> {
+  const res = await studioStub(env, id).fetch(`https://studio/${id}`);
+  if (!res.ok) return null;
+  return (await res.json()) as PublicStudio;
 }
 
 app.use("/api/*", async (c, next) => {
@@ -410,6 +438,149 @@ app.get("/api/replays/:rid/hls/:file", async (c) => {
     return c.json({ error: access.status === 401 ? "sign in required" : "replay is private" }, access.status);
   }
   return serveReplayObject(c.env, replay, file);
+});
+
+app.get("/api/studios/:id/clips", async (c) => {
+  const id = c.req.param("id");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (!host) return c.json({ error: "host access required" }, 403);
+  const clips = await listClipsForStudio(c.env.DB, id);
+  return c.json({ clips: clips.map((row) => publicClip(row, true)) });
+});
+
+app.post("/api/studios/:id/clips", async (c) => {
+  const id = c.req.param("id");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (!host) return c.json({ error: "host access required" }, 403);
+  const studio = await studioById(c.env.DB, id);
+  if (!studio) return c.json({ error: "Studio not found" }, 404);
+  const state = await studioPublicState(c.env, id);
+  if (!state || state.livePhase !== "live") return c.json({ error: "not live" }, 409);
+  const body = ((await c.req.json().catch(() => ({}))) ?? {}) as { seconds?: unknown; visibility?: unknown; title?: unknown };
+  const seconds = parseClipSeconds(body.seconds);
+  if (!seconds) return c.json({ error: "seconds must be 30 or 60" }, 400);
+  const visibility = parseVisibility(body.visibility);
+  if (!visibility) return c.json({ error: "visibility must be private or public" }, 400);
+  const existing = await countClipsForStudio(c.env.DB, id);
+  if (existing >= MAX_CLIPS_PER_STUDIO) return c.json({ error: "too many clips" }, 400);
+  const playlist = await loadLivePlaylist(c.env, id);
+  if (!playlist) return c.json({ error: "no program yet" }, 409);
+  const sliced = sliceHlsPlaylist(playlist, seconds);
+  if ("error" in sliced) return c.json({ error: sliced.error }, sliced.error === "no program yet" ? 409 : 400);
+  const clipId = newClipId();
+  try {
+    const usage = await copyLiveSliceToClip(c.env, id, clipId, sliced);
+    const row: ClipRecord = {
+      id: clipId,
+      studioId: id,
+      title: body.title === undefined ? `${seconds}s clip` : asName(body.title, `${seconds}s clip`),
+      visibility,
+      durationMs: sliced.durationMs,
+      seconds,
+      createdAt: Date.now(),
+      bytes: usage.bytes,
+      files: usage.files,
+    };
+    await insertClip(c.env.DB, row);
+    return c.json(publicClip(row, true));
+  } catch (err) {
+    await deleteClipPrefix(c.env, id, clipId);
+    const status = errorStatus(err);
+    if (status === 400 || status === 409) {
+      return c.json({ error: err instanceof Error ? err.message : "clip failed" }, status);
+    }
+    throw err;
+  }
+});
+
+app.patch("/api/studios/:id/clips/:cid", async (c) => {
+  const id = c.req.param("id");
+  const cid = c.req.param("cid");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (!host) return c.json({ error: "host access required" }, 403);
+  const clip = await clipById(c.env.DB, cid);
+  if (!clip || clip.studioId !== id) return c.json({ error: "not found" }, 404);
+  const body = ((await c.req.json().catch(() => ({}))) ?? {}) as { visibility?: unknown };
+  if (body.visibility !== "private" && body.visibility !== "public") {
+    return c.json({ error: "visibility must be private or public" }, 400);
+  }
+  const visibility = body.visibility;
+  if (visibility !== clip.visibility) await updateClipVisibility(c.env.DB, cid, visibility);
+  return c.json(publicClip({ ...clip, visibility }, true));
+});
+
+app.put("/api/studios/:id/live-hls/:file", async (c) => {
+  const id = c.req.param("id");
+  const file = c.req.param("file");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  const claims = host ? null : await verifyParticipantToken(c.env, c.req.header("Authorization"));
+  const compositor = Boolean(claims && claims.room === id && isComposerIdentity(claims.identity));
+  if (!host && !compositor) return c.json({ error: "host access required" }, 403);
+  const state = await studioPublicState(c.env, id);
+  if (!state) return c.json({ error: "Studio not found" }, 404);
+  if (!liveHlsWritable(state.livePhase)) return c.json({ error: "not live" }, 409);
+  if (!isHlsFilename(file)) return c.json({ error: "invalid filename" }, 400);
+  if (contentLengthOver(c.req.header("content-length"), MAX_FILE_BYTES)) {
+    return c.json({ error: "invalid file size" }, 400);
+  }
+  const bytes = new Uint8Array(await c.req.arrayBuffer());
+  if (bytes.byteLength > MAX_FILE_BYTES) return c.json({ error: "invalid file size" }, 400);
+  try {
+    await putLiveHlsFile(c.env, id, file, bytes);
+    return c.json({ ok: true });
+  } catch (err) {
+    const status = errorStatus(err);
+    if (status === 400) return c.json({ error: err instanceof Error ? err.message : "invalid file" }, 400);
+    throw err;
+  }
+});
+
+app.get("/api/clips/:cid", async (c) => {
+  const cid = c.req.param("cid");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const clip = await clipById(c.env.DB, cid);
+  if (!clip) return c.json({ error: "not found" }, 404);
+  const access = await canViewClip(c.env, clip, sess?.account);
+  if (!access.ok) {
+    return c.json({ error: access.status === 401 ? "sign in required" : "clip is private" }, access.status);
+  }
+  return c.json(publicClip(clip, access.editor));
+});
+
+app.get("/api/clips/:cid/file", async (c) => {
+  const cid = c.req.param("cid");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const clip = await clipById(c.env.DB, cid);
+  if (!clip) return c.json({ error: "not found" }, 404);
+  const access = await canViewClip(c.env, clip, sess?.account);
+  if (!access.ok) {
+    return c.json({ error: access.status === 401 ? "sign in required" : "clip is private" }, access.status);
+  }
+  return serveClipDownload(c.env, clip);
+});
+
+app.get("/api/clips/:cid/hls/:file", async (c) => {
+  const cid = c.req.param("cid");
+  const file = c.req.param("file");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const clip = await clipById(c.env.DB, cid);
+  if (!clip) return c.json({ error: "not found" }, 404);
+  const access = await canViewClip(c.env, clip, sess?.account);
+  if (!access.ok) {
+    return c.json({ error: access.status === 401 ? "sign in required" : "clip is private" }, access.status);
+  }
+  return serveClipObject(c.env, clip, file);
 });
 
 app.get("/api/studios/:id", async (c) => {
@@ -797,10 +968,18 @@ app.post("/api/studios/:id/live", async (c) => {
   if (typeof body.live !== "boolean") return c.json({ error: "live required" }, 400);
   const hostKey = host.hostKey;
 
+  if (body.live) {
+    const current = await studioPublicState(c.env, id);
+    if (!current || current.livePhase === "idle" || current.livePhase === "failed") {
+      await deleteLivePrefix(c.env, id);
+    }
+  }
   const action = body.live ? "start-live" : "stop-live";
   const res = await doAction(c.env, id, action, { hostKey });
   if (res.status === 404) return c.json({ error: "Studio not found" }, 404);
   if (res.status === 403) return c.json({ error: "host access required" }, 403);
+  // Clips need a live stream, so drop the private program segments once stopped.
+  if (!body.live && res.ok) await deleteLivePrefix(c.env, id);
   return new Response(res.body, { status: res.status, headers: res.headers });
 });
 

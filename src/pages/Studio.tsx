@@ -13,6 +13,7 @@ import { Link, Mic, MicOff, MonitorUp, Video, VideoOff, X } from "lucide-react";
 import { VideoTile } from "../components/VideoTile";
 import { LanguageSwitcher, useI18n, type MessageKey } from "../i18n";
 import {
+  createClip,
   getConfig,
   getStudio,
   inviteCohost,
@@ -33,6 +34,7 @@ import {
   type StudioMember,
   type StudioView,
 } from "../lib/api";
+import { loadClipSeconds, saveClipSeconds, type ClipSeconds } from "../lib/clip-seconds";
 import { loadBlurPref, saveBlurPrefPair } from "../lib/blur-prefs";
 import { startCameraBlur, type CameraBlurHandle } from "../lib/camera-blur";
 import { loadDenoisePref, saveDenoisePrefPair } from "../lib/denoise-prefs";
@@ -222,11 +224,15 @@ export function Studio() {
   const [addRtmp, setAddRtmp] = useState(false);
   const [rtmpDraft, setRtmpDraft] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [clipSeconds, setClipSeconds] = useState<ClipSeconds>(loadClipSeconds);
+  const [clipping, setClipping] = useState(false);
+  const [clipNote, setClipNote] = useState("");
   const [now, setNow] = useState(Date.now());
   const identityRef = useRef<string>(shot ? "host" : "");
   const nameRef = useRef<string>(shot ? "Ana Souza" : "");
   const isHostRef = useRef(Boolean(shot));
   const dlgRef = useRef<HTMLDivElement>(null);
+  const onClipRef = useRef<() => Promise<void>>(async () => undefined);
 
   useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 1000);
@@ -487,6 +493,26 @@ export function Studio() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [goLiveOpen, inviteOpen, panel]);
+
+  useEffect(() => {
+    function typing(el: EventTarget | null): boolean {
+      if (!(el instanceof HTMLElement)) return false;
+      const tag = el.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "c" && e.key !== "C") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (typing(e.target)) return;
+      const host = studio?.viewerRole === "owner" || studio?.viewerRole === "cohost";
+      const phase = studio?.livePhase ?? (studio?.live ? "live" : "idle");
+      if (!host || phase !== "live" || shot || clipping) return;
+      e.preventDefault();
+      void onClipRef.current();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [studio, shot, clipping]);
 
   useEffect(() => {
     if (!goLiveOpen) return;
@@ -902,6 +928,27 @@ export function Studio() {
     }
   }
 
+  async function onClip() {
+    if (shot || clipping) return;
+    setClipping(true);
+    setClipNote("");
+    try {
+      await createClip(id, clipSeconds);
+      setClipNote("saved");
+      window.setTimeout(() => setClipNote((cur) => (cur === "saved" ? "" : cur)), 2500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("errClip"));
+    } finally {
+      setClipping(false);
+    }
+  }
+  onClipRef.current = onClip;
+
+  function onClipSeconds(next: ClipSeconds) {
+    setClipSeconds(next);
+    saveClipSeconds(next);
+  }
+
   function togglePanel(next: PanelId) {
     setPanel((cur) => (cur === next ? null : next));
   }
@@ -980,6 +1027,35 @@ export function Studio() {
             ) : null}
           </span>
         </div>
+        {isHost && liveOn ? (
+          <div className="clip-bar">
+            <div className="seg clip-len" role="group" aria-label={t("clipLength")}>
+              {([30, 60] as const).map((sec) => (
+                <button
+                  key={sec}
+                  type="button"
+                  className={clipSeconds === sec ? "on" : undefined}
+                  aria-pressed={clipSeconds === sec}
+                  onClick={() => onClipSeconds(sec)}
+                >
+                  {t("clipSeconds", { seconds: sec })}
+                </button>
+              ))}
+            </div>
+            <button
+              className="btn ghost"
+              type="button"
+              data-testid="clip"
+              aria-keyshortcuts="c"
+              title={t("clipHint", { seconds: clipSeconds })}
+              aria-label={t("clipLast", { seconds: clipSeconds })}
+              onClick={() => void onClip()}
+              disabled={clipping}
+            >
+              {clipping ? t("clipSaving") : clipNote === "saved" ? t("clipSaved") : t("clip")}
+            </button>
+          </div>
+        ) : null}
         {isHost && phase === "failed" ? (
           <>
             <button className="btn ghost" type="button" onClick={() => void onRetryLive()} disabled={!room && !shot}>

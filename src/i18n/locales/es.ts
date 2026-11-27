@@ -36,6 +36,14 @@ const es: Messages = {
   roleCohost: "Copresentador",
   replayPublic: "Público",
   replayPrivate: "Privado",
+  clip: "Clip",
+  clipLength: "Duración del clip",
+  clipSeconds: "{seconds}s",
+  clipLast: "Cortar últimos {seconds}s",
+  clipHint: "Cortar últimos {seconds}s (C)",
+  clipSaving: "Guardando clip…",
+  clipSaved: "Clip guardado",
+  clipDownload: "Descargar",
   memberLine: "{name} · {role}",
   pendingLine: "{email} · pendiente",
 
@@ -200,6 +208,7 @@ const es: Messages = {
   errPin: "No se pudo fijar",
   errStage: "No se pudo actualizar el escenario",
   errSave: "No se pudo guardar",
+  errClip: "No se pudo guardar el clip",
   errIso: "No se pudieron actualizar las grabaciones",
   errIsoUpload: "No se pudo subir tu grabación",
 };

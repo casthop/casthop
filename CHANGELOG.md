@@ -14,6 +14,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 - RTMP multistream via LiveKit Egress (one transcode, several URLs). Local MediaMTX stand-ins for YouTube, LinkedIn, and X; custom `rtmp:` destinations. Per-destination status and crash retry with backoff.
 - Dual output: each destination can take the 16:9 program or a second 9:16 composite (stacked cameras, captions band) from the same studio. Vertical dests get their own Egress encode.
 - Egress MP4 recording of the composite.
+- While live, a Clip button (and C) saves the last 30 or 60 seconds from the program HLS buffer. Clips list next to replays on the home studio list with download links, and follow the same private/public rules.
 - Studio chat in the room. Optional YouTube Live chat ingest while live (`liveChatMessages.list`); hosts can pin a comment onto the compositor overlay. X and LinkedIn comments are not wired.
 - Camera background blur (MediaPipe Selfie Segmenter, on-device, lazy load).
 - Rust/WASM RNNoise in an AudioWorklet; WASM layout; Canvas2D compositor as the live default.

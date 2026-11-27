@@ -1,5 +1,6 @@
 import type {
   LayoutId,
+  PublicClip,
   PublicDestination,
   PublicReplay,
   PublicStudio,
@@ -10,7 +11,7 @@ import type {
   ViewerRole,
 } from "../../worker/types";
 
-export type { PublicReplay, PublicStudio, PublicDestination, RecordingList, ReplayVisibility, StudioMember, StudioRecord, ViewerRole };
+export type { PublicClip, PublicReplay, PublicStudio, PublicDestination, RecordingList, ReplayVisibility, StudioMember, StudioRecord, ViewerRole };
 
 export type StudioView = PublicStudio & { viewerRole: ViewerRole };
 
@@ -202,4 +203,26 @@ export function setReplayVisibility(studioId: string, replayId: string, visibili
 
 export function getReplay(replayId: string) {
   return api<PublicReplay>(`/api/replays/${replayId}`);
+}
+
+export function createClip(studioId: string, seconds: 30 | 60) {
+  return api<PublicClip>(`/api/studios/${studioId}/clips`, {
+    method: "POST",
+    body: JSON.stringify({ seconds }),
+  });
+}
+
+export function listClips(studioId: string) {
+  return api<{ clips: PublicClip[] }>(`/api/studios/${studioId}/clips`);
+}
+
+export function getClip(clipId: string) {
+  return api<PublicClip>(`/api/clips/${clipId}`);
+}
+
+export function setClipVisibility(studioId: string, clipId: string, visibility: ReplayVisibility) {
+  return api<PublicClip>(`/api/studios/${studioId}/clips/${clipId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ visibility }),
+  });
 }

@@ -4,7 +4,7 @@ Rust/WASM rules. Root `AGENTS.md` still applies.
 
 ## casthop-media
 
-Default build is `src/wasm/casthop_media.wasm`: C ABI, no wasm-bindgen, no JS imports (AudioWorklet-safe). Camera background blur (mask smooth / box-blur / composite) lives here; the selfie-segmentation model is a separate lazy load. `--features gpu` builds a second artifact, `src/wasm/casthop_gpu_bg.wasm` + `casthop_gpu.js` (WebGPU compositor, wasm-bindgen). After crate changes, run `scripts/build-wasm.sh` inside the `rust:1.100.0` image (command in CONTRIBUTING.md) and commit both. CI `wasm-reproducible` rebuilds there and requires identical bytes; a host build embeds different paths and fails it.
+Default build is `src/wasm/casthop_media.wasm`: C ABI, no wasm-bindgen, no JS imports (AudioWorklet-safe). Camera background blur (mask smooth / box-blur / composite) lives here; the selfie-segmentation model is a separate lazy load. `--features gpu` builds a second artifact, `src/wasm/casthop_gpu_bg.wasm` + `casthop_gpu.js` (WebGPU compositor, wasm-bindgen). After crate changes, run `scripts/build-wasm.sh` inside the `rust:1.100.0` image (command in CONTRIBUTING.md) and commit both. CI `wasm-reproducible` rebuilds there and requires identical bytes; the checkout path is embedded in the bytes, so a host build, or a container mount other than `/__w/casthop/casthop`, fails it.
 
 - Preallocate. No `Vec` / `String` / `Box` in `process`, `blit`, or per-sample paths.
 - No `unwrap`, `expect`, or `panic!` outside `#[cfg(test)]`. Bad handles return 0 / no-op.

@@ -19,10 +19,10 @@ bun run dev                 # http://127.0.0.1:5173
 
 Worker secrets live in `.dev.vars` (gitignored). Do not commit `.env`, `.dev.vars`, stream keys, or anything from `data/`.
 
-You do not need a Rust toolchain to run the UI. Prebuilt `src/wasm/casthop_media.wasm` is committed. Rebuild only if you change `crates/casthop-media`. CI rebuilds the `.wasm` files in `rust:1.100.0` and fails if the committed bytes differ, so build in that image:
+You do not need a Rust toolchain to run the UI. Prebuilt `src/wasm/casthop_media.wasm` is committed. Rebuild only if you change `crates/casthop-media`. CI rebuilds the `.wasm` files in `rust:1.100.0` and fails if the committed bytes differ, so build in that image, mounted at the path CI checks out to (the path is embedded in the bytes):
 
 ```bash
-docker run --rm -v "$PWD":/w -w /w rust:1.100.0 bash -c 'cargo install wasm-bindgen-cli --version 0.2.100 --locked && bash scripts/build-wasm.sh'
+docker run --rm -v "$PWD":/__w/casthop/casthop -w /__w/casthop/casthop rust:1.100.0 bash -c 'cargo install wasm-bindgen-cli --version 0.2.100 --locked && bash scripts/build-wasm.sh'
 ```
 
 Docs site: `cd site && bun install && bun run dev`.

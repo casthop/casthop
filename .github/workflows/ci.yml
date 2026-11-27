@@ -75,6 +75,8 @@ jobs:
         run: |
           git status --short -- src/wasm
           git diff --exit-code --stat -- src/wasm
+          # git diff ignores untracked files; a new artifact must fail too.
+          test -z "$(git status --porcelain -- src/wasm)"
 
   audit:
     runs-on: ubuntu-latest

@@ -11,11 +11,12 @@ import { FakeD1 } from "./fake-d1.ts";
 import { FakeR2 } from "./fake-r2.ts";
 import { hlsFiles } from "./replay-fixture.ts";
 
-const YT = "rtmp://ingest.example.com/live/super-secret-youtube-key";
-const LI = "rtmp://ingest.example.com/live/super-secret-linkedin-key";
-const X = "rtmp://ingest.example.com/live/super-secret-x-key";
+const YT = "rtmp://127.0.0.1:1935/live/super-secret-youtube-key";
+const LI = "rtmp://127.0.0.1:1935/live/super-secret-linkedin-key";
+const X = "rtmp://127.0.0.1:1935/live/super-secret-x-key";
 
 let egressStarts = 0;
+const egressStartBodies: string[] = [];
 let egressStops = 0;
 let mailWebhookStatus = 503;
 const livekitRemoved: string[] = [];
@@ -180,6 +181,7 @@ before(() => {
     }
     if (url.includes("StartRoomCompositeEgress")) {
       egressStarts += 1;
+      egressStartBodies.push(typeof init?.body === "string" ? init.body : "");
       return new Response(JSON.stringify({ egress_id: "eg_test" }), { status: 200 });
     }
     if (url.includes("StopEgress")) {
@@ -1073,6 +1075,37 @@ test("H2: default LiveKit keys are refused off loopback", async () => {
   assert.equal(res.status, 503);
   const body = await json<{ error: string }>(res);
   assert.match(body.error, /devkey/);
+});
+
+test("a new studio never gets the operator's real RTMP ingest URLs", async () => {
+  const operator = {
+    RTMP_YOUTUBE: "rtmp://a.ingest.example.com/live2/operator-youtube-key",
+    RTMP_LINKEDIN: "rtmps://li.ingest.example.com:443/live/operator-linkedin-key",
+    RTMP_X: "rtmp://x.ingest.example.com:1935/x/operator-x-key",
+  };
+  const env = makeEnv(operator);
+  const cookie = await signIn(env, "stranger@example.com");
+  const { id } = await createStudio(env, cookie);
+
+  const res = await app.request(`https://casthop.test/api/studios/${id}`, { headers: { Cookie: cookie } }, env);
+  assert.equal(res.status, 200);
+  const s = await json<PublicStudio & { viewerRole: string }>(res);
+  assert.equal(s.viewerRole, "owner");
+  assert.equal(JSON.stringify(s).includes("operator-"), false);
+  for (const kind of ["youtube", "linkedin", "x"]) {
+    const d = s.destinations.find((x) => x.id === kind);
+    assert.equal(d?.url, "", kind);
+    assert.equal(d?.enabled, false, kind);
+  }
+
+  const before = egressStartBodies.length;
+  const go = await app.request(
+    `https://casthop.test/api/studios/${id}/live`,
+    { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ live: true }) },
+    env,
+  );
+  assert.equal(go.status, 200, await go.clone().text());
+  for (const body of egressStartBodies.slice(before)) assert.equal(body.includes("operator-"), false);
 });
 
 test("the ws route forwards only the upgrade, never the client's query, to the studio", async () => {

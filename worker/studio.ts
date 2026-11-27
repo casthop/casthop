@@ -881,7 +881,8 @@ export class StudioDurableObject {
       const state = await this.getState();
       if (!state?.wantLive) return;
       const seen = new Set(state.chat.map((m) => m.id));
-      const fresh = msgs.filter((m) => !seen.has(m.id));
+      // Adding as we go also drops duplicates inside the buffer itself.
+      const fresh = msgs.filter((m) => !seen.has(m.id) && seen.add(m.id));
       if (!fresh.length) return;
       state.chat = [...state.chat, ...fresh].slice(-100);
       await this.putState(state);

@@ -19,6 +19,7 @@ const env = {
   LIVEKIT_HTTP_URL: "http://127.0.0.1:7880",
   PUBLIC_LIVEKIT_URL: "ws://127.0.0.1:7880",
   CASTHOP_ALLOW_DEV_KEYS: "1",
+    CASTHOP_DEV: "1",
 } as Env;
 
 const realNow = Date.now;

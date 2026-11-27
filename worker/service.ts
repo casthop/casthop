@@ -28,7 +28,7 @@ service.post("/studios", async (c) => {
   const owner = await findOrCreateEmailAccount(c.env, email, body.ownerName === undefined ? undefined : asName(body.ownerName, "Host"));
   const title = asName(body.name, "Weekly product update");
   const studio = await createStudio(c.env, { ownerId: owner.id, title, tenantId });
-  if (!studio) return c.json({ error: "failed to create studio" }, 500);
+  if (!studio || "limited" in studio) return c.json({ error: "failed to create studio" }, 500);
   return c.json({ studio: { id: studio.id, name: studio.title, tenantId, ownerId: owner.id } }, 201);
 });
 

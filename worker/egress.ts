@@ -608,6 +608,14 @@ export function webhookParticipantIdentity(raw: unknown): string {
   return participant ? str(participant, "identity", "Identity") : "";
 }
 
+/** True only when the joining token granted publish. Protobuf JSON omits false, so absent means false. */
+export function webhookParticipantCanPublish(raw: unknown): boolean {
+  const obj = asRecord(raw);
+  const participant = obj ? asRecord(obj.participant) : null;
+  const permission = participant ? asRecord(participant.permission) : null;
+  return Boolean(permission && (permission.canPublish === true || permission.can_publish === true));
+}
+
 export function isComposerIdentity(identity: string): boolean {
   const id = identity.toLowerCase();
   return id.startsWith("eg_") || id.startsWith("egress") || id.includes("egress-");

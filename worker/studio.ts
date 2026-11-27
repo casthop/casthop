@@ -89,6 +89,7 @@ import {
   studioHasPeople,
   WATCH_MS,
   webhookEventName,
+  webhookParticipantCanPublish,
   webhookParticipantIdentity,
   webhookRoomName,
 } from "./egress";
@@ -854,7 +855,9 @@ export class StudioDurableObject {
     const room = webhookRoomName(body);
     if (room && room !== state.id) return json({ ok: true, ignored: true });
 
-    if (event === "participant_joined") await this.enforceGrants(state, webhookParticipantIdentity(body));
+    if (event === "participant_joined") {
+      await this.enforceGrants(webhookParticipantIdentity(body), webhookParticipantCanPublish(body));
+    }
     if (event === "participant_left" || event === "participant_joined" || event === "room_finished") {
       await this.watchPresence(state, event === "room_finished");
       const latest = (await this.getState()) ?? state;
@@ -870,16 +873,21 @@ export class StudioDurableObject {
 
   // LiveKit enforces whatever the joining token grants. A token minted before a removal or
   // stage-off still verifies, so re-apply the studio's own decision when that identity joins.
-  private async enforceGrants(state: StudioState, identity: string): Promise<void> {
+  private async enforceGrants(identity: string, joinedWithPublish: boolean): Promise<void> {
     if (!identity || isComposerIdentity(identity)) return;
+    // Read now, not when the webhook arrived: a stage-on may have landed in between.
+    const state = await this.getState();
+    if (!state) return;
     try {
       if ((state.kickedIdentities ?? []).includes(identity)) {
         await removeParticipant(this.env, state.id, identity);
         return;
       }
       if (isHostIdentity(identity)) return;
+      // Only undo a publish grant the token actually carried. Revoking a guest who joined
+      // without one would race the host's stage-on and could win.
       const person = state.participants.find((p) => p.identity === identity);
-      if (!person?.onStage) await updateParticipantPublish(this.env, state.id, identity, false);
+      if (joinedWithPublish && !person?.onStage) await updateParticipantPublish(this.env, state.id, identity, false);
     } catch (err) {
       console.warn("enforce grants", err);
     }

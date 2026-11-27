@@ -1116,8 +1116,9 @@ test("an on-stage guest token is short-lived, and a rejoin re-applies stage and 
   assertTtl(onStage.token, GUEST_STAGE_TOKEN_TTL_SEC);
   assert.equal((await stage(false)).status, 200);
 
-  const joined = async (identity: string) => {
-    const body = JSON.stringify({ event: "participant_joined", room: { name: id }, participant: { identity } });
+  const joined = async (identity: string, canPublish = false) => {
+    const participant = canPublish ? { identity, permission: { canPublish: true } } : { identity };
+    const body = JSON.stringify({ event: "participant_joined", room: { name: id }, participant });
     const res = await app.request(
       "https://casthop.test/api/livekit/webhook",
       { method: "POST", headers: { Authorization: await signLivekitWebhook(env, body) }, body },
@@ -1127,10 +1128,22 @@ test("an on-stage guest token is short-lived, and a rejoin re-applies stage and 
   };
   publishUpdates.length = 0;
   await joined(first.identity);
+  assert.equal(publishUpdates.length, 0, "a guest who joins without publish needs nothing undone (and must not race a stage-on)");
+  await joined(first.identity, true);
   assert.ok(
     publishUpdates.some((u) => u.identity === first.identity && u.permission?.can_publish === false),
-    "a guest off stage who rejoins with an older token loses publish again",
+    "a guest off stage who rejoins with an older publish token loses publish again",
   );
+
+  // A guest put on stage while their join webhook is in flight keeps publish.
+  assert.equal((await stage(true)).status, 200);
+  publishUpdates.length = 0;
+  await joined(first.identity, true);
+  assert.equal(
+    publishUpdates.some((u) => u.identity === first.identity && u.permission?.can_publish === false),
+    false,
+  );
+  assert.equal((await stage(false)).status, 200);
 
   await app.request(
     `https://casthop.test/api/studios/${id}/cohosts`,

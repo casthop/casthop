@@ -128,6 +128,7 @@ export const Q = {
   invitesByStudio: "SELECT id, studio_id, email, created_at FROM studio_invites WHERE studio_id = ?",
   invitesByEmail: "SELECT id, studio_id, email, created_at FROM studio_invites WHERE email = ?",
   deleteInvite: "DELETE FROM studio_invites WHERE studio_id = ? AND email = ?",
+  rateByKey: "SELECT count, window_start FROM rate_limits WHERE key = ?",
   bumpRate:
     "INSERT INTO rate_limits (key, count, window_start) VALUES (?, 1, ?) ON CONFLICT(key) DO UPDATE SET count = CASE WHEN ? - window_start > ? THEN 1 ELSE count + 1 END, window_start = CASE WHEN ? - window_start > ? THEN ? ELSE window_start END RETURNING count",
   insertReplay:
@@ -460,6 +461,13 @@ export async function applyInvites(db: D1Database, account: Account): Promise<vo
 export async function allowRate(db: D1Database, key: string, max: number, windowMs: number, now = Date.now()): Promise<boolean> {
   const row = await first<{ count: number }>(db, Q.bumpRate, key, now, now, windowMs, now, windowMs, now);
   return (row?.count ?? 0) <= max;
+}
+
+// Read-only twin of allowRate: true if one more hit would still fit.
+export async function rateHasRoom(db: D1Database, key: string, max: number, windowMs: number, now = Date.now()): Promise<boolean> {
+  const row = await first<{ count: number; window_start: number }>(db, Q.rateByKey, key);
+  if (!row || now - row.window_start > windowMs) return true;
+  return row.count < max;
 }
 
 export async function insertReplay(db: D1Database, row: ReplayRecord): Promise<void> {

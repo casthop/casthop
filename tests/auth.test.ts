@@ -1862,7 +1862,7 @@ test("co-host invite mail is rate limited per inviting account and per recipient
   for (let i = 0; i <= INVITE_EMAIL_MAX; i++) studios.push((await createStudio(env, cookie, `Studio ${i}`)).id);
   for (let i = 0; i < INVITE_EMAIL_MAX; i++) assert.equal((await invite(studios[i]!, "same@example.com")).status, 200);
   assert.equal((await invite(studios[INVITE_EMAIL_MAX]!, "same@example.com")).status, 429, "one inbox, many studios");
-  for (let sent = INVITE_EMAIL_MAX + 1; sent < INVITE_ACCOUNT_MAX; sent++) {
+  for (let sent = INVITE_EMAIL_MAX; sent < INVITE_ACCOUNT_MAX; sent++) {
     assert.equal((await invite(studios[0]!, `n${sent}@example.com`)).status, 200);
   }
   assert.equal((await invite(studios[0]!, "one-more@example.com")).status, 429, "one account, many inboxes");
@@ -1893,6 +1893,38 @@ test("co-host invites that send no mail do not use the rate budget", async () =>
     assert.equal((await invite(studios[i]!, "same@example.com")).status, 200, "recipient budget still has room");
   }
   assert.equal((await invite(studios[INVITE_EMAIL_MAX]!, "same@example.com")).status, 429);
+});
+
+test("a 429 on the recipient or a failed send does not spend the account invite budget", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "inviter3@example.com");
+  const invite = (sid: string, email: string) =>
+    app.request(
+      `https://casthop.test/api/studios/${sid}/cohosts`,
+      { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ email }) },
+      env,
+    );
+  const studios: string[] = [];
+  for (let i = 0; i <= INVITE_EMAIL_MAX; i++) studios.push((await createStudio(env, cookie, `Studio ${i}`)).id);
+  for (let i = 0; i < INVITE_EMAIL_MAX; i++) assert.equal((await invite(studios[i]!, "same@example.com")).status, 200);
+  for (let i = 0; i < INVITE_ACCOUNT_MAX; i++) {
+    assert.equal((await invite(studios[INVITE_EMAIL_MAX]!, "same@example.com")).status, 429);
+  }
+  mailWebhookStatus = 503;
+  env.MAIL_WEBHOOK_URL = "https://mail.test/send";
+  try {
+    for (let i = 0; i < INVITE_ACCOUNT_MAX; i++) {
+      assert.equal((await invite(studios[0]!, `fail${i}@example.com`)).status, 502);
+    }
+    mailWebhookStatus = 200;
+    for (let sent = INVITE_EMAIL_MAX; sent < INVITE_ACCOUNT_MAX; sent++) {
+      assert.equal((await invite(studios[0]!, `ok${sent}@example.com`)).status, 200, `send ${sent} still fits`);
+    }
+    assert.equal((await invite(studios[0]!, "over@example.com")).status, 429);
+  } finally {
+    mailWebhookStatus = 503;
+    delete env.MAIL_WEBHOOK_URL;
+  }
 });
 
 test("failed co-host invite mail does not leave a stuck pending invite", async () => {

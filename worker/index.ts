@@ -43,6 +43,7 @@ import {
   accountByEmail,
   accountById,
   allowRate,
+  rateHasRoom,
   deleteCohost,
   deleteInvite,
   ensureDb,
@@ -1035,12 +1036,15 @@ app.post("/api/studios/:id/cohosts", async (c) => {
   if (!origin) return c.json({ error: "PUBLIC_ORIGIN required" }, 503);
   const pending = await invitesForStudio(c.env.DB, id);
   if (pending.some((p) => p.email === email)) return c.json({ error: "already invited" }, 409);
-  // Only invites that send mail count. Cap them like sign-in mail; the window is
-  // SIGNIN_WINDOW_MS because the stale rate_limits cleanup keys off it.
-  if (!(await allowRate(c.env.DB, `invite:acct:${sess.account.id}`, INVITE_ACCOUNT_MAX, SIGNIN_WINDOW_MS))) {
-    return c.json({ error: "too many invites" }, 429);
-  }
-  if (!(await allowRate(c.env.DB, `invite:email:${email}`, INVITE_EMAIL_MAX, SIGNIN_WINDOW_MS))) {
+  // Cap invite mail like sign-in mail; the window is SIGNIN_WINDOW_MS because the
+  // stale rate_limits cleanup keys off it. Check first, record only after the mail
+  // is sent, so a 429 or a failed send does not spend the budget.
+  const acctKey = `invite:acct:${sess.account.id}`;
+  const emailKey = `invite:email:${email}`;
+  if (
+    !(await rateHasRoom(c.env.DB, acctKey, INVITE_ACCOUNT_MAX, SIGNIN_WINDOW_MS)) ||
+    !(await rateHasRoom(c.env.DB, emailKey, INVITE_EMAIL_MAX, SIGNIN_WINDOW_MS))
+  ) {
     return c.json({ error: "too many invites" }, 429);
   }
   await insertInvite(c.env.DB, randomId(10), id, email, Date.now());
@@ -1055,6 +1059,8 @@ app.post("/api/studios/:id/cohosts", async (c) => {
     if (err instanceof MailSendError) return c.json({ error: "could not send invite" }, 502);
     throw err;
   }
+  await allowRate(c.env.DB, acctKey, INVITE_ACCOUNT_MAX, SIGNIN_WINDOW_MS);
+  await allowRate(c.env.DB, emailKey, INVITE_EMAIL_MAX, SIGNIN_WINDOW_MS);
   return c.json({ ok: true, pending: true, email });
 });
 

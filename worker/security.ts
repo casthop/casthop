@@ -116,8 +116,25 @@ export function isDefaultDevSecret(env: Pick<Env, "LIVEKIT_API_KEY" | "LIVEKIT_A
   return env.LIVEKIT_API_KEY === DEV_API_KEY || env.LIVEKIT_API_SECRET === DEV_API_SECRET;
 }
 
-export function allowDevLogin(env: Pick<Env, "CASTHOP_ALLOW_DEV_KEYS" | "LIVEKIT_API_KEY" | "LIVEKIT_API_SECRET">): boolean {
-  return env.CASTHOP_ALLOW_DEV_KEYS === "1" || isDefaultDevSecret(env);
+/**
+ * CASTHOP_DEV=1 is local development: sign-in mail goes to the Worker log, and the dev
+ * sign-in link may be returned. It is set on purpose, not inferred from the LiveKit key,
+ * so an install can use its own key and still be local.
+ */
+export function localDevMode(env: Pick<Env, "CASTHOP_DEV">): boolean {
+  return env.CASTHOP_DEV === "1";
+}
+
+/** Refuse CASTHOP_DEV=1 unless LiveKit and the public site are on loopback (or CASTHOP_ALLOW_DEV_KEYS=1). */
+export function devModeGuardError(env: Env): string | null {
+  if (!localDevMode(env) || env.CASTHOP_ALLOW_DEV_KEYS === "1") return null;
+  const origin = env.PUBLIC_ORIGIN?.trim();
+  const local =
+    isLoopbackUrl(env.LIVEKIT_HTTP_URL) &&
+    isLoopbackUrl(env.PUBLIC_LIVEKIT_URL.replace(/^ws/i, "http")) &&
+    (!origin || isLoopbackUrl(origin));
+  if (local) return null;
+  return "Refusing CASTHOP_DEV=1 outside local loopback: it logs sign-in links instead of mailing them. Remove it for any networked deploy.";
 }
 
 /** Refuse the published local keypair unless LiveKit is on loopback (or CASTHOP_ALLOW_DEV_KEYS=1). */

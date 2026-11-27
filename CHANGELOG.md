@@ -55,6 +55,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 - Stream keys and full destination URLs are withheld from guests and public GET / WebSocket state.
 - Published LiveKit `devkey` is refused unless LiveKit is loopback.
+- RTMP destinations are refused when the host is an internal address in any spelling (IPv4-mapped IPv6, NAT64, decimal, hex, octal or shortened IPv4), a multicast or special-use range, a single-label name, or a name under `.localhost`, `.local`, `.internal`, `.home.arpa`, `.localdomain` or `.lan`.
 - Inviting a co-host gives the same answer whether or not the email has an account, and no longer returns that person's account id or name. Existing accounts get the invite mail and become co-hosts when they accept on the studio link or next sign in, not straight away. A co-host can leave a studio.
 - Replay, clip and live playlists are checked against the tags casthop and ffmpeg write, and only `index.m3u8` may be a playlist. Lone CR line breaks, text after an `#EXTINF` duration, unquoted `URI=`, interstitials and nested playlists used to get past the check and make viewers' players fetch outside URLs.
 - The magic-link response includes the dev sign-in link only when `CASTHOP_DEV_LOGIN=1` is set. Under `bun run dev` the Host header and client IP the old check used are controlled by the client. CI sets the flag; set it in `.dev.vars` to run e2e or `bun run measure` locally.

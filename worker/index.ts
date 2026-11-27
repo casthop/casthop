@@ -9,6 +9,8 @@ import {
   clearCookie,
   devKeyGuardError,
   hostIdentityFor,
+  INVITE_ACCOUNT_MAX,
+  INVITE_EMAIL_MAX,
   isHostIdentity,
   isSecureRequest,
   OAUTH_COOKIE,
@@ -16,6 +18,7 @@ import {
   publicOrigin,
   randomId,
   requestIp,
+  SIGNIN_WINDOW_MS,
   TOKEN_IP_MAX,
   TOKEN_IP_WINDOW_MS,
 } from "./security";
@@ -1011,6 +1014,14 @@ app.post("/api/studios/:id/cohosts", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { email?: string };
   const email = asEmail(body.email);
   if (!email) return c.json({ error: "valid email required" }, 400);
+  // Invites send mail from the operator's sender, so cap them like sign-in mail. The window is
+  // SIGNIN_WINDOW_MS because the stale rate_limits cleanup keys off it.
+  if (!(await allowRate(c.env.DB, `invite:acct:${sess.account.id}`, INVITE_ACCOUNT_MAX, SIGNIN_WINDOW_MS))) {
+    return c.json({ error: "too many invites" }, 429);
+  }
+  if (!(await allowRate(c.env.DB, `invite:email:${email}`, INVITE_EMAIL_MAX, SIGNIN_WINDOW_MS))) {
+    return c.json({ error: "too many invites" }, 429);
+  }
   if (sess.account.email === email) return c.json({ error: "already a member" }, 409);
   const existingAccount = await accountByEmail(c.env.DB, email);
   if (existingAccount) {

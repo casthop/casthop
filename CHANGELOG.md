@@ -49,3 +49,4 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 - Stream keys and full destination URLs are withheld from guests and public GET / WebSocket state.
 - Published LiveKit `devkey` is refused unless LiveKit is loopback.
+- Co-host invite mail is rate limited: 10 invites per inviting account and 2 per recipient across all studios every 15 minutes.

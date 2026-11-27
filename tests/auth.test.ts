@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { app, StudioDurableObject } from "../worker/index.ts";
 import { GUEST_TOKEN_TTL_SEC, HOST_TOKEN_TTL_SEC } from "../worker/livekit.ts";
-import { DEV_API_KEY, DEV_API_SECRET, HOST_IDENTITY, SESSION_COOKIE } from "../worker/security.ts";
+import { DEV_API_KEY, DEV_API_SECRET, HOST_IDENTITY, INVITE_ACCOUNT_MAX, INVITE_EMAIL_MAX, SESSION_COOKIE } from "../worker/security.ts";
 import type { Env, PublicClip, PublicReplay, PublicStudio, StudioRecord } from "../worker/types.ts";
 import { insertClip } from "../worker/db.ts";
 import { clipObjectKey } from "../worker/clips.ts";
@@ -1728,6 +1728,25 @@ test("failed mail webhook returns an error instead of pretending the link was se
   assert.equal(res.status, 502);
   const body = await json<{ error: string }>(res);
   assert.match(body.error, /could not send/);
+});
+
+test("co-host invite mail is rate limited per inviting account and per recipient", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "inviter@example.com");
+  const invite = (sid: string, email: string) =>
+    app.request(
+      `https://casthop.test/api/studios/${sid}/cohosts`,
+      { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ email }) },
+      env,
+    );
+  const studios: string[] = [];
+  for (let i = 0; i <= INVITE_EMAIL_MAX; i++) studios.push((await createStudio(env, cookie, `Studio ${i}`)).id);
+  for (let i = 0; i < INVITE_EMAIL_MAX; i++) assert.equal((await invite(studios[i]!, "same@example.com")).status, 200);
+  assert.equal((await invite(studios[INVITE_EMAIL_MAX]!, "same@example.com")).status, 429, "one inbox, many studios");
+  for (let sent = INVITE_EMAIL_MAX + 1; sent < INVITE_ACCOUNT_MAX; sent++) {
+    assert.equal((await invite(studios[0]!, `n${sent}@example.com`)).status, 200);
+  }
+  assert.equal((await invite(studios[0]!, "one-more@example.com")).status, 429, "one account, many inboxes");
 });
 
 test("failed co-host invite mail does not leave a stuck pending invite", async () => {

@@ -76,6 +76,7 @@ function makeEnv(overrides: Partial<Env> = {}): Env & { _db: FakeD1 } {
     RTMP_X: X,
     EGRESS_TEMPLATE_URL: "http://127.0.0.1:5173/egress-template",
     CASTHOP_ALLOW_DEV_KEYS: "1",
+    CASTHOP_DEV: "1",
     CASTHOP_DEV_LOGIN: "1",
     CASTHOP_TRUST_FORWARDED: "1",
     PUBLIC_ORIGIN: "https://casthop.test",
@@ -1898,6 +1899,63 @@ test("devLogin is omitted on a non-loopback host even with CASTHOP_ALLOW_DEV_KEY
   assert.equal(sent.devLogin, undefined);
 });
 
+test("local dev mode comes from CASTHOP_DEV, not from the LiveKit key", async () => {
+  const logs: string[] = [];
+  const origLog = console.log;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map(String).join(" "));
+  };
+  const local = {
+    LIVEKIT_API_KEY: "lk_ownkey",
+    LIVEKIT_API_SECRET: "an-install-specific-secret-of-48-characters-xyz",
+    CASTHOP_ALLOW_DEV_KEYS: undefined,
+    PUBLIC_ORIGIN: undefined,
+    CASTHOP_TRUST_FORWARDED: undefined,
+  };
+  const ask = (env: Env) =>
+    app.request(
+      "http://127.0.0.1:5173/api/auth/magic-link",
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "dev@example.com" }) },
+      env,
+    );
+  try {
+    const own = await ask(makeEnv({ ...local, CASTHOP_DEV: "1", CASTHOP_DEV_LOGIN: "1" }));
+    assert.equal(own.status, 200, await own.clone().text());
+    assert.ok((await json<{ devLogin?: string }>(own)).devLogin, "an install's own key still gets local dev");
+    assert.ok(logs.some((line) => line.includes("casthop mail") && line.includes("dev@example.com")));
+
+    logs.length = 0;
+    const published = await ask(makeEnv({ ...local, LIVEKIT_API_KEY: DEV_API_KEY, LIVEKIT_API_SECRET: DEV_API_SECRET, CASTHOP_DEV: undefined }));
+    assert.equal(published.status, 502, "the published key alone no longer means local dev");
+    assert.equal(logs.some((line) => line.includes("casthop mail")), false);
+  } finally {
+    console.log = origLog;
+  }
+});
+
+test("CASTHOP_DEV is refused off loopback", async () => {
+  const deployed = makeEnv({
+    LIVEKIT_API_KEY: "prodkey",
+    LIVEKIT_API_SECRET: "prodsecretprodsecretprodsecret",
+    CASTHOP_ALLOW_DEV_KEYS: undefined,
+    CASTHOP_DEV: "1",
+    PUBLIC_ORIGIN: "https://casthop.example",
+  });
+  const res = await app.request("https://casthop.example/api/health", {}, deployed);
+  assert.equal(res.status, 503);
+  assert.match((await json<{ error: string }>(res)).error, /CASTHOP_DEV/);
+  const remoteLivekit = makeEnv({
+    LIVEKIT_API_KEY: "prodkey",
+    LIVEKIT_API_SECRET: "prodsecretprodsecretprodsecret",
+    CASTHOP_ALLOW_DEV_KEYS: undefined,
+    CASTHOP_DEV: "1",
+    PUBLIC_ORIGIN: undefined,
+    LIVEKIT_HTTP_URL: "https://livekit.example.com",
+    PUBLIC_LIVEKIT_URL: "wss://livekit.example.com",
+  });
+  assert.equal((await app.request("http://127.0.0.1:5173/api/health", {}, remoteLivekit)).status, 503);
+});
+
 test("magic link is not logged or returned outside local/dev", async () => {
   const logs: string[] = [];
   const origLog = console.log;
@@ -1909,6 +1967,7 @@ test("magic link is not logged or returned outside local/dev", async () => {
       LIVEKIT_API_KEY: "prodkey",
       LIVEKIT_API_SECRET: "prodsecretprodsecretprodsecret",
       CASTHOP_ALLOW_DEV_KEYS: "0",
+      CASTHOP_DEV: undefined,
     });
     const res = await app.request(
       "https://casthop.test/api/auth/magic-link",
@@ -1938,6 +1997,7 @@ test("failed mail webhook returns an error instead of pretending the link was se
     LIVEKIT_API_KEY: "prodkey",
     LIVEKIT_API_SECRET: "prodsecretprodsecretprodsecret",
     CASTHOP_ALLOW_DEV_KEYS: "0",
+    CASTHOP_DEV: undefined,
     MAIL_WEBHOOK_URL: "https://mail.test/send",
   });
   const res = await app.request(

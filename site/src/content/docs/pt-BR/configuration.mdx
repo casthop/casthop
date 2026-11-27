@@ -35,7 +35,7 @@ O Worker responde 503 se `devkey` for usado com uma URL do LiveKit que não seja
 | `RTMP_LINKEDIN` | Destino padrão do LinkedIn. | `rtmp://127.0.0.1:1935/live/linkedin` |
 | `RTMP_X` | Destino padrão do X. | `rtmp://127.0.0.1:1935/live/x` |
 
-São stand-ins locais do MediaMTX. Troque por URLs de ingest reais quando as tiver, e não commite chaves de stream de verdade.
+São stand-ins locais do MediaMTX. Estúdios novos só copiam esses valores quando apontam para loopback: qualquer conta pode criar um estúdio, então uma URL de ingest real aqui entregaria sua chave de stream a todo dono. Os donos colocam as URLs de ingest reais por estúdio no painel de destinos.
 
 ## Worker
 

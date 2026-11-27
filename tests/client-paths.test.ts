@@ -144,3 +144,24 @@ test("dot ids are refused before any request", async () => {
   }
   assert.deepEqual(seen, []);
 });
+
+// Callers use `.then().catch()`, so a bad id must reject, not throw before a promise exists.
+test("api wrappers reject instead of throwing synchronously on dot ids", async () => {
+  const calls: Array<(id: string) => Promise<unknown>> = [
+    (id) => getStudio(id),
+    (id) => sendEgressBeat(id, "token", "eg"),
+    (id) => mintToken(id, { name: "Guest", role: "guest" }),
+    (id) => getReplay(id),
+    (id) => getClip(id),
+    (id) => removeCohost("studio", id),
+    (id) => setReplayVisibility("studio", id, "public"),
+    (id) => setClipVisibility("studio", id, "public"),
+  ];
+  for (const call of calls) {
+    let promise: Promise<unknown> | undefined;
+    assert.doesNotThrow(() => {
+      promise = call("..");
+    });
+    await assert.rejects(promise as Promise<unknown>, /invalid path segment/);
+  }
+});

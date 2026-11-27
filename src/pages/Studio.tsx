@@ -312,7 +312,16 @@ export function Studio() {
     const connect = () => {
       if (closed) return;
       const proto = location.protocol === "https:" ? "wss" : "ws";
-      ws = new WebSocket(`${proto}://${location.host}/api/studios/${seg(id)}/ws`);
+      let path: string;
+      try {
+        path = seg(id);
+      } catch (err) {
+        // Invalid id (`.` / `..`): show the error state and don't retry.
+        closed = true;
+        setError(err instanceof Error ? err.message : String(err));
+        return;
+      }
+      ws = new WebSocket(`${proto}://${location.host}/api/studios/${path}/ws`);
       ws.onmessage = (ev) => {
         const msg = JSON.parse(ev.data) as { type: string; state?: PublicStudio };
         if (msg.type === "state" && msg.state) apply(msg.state);

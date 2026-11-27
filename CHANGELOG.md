@@ -49,3 +49,4 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 - Stream keys and full destination URLs are withheld from guests and public GET / WebSocket state.
 - Published LiveKit `devkey` is refused unless LiveKit is loopback.
+- `bun run dev` listens on `127.0.0.1` only, not every interface. Miniflare's data explorer is off unless you set `X_LOCAL_EXPLORER=true`, and the dev server no longer serves files under `data/`.

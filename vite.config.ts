@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { defineConfig } from "vite";
+import { fileURLToPath } from "node:url";
+import { defineConfig, normalizePath } from "vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import babel from "@rolldown/plugin-babel";
 import { cloudflare } from "@cloudflare/vite-plugin";
@@ -11,6 +12,15 @@ function copyMediapipeWasm() {
 copyMediapipeWasm();
 
 const skipReact = [/\/node_modules\//, /\/workers\//, /\/worklets\//];
+
+// The Cloudflare plugin mounts Miniflare's data explorer at
+// /cdn-cgi/local/explorer with no login: raw D1 SQL, R2, request logs.
+// Off unless a developer sets X_LOCAL_EXPLORER=true for their own session.
+process.env.X_LOCAL_EXPLORER ??= "false";
+
+// Egress writes program MP4s and RTMP captures here. Vite matches deny globs
+// that contain a slash against absolute paths, so this must be absolute.
+export const dataDir = normalizePath(fileURLToPath(new URL("./data", import.meta.url)));
 
 export default defineConfig({
   plugins: [
@@ -29,9 +39,13 @@ export default defineConfig({
     format: "es",
   },
   server: {
-    host: "0.0.0.0",
+    // Loopback only. Dev sign-in, the data explorer and data/ assume nobody
+    // else can reach this port. Egress and LiveKit use host networking, so
+    // they still reach 127.0.0.1:5173.
+    host: "127.0.0.1",
     port: 5173,
     strictPort: true,
+    fs: { deny: [`${dataDir}/**`] },
   },
   build: {
     rollupOptions: {

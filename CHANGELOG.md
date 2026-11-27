@@ -57,6 +57,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 - Stream keys and full destination URLs are withheld from guests and public GET / WebSocket state.
 - Published LiveKit `devkey` is refused unless LiveKit is loopback.
+- A guest's publish token lasts 10 minutes instead of 6 hours, and when someone joins the LiveKit room the studio re-applies its own decision: a removed co-host or guest is removed again, and a guest who is not on stage loses publish permission.
 - ISO chunk uploads need a Content-Length of at most 8 MiB and are refused before the body is read. A streamed upload with no length used to be buffered in full first.
 - Inviting a co-host gives the same answer whether or not the email has an account, and no longer returns that person's account id or name. Existing accounts get the invite mail and become co-hosts when they accept on the studio link or next sign in, not straight away. A co-host can leave a studio.
 - Replay, clip and live playlists are checked against the tags casthop and ffmpeg write, and only `index.m3u8` may be a playlist. Lone CR line breaks, text after an `#EXTINF` duration, unquoted `URI=`, interstitials and nested playlists used to get past the check and make viewers' players fetch outside URLs.

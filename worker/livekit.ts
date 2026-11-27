@@ -28,6 +28,8 @@ type VideoGrant = {
 /** Host/co-host LiveKit JWTs. Short so a kick cannot be undone with a leftover token. */
 export const HOST_TOKEN_TTL_SEC = 10 * 60;
 export const GUEST_TOKEN_TTL_SEC = 6 * 60 * 60;
+/** A publish grant outlives stage-off for as long as the token lives, so keep it short. */
+export const GUEST_STAGE_TOKEN_TTL_SEC = 10 * 60;
 export const API_TOKEN_TTL_SEC = 6 * 60 * 60;
 
 async function signJwt(

@@ -602,6 +602,12 @@ export function webhookRoomName(raw: unknown): string {
   return str(obj, "roomName", "room_name");
 }
 
+export function webhookParticipantIdentity(raw: unknown): string {
+  const obj = asRecord(raw);
+  const participant = obj ? asRecord(obj.participant) : null;
+  return participant ? str(participant, "identity", "Identity") : "";
+}
+
 export function isComposerIdentity(identity: string): boolean {
   const id = identity.toLowerCase();
   return id.startsWith("eg_") || id.startsWith("egress") || id.includes("egress-");

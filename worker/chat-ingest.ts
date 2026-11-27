@@ -36,6 +36,7 @@ export type YoutubeEnv = Pick<
   | "YOUTUBE_OAUTH_CLIENT_ID"
   | "YOUTUBE_OAUTH_CLIENT_SECRET"
   | "YOUTUBE_OAUTH_REFRESH_TOKEN"
+  | "YOUTUBE_CHAT_STUDIO_ID"
 >;
 
 export type DestChatPollResult = {
@@ -74,8 +75,18 @@ export function youtubeChatConfigured(env: YoutubeEnv): boolean {
   return Boolean(env.YOUTUBE_LIVE_CHAT_ID?.trim() || env.YOUTUBE_VIDEO_ID?.trim() || youtubeOauthConfigured(env));
 }
 
-export function destChatConfigured(env: YoutubeEnv): { youtube: boolean } {
-  return { youtube: youtubeChatConfigured(env) };
+/** Studios allowed to use the deployment's YouTube chat (comma-separated ids). */
+export function youtubeChatStudios(env: YoutubeEnv): string[] {
+  return (env.YOUTUBE_CHAT_STUDIO_ID ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+}
+
+// The credentials and chat id are the operator's, not any one account's. Without this binding
+// every account's live studio would poll the operator's quota and republish its chat.
+export function destChatConfigured(env: YoutubeEnv, studioId: string): { youtube: boolean } {
+  return { youtube: youtubeChatConfigured(env) && youtubeChatStudios(env).includes(studioId) };
 }
 
 function asObj(value: unknown): Record<string, unknown> | null {

@@ -70,7 +70,7 @@ cargo run -p casthop-post -- hls data/recordings/<file>.mp4 /tmp/replay-hls
 
 スタジオにいる人どうしで、チャットができます。ライブ中は、YouTube、Twitch、Kick のコメントも同じパネルに表示できます。ホストと共同ホストは、コメントを 1 件、映像にピン留めできます。
 
-- **YouTube:** `YOUTUBE_API_KEY` と、`YOUTUBE_LIVE_CHAT_ID` または `YOUTUBE_VIDEO_ID` を設定します。または、3 つの `YOUTUBE_OAUTH_*` の値を設定すると、自分の進行中のライブ配信を探します。
+- **YouTube:** `YOUTUBE_API_KEY` と、`YOUTUBE_LIVE_CHAT_ID` または `YOUTUBE_VIDEO_ID` を設定します。または、3 つの `YOUTUBE_OAUTH_*` の値を設定すると、自分の進行中のライブ配信を探します。 表示するスタジオを `YOUTUBE_CHAT_STUDIO_ID` に設定します。
 - **Twitch:** `TWITCH_CHANNEL` にチャンネル名を設定します。
 - **Kick:** `KICK_CHATROOM_ID` にチャットルーム番号を設定します。
 

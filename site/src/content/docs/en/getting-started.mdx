@@ -91,7 +91,7 @@ To watch what went out, run `ffprobe rtmp://127.0.0.1:1935/live/youtube`. The re
 All of these are off until you set them in `.dev.vars`, then restart `bun run dev`. Each one is explained in [Configuration](/docs/configuration).
 
 - **GitHub sign-in:** `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`.
-- **YouTube chat in the studio:** `YOUTUBE_API_KEY` plus `YOUTUBE_LIVE_CHAT_ID` or `YOUTUBE_VIDEO_ID`.
+- **YouTube chat in the studio:** `YOUTUBE_API_KEY` plus `YOUTUBE_LIVE_CHAT_ID` or `YOUTUBE_VIDEO_ID`. Set `YOUTUBE_CHAT_STUDIO_ID` to the studio that should show it.
 - **Twitch and Kick chat:** `TWITCH_CHANNEL` and `KICK_CHATROOM_ID`.
 - **Sign-in link in the browser instead of the terminal**, for tests and `bun run measure`: `CASTHOP_DEV_LOGIN=1`.
 

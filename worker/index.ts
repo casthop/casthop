@@ -198,7 +198,7 @@ app.get("/api/config", async (c) => {
     github: githubConfigured(c.env),
     signin: signinExternal(c.env) ? "external" : "default",
     signedIn: Boolean(sess),
-    destinationChat: destChatConfigured(c.env),
+    destinationChat: destChatConfigured(c.env, c.req.query("studio") ?? ""),
   });
 });
 

@@ -58,7 +58,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 - Stream keys and full destination URLs are withheld from guests and public GET / WebSocket state.
 - Published LiveKit `devkey` is refused unless LiveKit is loopback.
-- Sign-in and token rate limits count an IPv6 /64 as one client instead of each address in it, and one address gets at most 20 sign-in mails every 15 minutes from all clients together.
+- Sign-in and token rate limits count an IPv6 /64 as one client instead of each address in it. One address gets 20 sign-in mails every 15 minutes from all clients together, then at most one more per minute, so a burst cannot lock the owner out.
 - RTMP destinations are refused when the host is an internal address in any spelling (IPv4-mapped IPv6, NAT64, decimal, hex, octal or shortened IPv4), a multicast or special-use range, a single-label name, or a name under `.localhost`, `.local`, `.internal`, `.home.arpa`, `.localdomain` or `.lan`.
 - ISO chunk uploads need a Content-Length of at most 8 MiB and are refused before the body is read. A streamed upload with no length used to be buffered in full first.
 - Inviting a co-host gives the same answer whether or not the email has an account, and no longer returns that person's account id or name. Existing accounts get the invite mail and become co-hosts when they accept on the studio link or next sign in, not straight away. A co-host can leave a studio.

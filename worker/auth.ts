@@ -11,6 +11,7 @@ import {
   SIGNIN_IP_MAX,
   SIGNIN_EMAIL_MAX,
   SIGNIN_TO_MAX,
+  SIGNIN_TO_GAP_MS,
   SESSION_PREV_GRACE_MS,
   allowDevLogin,
   asEmail,
@@ -34,6 +35,7 @@ import {
   accountByEmail,
   accountByGithub,
   accountById,
+  allowInboxRate,
   allowRate,
   consumeMagic,
   deleteOauth,
@@ -198,8 +200,8 @@ export async function issueMagicLink(c: AppCtx, email: string): Promise<{ ok: tr
   if (!(await allowRate(c.env.DB, `signin:email:${email}:${client}`, SIGNIN_EMAIL_MAX, SIGNIN_WINDOW_MS))) {
     return { ok: true };
   }
-  // Take the inbox slot before send so parallel clients cannot race past the cap.
-  if (!(await allowRate(c.env.DB, `signin:to:${email}`, SIGNIN_TO_MAX, SIGNIN_WINDOW_MS))) {
+  // Burst, then at most one more per minute so a flood cannot lock the owner out.
+  if (!(await allowInboxRate(c.env.DB, `signin:to:${email}`, SIGNIN_TO_MAX, SIGNIN_WINDOW_MS, SIGNIN_TO_GAP_MS))) {
     return { ok: true };
   }
   try {

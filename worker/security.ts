@@ -22,8 +22,10 @@ export const ABSENT_GUEST_GRACE_MS = 60_000;
 export const SIGNIN_WINDOW_MS = 15 * 60 * 1000;
 export const SIGNIN_IP_MAX = 5;
 export const SIGNIN_EMAIL_MAX = 3;
-/** Mails actually sent to one address from all clients together. High enough that a legit retry gets through. */
+/** Mails actually sent to one address from all clients together. After this, one more per SIGNIN_TO_GAP_MS. */
 export const SIGNIN_TO_MAX = 20;
+/** After the inbox burst cap, wait this long since the last sent mail before allowing one more. */
+export const SIGNIN_TO_GAP_MS = 60_000;
 export const CHAT_WINDOW_MS = 10_000;
 export const CHAT_MAX = 8;
 export const SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;

@@ -448,9 +448,38 @@ export class FakeD1 implements D1Database {
       const live = row && Number(nowBind) - Number(row.window_start) <= Number(windowBind);
       if (live && Number(row.count) > 0) {
         row.count = Number(row.count) - 1;
+        row.last_at = 0;
         return { results: [], changes: 1 };
       }
       return { results: [], changes: 0 };
+    }
+    if (q === norm(Q.claimInboxRate)) {
+      const [key, nowBind, , windowBind, , , maxBind, gapBind] = binds;
+      const now = Number(nowBind);
+      const windowMs = Number(windowBind);
+      const max = Number(maxBind);
+      const gapMs = Number(gapBind);
+      let row = this.rows("rate_limits").find((r) => r.key === key);
+      if (!row) {
+        row = { key, count: 1, window_start: now, last_at: now };
+        this.rows("rate_limits").push(row);
+        return { results: [{ count: 1 }], changes: 1 };
+      }
+      const lastAt = Number(row.last_at ?? 0);
+      const windowStart = Number(row.window_start);
+      const count = Number(row.count);
+      const newWindow = now - windowStart > windowMs;
+      if (!newWindow && count >= max && now - lastAt < gapMs) {
+        return { results: [], changes: 0 };
+      }
+      if (newWindow) {
+        row.count = 1;
+        row.window_start = now;
+      } else {
+        row.count = count + 1;
+      }
+      row.last_at = now;
+      return { results: [{ count: row.count }], changes: 1 };
     }
     if (q === norm(Q.bumpRate)) {
       const [key, nowBind, , windowBind] = binds;

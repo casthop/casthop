@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { app, StudioDurableObject } from "../worker/index.ts";
 import { GUEST_TOKEN_TTL_SEC, HOST_TOKEN_TTL_SEC } from "../worker/livekit.ts";
-import { DEV_API_KEY, DEV_API_SECRET, GUEST_MINT_PER_SOURCE, HOST_IDENTITY, SESSION_COOKIE, SIGNIN_EMAIL_MAX, SIGNIN_TO_MAX } from "../worker/security.ts";
+import { DEV_API_KEY, DEV_API_SECRET, GUEST_MINT_PER_SOURCE, HOST_IDENTITY, SESSION_COOKIE, SIGNIN_EMAIL_MAX, SIGNIN_TO_GAP_MS, SIGNIN_TO_MAX } from "../worker/security.ts";
 import type { Env, PublicClip, PublicReplay, PublicStudio, StudioRecord } from "../worker/types.ts";
 import { insertClip } from "../worker/db.ts";
 import { clipObjectKey } from "../worker/clips.ts";
@@ -1500,6 +1500,42 @@ test("parallel sign-in from different networks cannot blow past the inbox cap", 
   const sent = logs.filter((line) => line.includes("casthop mail") && line.includes("burst@example.com"));
   assert.equal(sent.length, SIGNIN_TO_MAX);
   assert.equal(env._db.rows("magic_links").filter((r) => r.email === "burst@example.com").length, SIGNIN_TO_MAX);
+});
+
+test("inbox cap still allows one sign-in mail a minute later", async () => {
+  const env = makeEnv();
+  const logs: string[] = [];
+  const origLog = console.log;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map(String).join(" "));
+  };
+  const ask = (ip: string) =>
+    app.request(
+      "https://casthop.test/api/auth/magic-link",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "cf-connecting-ip": ip },
+        body: JSON.stringify({ email: "drip@example.com" }),
+      },
+      env,
+    );
+  const mails = () => logs.filter((line) => line.includes("casthop mail") && line.includes("drip@example.com")).length;
+  try {
+    for (let net = 1; net <= SIGNIN_TO_MAX; net++) await ask(`2001:db8:dd:${net}::1`);
+    assert.equal(mails(), SIGNIN_TO_MAX);
+    assert.equal((await ask(`2001:db8:dd:${SIGNIN_TO_MAX + 1}::1`)).status, 200);
+    assert.equal(mails(), SIGNIN_TO_MAX, "still blocked until a minute has passed");
+
+    const row = env._db.rows("rate_limits").find((r) => r.key === "signin:to:drip@example.com");
+    assert.ok(row);
+    row.last_at = Date.now() - SIGNIN_TO_GAP_MS - 1;
+    assert.equal((await ask(`2001:db8:dd:${SIGNIN_TO_MAX + 2}::1`)).status, 200);
+    assert.equal(mails(), SIGNIN_TO_MAX + 1, "one mail after a minute");
+    assert.equal((await ask(`2001:db8:dd:${SIGNIN_TO_MAX + 3}::1`)).status, 200);
+    assert.equal(mails(), SIGNIN_TO_MAX + 1, "not another until a minute later");
+  } finally {
+    console.log = origLog;
+  }
 });
 
 test("parallel sign-in rate limit does not 500", async () => {

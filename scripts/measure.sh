@@ -38,7 +38,7 @@ magic=$(curl -sf -c "$cookie_jar" -X POST "$APP/api/auth/magic-link" -H 'content
   -d '{"email":"measure@example.com"}')
 login=$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("devLogin",""))' <<<"$magic")
 if [[ -z "$login" ]]; then
-  log "magic link did not return devLogin; sign in first or use local default keys"
+  log "magic link did not return devLogin; set CASTHOP_DEV_LOGIN=1 in .dev.vars and use local default keys"
   exit 1
 fi
 curl -sf -c "$cookie_jar" -b "$cookie_jar" -o /dev/null -X POST "$APP$login"

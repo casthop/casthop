@@ -75,6 +75,7 @@ function makeEnv(overrides: Partial<Env> = {}): Env & { _db: FakeD1 } {
     RTMP_X: X,
     EGRESS_TEMPLATE_URL: "http://127.0.0.1:5173/egress-template",
     CASTHOP_ALLOW_DEV_KEYS: "1",
+    CASTHOP_DEV_LOGIN: "1",
     CASTHOP_TRUST_FORWARDED: "1",
     PUBLIC_ORIGIN: "https://casthop.test",
     ASSETS: { fetch: async () => new Response("ok") },
@@ -1063,6 +1064,24 @@ test("C2: live without an owner or co-host session does not start or stop Egress
   );
   assert.equal(stopBad.status, 403);
   assert.equal(egressStops, beforeStop);
+});
+
+test("dev sign-in link needs CASTHOP_DEV_LOGIN even when Host and CF-Connecting-IP say loopback", async () => {
+  const send = (flag: string | undefined) => {
+    const req = new Request("http://127.0.0.1:5173/api/auth/magic-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "cf-connecting-ip": "127.0.0.1" },
+      body: JSON.stringify({ email: `dev-flag-${flag ?? "off"}@example.com` }),
+    });
+    // What the Vite dev server hands the Worker for any client that sends Host: 127.0.0.1:5173.
+    Object.defineProperty(req, "cf", { value: { colo: "LOCAL" } });
+    return app.fetch(req, makeEnv({ PUBLIC_ORIGIN: undefined, CASTHOP_TRUST_FORWARDED: undefined, CASTHOP_DEV_LOGIN: flag }));
+  };
+  const off = await json<{ ok: boolean; devLogin?: string }>(await send(undefined));
+  assert.equal(off.ok, true);
+  assert.equal(off.devLogin, undefined);
+  const on = await json<{ ok: boolean; devLogin?: string }>(await send("1"));
+  assert.ok(on.devLogin);
 });
 
 test("H2: default LiveKit keys are refused off loopback", async () => {

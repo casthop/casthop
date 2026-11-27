@@ -66,7 +66,7 @@ bun run test:e2e-ui         # studio UI flows (e2e, locators, --strict-cache, no
 PERF=1 bun run test:perf    # headless main vs worker p95 / long tasks (~30 s each)
 ```
 
-CI (`.github/workflows/ci.yml`): parallel `lint` (rustfmt), `typecheck`, `test`, `rust` (test + clippy), `wasm` budget, `audit` (`bun audit` + `cargo audit`), `perf` (Chrome compositor budget), `e2e` (compose + Chrome, Go Live → MediaMTX release gate), `e2e-studio` (compose + e2e UI flows, no secrets, no model). No ESLint script; typecheck is the TS gate. Dependabot: `.github/dependabot.yml`.
+CI (`.github/workflows/ci.yml`): parallel `lint` (rustfmt), `typecheck`, `test`, `rust` (test + clippy), `wasm` budget, `wasm-reproducible` (rebuild in `rust:1.100.0`, bytes must match `src/wasm`), `audit` (`bun audit` + `cargo audit`), `perf` (Chrome compositor budget), `e2e` (compose + Chrome, Go Live → MediaMTX release gate), `e2e-studio` (compose + e2e UI flows, no secrets, no model). No ESLint script; typecheck is the TS gate. Dependabot: `.github/dependabot.yml`.
 
 ## Code
 

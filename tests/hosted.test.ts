@@ -8,6 +8,7 @@ import { isoChunkKey } from "../worker/iso.ts";
 import { replayObjectKey } from "../worker/replays.ts";
 import { parseKeyList, safeNextPath, serviceSignature } from "../worker/hosted.ts";
 import { asTenantId, scopeStore, storeFor, tenantKeyPrefix } from "../worker/tenant.ts";
+import { insertStudioRow } from "../worker/db.ts";
 import { FakeD1 } from "./fake-d1.ts";
 import { FakeR2 } from "./fake-r2.ts";
 import { hlsFiles, hlsPlaylist } from "./replay-fixture.ts";
@@ -439,6 +440,14 @@ test("service signature covers the query, method and body", async () => {
     timestamp: Number(timestamp),
   });
   assert.equal(tampered.status, 401);
+});
+
+test("insertStudioRow sets the tenant in the same insert", async () => {
+  const env = hostedEnv();
+  await insertStudioRow(env.DB, "t1", "Show", 1, "acct", "acme");
+  await insertStudioRow(env.DB, "t2", "Plain", 2, "acct");
+  assert.equal(env._db.rows("studios").find((r) => r.id === "t1")?.tenant_id, "acme");
+  assert.equal(env._db.rows("studios").find((r) => r.id === "t2")?.tenant_id, null);
 });
 
 test("service API creates and lists studios for a tenant", async () => {

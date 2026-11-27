@@ -1,4 +1,4 @@
-import { deleteStudioRows, insertMember, insertStudioRow, setStudioTenant, studiosOfTenant } from "./db";
+import { deleteStudioRows, insertMember, insertStudioRow, studiosOfTenant } from "./db";
 import { hostKeyFor, randomId, sha256hex } from "./security";
 import { deleteAllUnder, scopeStore, tenantKeyPrefix } from "./tenant";
 import type { Env } from "./types";
@@ -20,8 +20,7 @@ export async function createStudio(
   const id = randomId(8).toLowerCase();
   const hostKeyHash = await sha256hex(await hostKeyFor(env, id));
   const createdAt = Date.now();
-  await insertStudioRow(env.DB, id, input.title, createdAt, input.ownerId);
-  if (input.tenantId) await setStudioTenant(env.DB, id, input.tenantId);
+  await insertStudioRow(env.DB, id, input.title, createdAt, input.ownerId, input.tenantId);
   await insertMember(env.DB, id, input.ownerId, "owner", createdAt);
   const created = await studioStub(env, id).fetch(`https://studio/${id}?action=create`, {
     method: "PUT",

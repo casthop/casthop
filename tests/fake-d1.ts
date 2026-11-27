@@ -201,8 +201,8 @@ export class FakeD1 implements D1Database {
       return { results: [], changes: 1 };
     }
     if (q === norm(Q.insertStudio)) {
-      const [id, title, created_at, owner_id] = binds;
-      this.rows("studios").push({ id, title, created_at, owner_id });
+      const [id, title, created_at, owner_id, tenant_id] = binds;
+      this.rows("studios").push({ id, title, created_at, owner_id, tenant_id });
       return { results: [], changes: 1 };
     }
     if (q === norm(Q.studioById)) {
@@ -402,10 +402,6 @@ export class FakeD1 implements D1Database {
     if (q === norm(Q.studioTenant)) {
       const rows = this.rows("studios").filter((r) => r.id === binds[0]);
       return { results: rows.map((r) => ({ tenant_id: r.tenant_id ?? null })), changes: 0 };
-    }
-    if (q === norm(Q.setStudioTenant)) {
-      for (const r of this.rows("studios")) if (r.id === binds[1]) r.tenant_id = binds[0];
-      return { results: [], changes: 1 };
     }
     if (q === norm(Q.studiosByTenant)) {
       const results = this.rows("studios")

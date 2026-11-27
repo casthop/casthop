@@ -115,7 +115,7 @@ export const Q = {
   insertOauth: "INSERT INTO oauth_states (state, expires_at) VALUES (?, ?)",
   oauthByState: "SELECT state, expires_at FROM oauth_states WHERE state = ?",
   deleteOauth: "DELETE FROM oauth_states WHERE state = ?",
-  insertStudio: "INSERT INTO studios (id, title, created_at, owner_id) VALUES (?, ?, ?, ?)",
+  insertStudio: "INSERT INTO studios (id, title, created_at, owner_id, tenant_id) VALUES (?, ?, ?, ?, ?)",
   studioById: "SELECT id, title, created_at, owner_id FROM studios WHERE id = ?",
   listStudios:
     "SELECT s.id, s.title, s.owner_id, s.created_at, m.role FROM studios s INNER JOIN studio_members m ON m.studio_id = s.id WHERE m.account_id = ? ORDER BY s.created_at DESC",
@@ -151,7 +151,6 @@ export const Q = {
   updateClipVisibility: "UPDATE clips SET visibility = ? WHERE id = ?",
   countClipsByStudio: "SELECT COUNT(*) AS n FROM clips WHERE studio_id = ?",
   studioTenant: "SELECT tenant_id FROM studios WHERE id = ?",
-  setStudioTenant: "UPDATE studios SET tenant_id = ? WHERE id = ?",
   studiosByTenant: "SELECT id, title, owner_id, created_at FROM studios WHERE tenant_id = ? ORDER BY created_at",
   deleteStudioMembers: "DELETE FROM studio_members WHERE studio_id = ?",
   deleteStudioInvites: "DELETE FROM studio_invites WHERE studio_id = ?",
@@ -368,8 +367,9 @@ export async function deleteOauth(db: D1Database, state: string): Promise<void> 
   await run(db, Q.deleteOauth, state);
 }
 
-export async function insertStudioRow(db: D1Database, id: string, title: string, createdAt: number, ownerId: string): Promise<void> {
-  await run(db, Q.insertStudio, id, title, createdAt, ownerId);
+export async function insertStudioRow(db: D1Database, id: string, title: string, createdAt: number, ownerId: string, tenantId?: string): Promise<void> {
+  // Tenant goes in the same write so a studio never exists without it.
+  await run(db, Q.insertStudio, id, title, createdAt, ownerId, tenantId ?? null);
 }
 
 export async function studioById(db: D1Database, id: string): Promise<{ id: string; title: string; created_at: number; owner_id: string | null } | null> {
@@ -569,10 +569,6 @@ export async function updateClipVisibility(db: D1Database, id: string, visibilit
 export async function studioTenantId(db: D1Database, studioId: string): Promise<string | null> {
   const row = await first<{ tenant_id: string | null }>(db, Q.studioTenant, studioId);
   return row?.tenant_id ?? null;
-}
-
-export async function setStudioTenant(db: D1Database, studioId: string, tenantId: string): Promise<void> {
-  await run(db, Q.setStudioTenant, tenantId, studioId);
 }
 
 export type TenantStudioRow = { id: string; title: string; owner_id: string | null; created_at: number };

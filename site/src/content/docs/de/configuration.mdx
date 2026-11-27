@@ -79,6 +79,17 @@ Kommentare der YouTube-Sendung erscheinen im Studio-Chatpanel, solange die Show 
 
 Entweder ein API-Key plus Live-Chat- oder Video-ID, oder das OAuth-Refresh-Trio. Polling nutzt das `pollingIntervalMillis` der API. Die X-API braucht eine bezahlte Stufe, LinkedIn-Kommentare eine Partner-API; diese Ziele werden nicht ingested.
 
+## Twitch- und Kick-Chat
+
+Solange die Show live ist, erscheinen diese Kommentare im selben Chat-Panel. Ohne Wert bleiben sie ausgeblendet.
+
+| Name | Zweck | Lokaler Default |
+|---|---|---|
+| `TWITCH_CHANNEL` | Name des Twitch-Kanals, dessen Chat gelesen wird. | unset |
+| `KICK_CHATROOM_ID` | Numerische Kick-Chatroom-ID, die gelesen wird. | unset |
+
+X-Chat wird noch nicht unterstützt, weil X keine kostenlose Chat-API hat.
+
 ## Stream-Keys
 
 Stream-Keys sind keine Umgebungsvariablen. Sie leben im Durable-Object-Speicher, nie im Repo. Die öffentliche API liefert nur ein maskiertes Suffix wie `rtmp://…/xxxx` plus ein `hasKey`-Flag.

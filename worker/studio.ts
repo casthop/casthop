@@ -1,4 +1,5 @@
 import { DEST_CHAT_BACKOFF_MS, destChatProviders, type YoutubeTokenCache } from "./chat-ingest";
+import { PlatformHub, platformsConfigured, type PlatformMessage } from "./chat-platforms";
 import { defaultDestinations, destAspectOf, MAX_ON_STAGE, type Env, type IsoTrack, type LayoutId, type StudioState } from "./types";
 import {
   ISO_CHUNK_MAX_BYTES,
@@ -85,6 +86,8 @@ type Incoming =
   | { type: "chat"; text?: string; name?: string; identity?: string; hostKey?: string; guestSecret?: string }
   | { type: "ping" };
 
+const PLATFORM_FLUSH_MS = 1000;
+
 // Long egress calls, or a write right after the read with no await between.
 const UNLOCKED_ACTIONS = new Set([
   "start-live",
@@ -108,7 +111,10 @@ export class StudioDurableObject {
   private chatHits = new Map<string, { n: number; t: number }>();
   private mintHits = { n: 0, t: 0 };
   private youtubeToken: YoutubeTokenCache | null = null;
+  private platformHub: PlatformHub | null = null;
   private writeChain: Promise<void> = Promise.resolve();
+  private platformBuffer: PlatformMessage[] = [];
+  private platformFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     this.ctx = ctx;
@@ -536,6 +542,7 @@ export class StudioDurableObject {
   }
 
   async alarm(): Promise<void> {
+    await this.flushPlatformMessages();
     const state = await this.getState();
     if (!state) return;
     await this.watchAndChat(state);
@@ -803,6 +810,8 @@ export class StudioDurableObject {
     latest.portraitHeartbeatAt = null;
     this.clearPortraitRecovery(latest);
     latest.destChat = undefined;
+    this.platformHub?.close();
+    this.platformBuffer = [];
     setDestStatuses(latest.destinations, reason === "stopped" ? "stopped" : "idle", null);
     if (reason === "stopped") {
       for (const d of latest.destinations) {
@@ -836,7 +845,48 @@ export class StudioDurableObject {
   private async watchAndChat(state: StudioState): Promise<void> {
     await this.watch(state);
     const latest = await this.getState();
-    if (latest) await this.pollDestChat(latest);
+    if (!latest) return;
+    await this.pollDestChat(latest);
+    await this.tickPlatforms(latest.wantLive);
+  }
+
+  // Twitch and Kick hold sockets. Each reconnects on its own backoff; the alarm only revives due ones.
+  private async tickPlatforms(wantLive: boolean): Promise<void> {
+    const configured = platformsConfigured(this.env);
+    if (!configured.twitch && !configured.kick) return;
+    if (!wantLive) {
+      this.platformHub?.close();
+      this.platformBuffer = [];
+      return;
+    }
+    this.platformHub ??= new PlatformHub(this.env, (msgs) => this.bufferPlatformMessages(msgs));
+    const retryAt = await this.platformHub.tick(Date.now());
+    if (retryAt !== null) await this.scheduleWatch(retryAt);
+  }
+
+  // Frames are buffered and written together about once a second, or on the next alarm.
+  private bufferPlatformMessages(msgs: PlatformMessage[]): void {
+    this.platformBuffer.push(...msgs);
+    this.platformFlushTimer ??= setTimeout(() => void this.flushPlatformMessages(), PLATFORM_FLUSH_MS);
+  }
+
+  // One write through the same lock as every other chat write (#65).
+  private flushPlatformMessages(): Promise<void> {
+    if (this.platformFlushTimer) clearTimeout(this.platformFlushTimer);
+    this.platformFlushTimer = null;
+    const msgs = this.platformBuffer;
+    this.platformBuffer = [];
+    if (!msgs.length) return Promise.resolve();
+    return this.serialize(async () => {
+      const state = await this.getState();
+      if (!state?.wantLive) return;
+      const seen = new Set(state.chat.map((m) => m.id));
+      // Adding as we go also drops duplicates inside the buffer itself.
+      const fresh = msgs.filter((m) => !seen.has(m.id) && seen.add(m.id));
+      if (!fresh.length) return;
+      state.chat = [...state.chat, ...fresh].slice(-100);
+      await this.putState(state);
+    }).catch((err) => console.warn("platform chat write", err));
   }
 
   private async pollDestChat(state: StudioState): Promise<void> {

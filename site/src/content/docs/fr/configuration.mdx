@@ -79,6 +79,17 @@ Les commentaires de l’émission YouTube apparaissent dans le panneau de chat d
 
 Il faut soit une API key plus un live chat ou un video id, soit le trio de refresh OAuth. Le polling utilise le `pollingIntervalMillis` de l’API. L’API de X demande un palier payant, et les commentaires LinkedIn une API partenaire ; ces destinations ne sont pas ingérées.
 
+## Chat Twitch et Kick
+
+Pendant le direct, ces commentaires apparaissent dans le même panneau de chat. Sans valeur, ils restent masqués.
+
+| Nom | Rôle | Valeur locale |
+|---|---|---|
+| `TWITCH_CHANNEL` | Nom de la chaîne Twitch à lire. | unset |
+| `KICK_CHATROOM_ID` | Id numérique du chatroom Kick à lire. | unset |
+
+Le chat X n’est pas encore pris en charge, car X n’a pas d’API de chat gratuite.
+
 ## Clés de stream
 
 Les clés de stream ne sont pas des variables d’environnement. Elles vivent dans le stockage du Durable Object, jamais dans le dépôt. L’API publique ne renvoie qu’un suffixe masqué du type `rtmp://…/xxxx`, plus un flag `hasKey`.

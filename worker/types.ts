@@ -55,7 +55,7 @@ export type ChatMessage = {
   name: string;
   text: string;
   at: number;
-  source: "studio" | "youtube" | "linkedin" | "x";
+  source: "studio" | "youtube" | "twitch" | "kick" | "linkedin" | "x";
 };
 
 export type PinnedChat = {
@@ -171,6 +171,9 @@ export type Env = {
   YOUTUBE_API_KEY?: string;
   YOUTUBE_LIVE_CHAT_ID?: string;
   YOUTUBE_VIDEO_ID?: string;
+  /** Public channel names/ids, not secrets. Unset hides the platform. */
+  TWITCH_CHANNEL?: string;
+  KICK_CHATROOM_ID?: string;
   YOUTUBE_OAUTH_CLIENT_ID?: string;
   YOUTUBE_OAUTH_CLIENT_SECRET?: string;
   YOUTUBE_OAUTH_REFRESH_TOKEN?: string;

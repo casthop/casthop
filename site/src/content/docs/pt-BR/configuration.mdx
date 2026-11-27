@@ -79,6 +79,17 @@ Comentários da transmissão do YouTube aparecem no painel de chat do estúdio e
 
 Precisa de uma API key mais um live chat ou video id, ou o trio de refresh OAuth. A consulta usa o `pollingIntervalMillis` da API. A API do X pede plano pago, e comentários do LinkedIn pedem API de parceiro; esses destinos não são ingeridos.
 
+## Chat da Twitch e da Kick
+
+Durante a live, esses comentários aparecem no mesmo painel de chat. Sem valor, ficam ocultos.
+
+| Nome | Função | Padrão local |
+|---|---|---|
+| `TWITCH_CHANNEL` | Nome do canal da Twitch a ler. | unset |
+| `KICK_CHATROOM_ID` | Id numérico do chatroom da Kick a ler. | unset |
+
+O chat do X ainda não é suportado porque o X não tem API de chat gratuita.
+
 ## Chaves de stream
 
 Chaves de stream não são variáveis de ambiente. Ficam no armazenamento do Durable Object, nunca no repositório. A API pública só devolve um sufixo mascarado como `rtmp://…/xxxx`, mais uma flag `hasKey`.

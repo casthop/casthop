@@ -35,6 +35,11 @@ EGRESS_TEMPLATE_URL=http://127.0.0.1:5173/egress-template
 # YOUTUBE_OAUTH_CLIENT_SECRET=
 # YOUTUBE_OAUTH_REFRESH_TOKEN=
 
+# Optional Twitch and Kick chat while live (read-only, no login). Unset hides them.
+# Twitch channel name; Kick numeric chatroom id. X chat is not supported (no free chat API).
+# TWITCH_CHANNEL=
+# KICK_CHATROOM_ID=
+
 # Optional mail webhook. Unset = log the magic link to the Worker console.
 # POST JSON { to, subject, text }. No paid provider required.
 # MAIL_WEBHOOK_URL=

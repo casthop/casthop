@@ -1,6 +1,9 @@
-// encodeURIComponent leaves "." alone, and URL parsing treats "%2E" the same as ".",
-// so "/a/.." and "/a/%2E%2E" both resolve away. No encoding is safe; refuse instead.
+// encodeURIComponent leaves "." and ".." as path navigation, and the URL parser
+// treats "%2E" the same way, so those values must not be interpolated.
 export function seg(s: string): string {
-  if (s === "." || s === "..") throw new Error("invalid path segment");
+  const dots = s.replace(/%2e/gi, ".");
+  if (dots === "" || dots === "." || dots === "..") {
+    throw new Error("invalid path segment");
+  }
   return encodeURIComponent(s);
 }

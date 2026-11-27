@@ -119,6 +119,8 @@ export type StudioState = {
   /** Second RoomComposite for 9:16 destinations. Independent encode. */
   portraitEgressId?: string | null;
   portraitHeartbeatAt?: number | null;
+  /** When the portrait compositor started; start grace runs from here until the first beat. */
+  portraitStartedAt?: number | null;
   portraitRetryCount?: number;
   portraitRetryAt?: number | null;
   portraitRecoveringSince?: number | null;
@@ -275,6 +277,7 @@ export type PublicStudio = Omit<
   | "isoTracks"
   | "portraitEgressId"
   | "portraitHeartbeatAt"
+  | "portraitStartedAt"
   | "portraitRetryCount"
   | "portraitRetryAt"
   | "portraitRecoveringSince"

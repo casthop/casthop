@@ -300,6 +300,8 @@ app.post("/api/studios", async (c) => {
   const sess = await loadSession(c);
   if (!sess) return c.json({ error: "sign in required" }, 401);
   attachSessionCookie(c, sess.cookie);
+  // Hosted studios are created by the signed service API so they carry a tenant.
+  if (signinExternal(c.env)) return c.json({ error: "signin_external" }, 403);
   const body = (await c.req.json().catch(() => ({}))) as { title?: string };
   const title = asName(body.title, "Weekly product update");
   const created = await createStudio(c.env, { ownerId: sess.account.id, title });

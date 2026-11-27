@@ -402,6 +402,20 @@ test("CASTHOP_SIGNIN=external blocks magic-link and GitHub, keeps sessions", asy
   assert.equal(guest.status, 200);
 });
 
+test("CASTHOP_SIGNIN=external rejects tenantless studio creation", async () => {
+  const env = hostedEnv({ CASTHOP_SIGNIN: "external" });
+  const signed = await external(env, await makeToken());
+  const before = env._db.rows("studios").length;
+  const res = await app.request(
+    `${ORIGIN}/api/studios`,
+    { method: "POST", headers: { Cookie: sessionCookie(signed), "Content-Type": "application/json" }, body: "{}" },
+    env,
+  );
+  assert.equal(res.status, 403);
+  assert.deepEqual(await res.json(), { error: "signin_external" });
+  assert.equal(env._db.rows("studios").length, before);
+});
+
 // --- service API ----------------------------------------------------------
 
 test("service API rejects bad signatures, stale timestamps and reused nonces", async () => {

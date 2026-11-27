@@ -96,6 +96,7 @@ function makeEnv(overrides: Partial<Env> = {}): Env {
     RTMP_X: X,
     EGRESS_TEMPLATE_URL: "http://127.0.0.1:5173/egress-template",
     CASTHOP_ALLOW_DEV_KEYS: "1",
+    CASTHOP_DEV_LOGIN: "1",
     CASTHOP_EMPTY_GRACE_MS: "0",
     CASTHOP_BACKOFF_MS: "0",
     CASTHOP_TRUST_FORWARDED: "1",
@@ -2355,4 +2356,65 @@ test("a 9:16 compositor that never beats is restarted then capped", async () => 
   assert.notEqual(capped.destinations.find((d) => d.id === "youtube")?.status, "failed");
   assert.notEqual(capped.livePhase, "failed");
   assert.equal(egressStarts, capStarts);
+});
+
+test("a dead RTMP destination never turns the header Live, then the studio fails", async () => {
+  listedParticipants = [{ identity: "host" }, { identity: "EG_abc" }];
+  listedEgress = { items: [] };
+  const env = makeEnv({ CASTHOP_BACKOFF_MS: "0" });
+  const { id, cookie } = await createStudio(env);
+  const dead = "rtmp://127.0.0.1:1999/live/dead";
+  const dests = [
+    { id: "dead", kind: "custom", label: "Dead", detail: "", url: dead, enabled: true, status: "idle", error: null },
+  ];
+  const saved = await app.request(
+    `https://casthop.test/api/studios/${id}/destinations`,
+    { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ destinations: dests }) },
+    env,
+  );
+  assert.equal(saved.status, 200, await saved.clone().text());
+  const started = await json<PublicStudio>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
+      env,
+    ),
+  );
+  assert.equal(started.livePhase, "starting");
+
+  let last: PublicStudio = started;
+  for (let i = 0; i < MAX_STREAM_RETRIES + 3; i++) {
+    // started_at is old enough to pass the settle window; the stream still failed.
+    const body = JSON.stringify({
+      event: "egress_updated",
+      egressInfo: {
+        egressId: started.egressId,
+        roomName: id,
+        status: "EGRESS_ACTIVE",
+        streamResults: [
+          { url: dead, status: "FAILED", error: "connection refused", started_at: "1700000000000000000" },
+        ],
+      },
+    });
+    const res = await app.request(
+      "https://casthop.test/api/livekit/webhook",
+      { method: "POST", headers: { Authorization: await signLivekitWebhook(env, body) }, body },
+      env,
+    );
+    assert.equal(res.status, 200, await res.clone().text());
+    last = await json<PublicStudio>(res);
+    assert.notEqual(last.livePhase, "live");
+    assert.equal(last.live, false);
+    if (i === 0) {
+      // The first failed poll retries; it must not end the go-live.
+      assert.notEqual(last.livePhase, "failed");
+      assert.equal(last.destinations.find((d) => d.id === "dead")?.status, "retrying");
+    }
+    if (last.livePhase === "failed") {
+      assert.ok(i > 0, "failed only after retries");
+      break;
+    }
+  }
+  assert.equal(last.livePhase, "failed");
+  assert.equal(last.destinations.find((d) => d.id === "dead")?.status, "failed");
 });

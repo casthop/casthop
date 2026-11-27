@@ -7,6 +7,7 @@ import {
   isHlsFilename,
   MAX_FILE_BYTES,
   playlistError,
+  playlistNameError,
 } from "./replays";
 import { randomId } from "./security";
 import type { StoreEnv } from "./tenant";
@@ -96,7 +97,7 @@ export function parseHlsSegments(text: string): { mapUri: string | null; targetD
     const line = raw.trim();
     if (line.startsWith("#EXT-X-VERSION:")) {
       const v = line.slice("#EXT-X-VERSION:".length).trim();
-      if (v) version = v;
+      if (/^\d{1,2}$/.test(v)) version = v;
       continue;
     }
     if (line.startsWith("#EXT-X-TARGETDURATION:")) {
@@ -192,7 +193,7 @@ export async function putLiveHlsFile(
   file: string,
   bytes: Uint8Array,
 ): Promise<void> {
-  if (!isHlsFilename(file)) {
+  if (!isHlsFilename(file) || playlistNameError(file)) {
     throw Object.assign(new Error("invalid filename"), { status: 400 });
   }
   if (bytes.byteLength === 0 || bytes.byteLength > MAX_FILE_BYTES) {

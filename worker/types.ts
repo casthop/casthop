@@ -159,6 +159,8 @@ export type Env = {
   RTMP_X: string;
   EGRESS_TEMPLATE_URL: string;
   CASTHOP_ALLOW_DEV_KEYS?: string;
+  /** "1" puts the magic-link path in the sign-in response. Loopback dev server, tests and CI only. */
+  CASTHOP_DEV_LOGIN?: string;
   CASTHOP_EMPTY_GRACE_MS?: string;
   CASTHOP_COMPOSITOR_GRACE_MS?: string;
   CASTHOP_BACKOFF_MS?: string;

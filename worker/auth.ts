@@ -33,7 +33,6 @@ import {
   accountByGithub,
   accountById,
   allowRate,
-  applyInvites,
   consumeMagic,
   deleteOauth,
   deleteSession,
@@ -141,10 +140,7 @@ export async function destroySession(c: AppCtx, sessionId?: string): Promise<str
 
 export async function findOrCreateEmailAccount(env: Env, email: string, name?: string): Promise<Account> {
   const existing = await accountByEmail(env.DB, email);
-  if (existing) {
-    await applyInvites(env.DB, existing);
-    return existing;
-  }
+  if (existing) return existing;
   const account: Account = {
     id: randomId(12),
     email,
@@ -153,24 +149,18 @@ export async function findOrCreateEmailAccount(env: Env, email: string, name?: s
     createdAt: Date.now(),
   };
   await insertAccount(env.DB, account);
-  await applyInvites(env.DB, account);
   return account;
 }
 
 export async function findOrCreateGithubAccount(env: Env, github: { id: string; email: string | null; name: string }): Promise<Account | null> {
   const byGithub = await accountByGithub(env.DB, github.id);
-  if (byGithub) {
-    await applyInvites(env.DB, byGithub);
-    return byGithub;
-  }
+  if (byGithub) return byGithub;
   if (github.email) {
     const byEmail = await accountByEmail(env.DB, github.email);
     if (byEmail) {
       if (byEmail.githubId) return null;
       await updateAccountGithub(env.DB, byEmail.id, github.id, github.name || byEmail.name);
-      const linked = { ...byEmail, githubId: github.id, name: github.name || byEmail.name };
-      await applyInvites(env.DB, linked);
-      return linked;
+      return { ...byEmail, githubId: github.id, name: github.name || byEmail.name };
     }
   }
   const account: Account = {
@@ -181,13 +171,18 @@ export async function findOrCreateGithubAccount(env: Env, github: { id: string; 
     createdAt: Date.now(),
   };
   await insertAccount(env.DB, account);
-  await applyInvites(env.DB, account);
   return account;
 }
 
 function showDevLogin(c: AppCtx, ip: string): boolean {
-  // Wrangler still attaches `cf` locally. Loopback Host + loopback/local IP is the gate.
-  return allowDevLogin(c.env) && isLoopbackUrl(c.req.url) && (ip === "local" || isLoopbackHost(ip));
+  // In the Vite dev server the Host header and CF-Connecting-IP come from the client
+  // (Miniflare stamps 127.0.0.1), so they cannot prove a local peer. Opt in explicitly too.
+  return (
+    c.env.CASTHOP_DEV_LOGIN === "1" &&
+    allowDevLogin(c.env) &&
+    isLoopbackUrl(c.req.url) &&
+    (ip === "local" || isLoopbackHost(ip))
+  );
 }
 
 export async function issueMagicLink(c: AppCtx, email: string): Promise<{ ok: true; devLogin?: string }> {

@@ -13,7 +13,8 @@ import type {
 
 export type { PublicClip, PublicReplay, PublicStudio, PublicDestination, RecordingList, ReplayVisibility, StudioMember, StudioRecord, ViewerRole };
 
-export type StudioView = PublicStudio & { viewerRole: ViewerRole };
+/** `cohostInvite`: the signed-in viewer has a co-host invite for this studio to accept. */
+export type StudioView = PublicStudio & { viewerRole: ViewerRole; cohostInvite?: boolean };
 
 export type AccountMe = {
   id: string;
@@ -185,10 +186,14 @@ export function listCohosts(id: string) {
 }
 
 export function inviteCohost(id: string, email: string) {
-  return api<{ ok: true; pending?: boolean; member?: StudioMember }>(`/api/studios/${id}/cohosts`, {
+  return api<{ ok: true; pending: true; email: string }>(`/api/studios/${id}/cohosts`, {
     method: "POST",
     body: JSON.stringify({ email }),
   });
+}
+
+export function acceptCohostInvite(id: string) {
+  return api<{ ok: true }>(`/api/studios/${id}/cohosts/accept`, { method: "POST" });
 }
 
 export function removeCohost(id: string, accountId: string) {

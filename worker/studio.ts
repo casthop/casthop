@@ -1,4 +1,4 @@
-import { DEST_CHAT_BACKOFF_MS, destChatProviders, type YoutubeTokenCache } from "./chat-ingest";
+import { DEST_CHAT_BACKOFF_MS, destChatConfigured, destChatProviders, type YoutubeTokenCache } from "./chat-ingest";
 import { PlatformHub, platformsConfigured, type PlatformMessage } from "./chat-platforms";
 import { defaultDestinations, destAspectOf, MAX_ON_STAGE, type Env, type IsoTrack, type LayoutId, type StudioState } from "./types";
 import {
@@ -948,7 +948,7 @@ export class StudioDurableObject {
 
   private async pollDestChat(state: StudioState): Promise<void> {
     const youtube = destChatProviders.find((p) => p.id === "youtube");
-    if (!youtube?.configured(this.env)) return;
+    if (!youtube || !destChatConfigured(this.env, state.id).youtube) return;
     if (!chatActive(state)) {
       await this.dropDestChat(state);
       return;

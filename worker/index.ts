@@ -29,6 +29,7 @@ import {
   guestSecretFor,
   guestSecretOk,
   livekitHealth,
+  GUEST_STAGE_TOKEN_TTL_SEC,
   GUEST_TOKEN_TTL_SEC,
   HOST_TOKEN_TTL_SEC,
   isParticipantMissingError,
@@ -694,6 +695,7 @@ app.post("/api/studios/:id/token", async (c) => {
   if (!joined.ok) return new Response(joined.body, { status: joined.status, headers: joined.headers });
   const joinedBody = (await joined.json()) as { onStage?: boolean };
   const canPublish = Boolean(joinedBody.onStage);
+  const ttlSec = canPublish ? GUEST_STAGE_TOKEN_TTL_SEC : GUEST_TOKEN_TTL_SEC;
   const token = await mintParticipantToken({
     env: c.env,
     identity,
@@ -702,7 +704,7 @@ app.post("/api/studios/:id/token", async (c) => {
     canPublish,
     canPublishData: false,
     roomAdmin: false,
-    ttlSec: GUEST_TOKEN_TTL_SEC,
+    ttlSec,
   });
   return c.json({
     token,
@@ -712,7 +714,7 @@ app.post("/api/studios/:id/token", async (c) => {
     url: c.env.PUBLIC_LIVEKIT_URL,
     canPublish,
     guestSecret,
-    expiresIn: GUEST_TOKEN_TTL_SEC,
+    expiresIn: ttlSec,
   });
 });
 

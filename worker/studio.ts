@@ -3,7 +3,6 @@ import { PlatformHub, platformsConfigured, type PlatformMessage } from "./chat-p
 import { defaultDestinations, destAspectOf, MAX_ON_STAGE, type Env, type IsoTrack, type LayoutId, type StudioState } from "./types";
 import {
   ISO_CHUNK_MAX_BYTES,
-  ISO_PENDING_MS,
   isoChunkFits,
   deleteIsoTrackObjects,
   isoKindOk,
@@ -382,7 +381,7 @@ export class StudioDurableObject {
         return json({ error: "recording too large" }, 413);
       }
       // Validate reserves the index for one upload. Only that upload commits (after its R2
-      // put) or aborts, so a second put to the same key cannot store bytes nobody counted.
+      // put) or aborts (the Worker times the put out), so a second put to the same key cannot store bytes nobody counted.
       const held = track.pending;
       if (body.commit === true || body.abort === true) {
         const nonce = typeof body.nonce === "string" ? body.nonce : "";
@@ -397,7 +396,7 @@ export class StudioDurableObject {
         await this.putState(state);
         return json({ track });
       }
-      if (held && held.index === index && Date.now() - held.at < ISO_PENDING_MS) {
+      if (held && held.index === index) {
         return json({ error: "chunk in flight" }, 429);
       }
       track.pending = { index, bytes, nonce: randomId(16), at: Date.now() };

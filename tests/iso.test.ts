@@ -10,6 +10,7 @@ import {
   isoChunkFits,
   isoChunkKey,
   isoMimeOk,
+  withTimeout,
   ISO_SESSION_MAX_BYTES,
   ISO_TRACK_MAX_BYTES,
   isoPrefix,
@@ -693,6 +694,12 @@ test("a second upload to a chunk index in flight cannot store uncounted bytes", 
   const stored = await env._r2.get(isoChunkKey(id, track.id, 0));
   assert.equal(list.tracks[0]?.bytes, 1);
   assert.equal(stored?.size, list.tracks[0]?.bytes, "stored bytes match counted bytes");
+});
+
+test("withTimeout rejects a stalled put and passes a fast one", async () => {
+  const stalled = new Promise<string>(() => {});
+  await assert.rejects(withTimeout(stalled, 10), /timed out/);
+  assert.equal(await withTimeout(Promise.resolve("ok"), 1000), "ok");
 });
 
 test("isoChunkFits enforces per-track and per-session byte caps", () => {

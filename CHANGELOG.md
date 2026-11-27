@@ -50,3 +50,4 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 - Stream keys and full destination URLs are withheld from guests and public GET / WebSocket state.
 - Published LiveKit `devkey` is refused unless LiveKit is loopback.
 - Inviting a co-host gives the same answer whether or not the email has an account, and no longer returns that person's account id or name. Existing accounts get the invite mail and become co-hosts when they accept on the studio link or next sign in, not straight away. A co-host can leave a studio.
+- Only the host, co-hosts and guests on stage can start a per-person (ISO) recording. Guests waiting off stage used to be able to fill the session's track slots and push earlier recordings out of storage.

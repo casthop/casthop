@@ -50,3 +50,4 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 - Stream keys and full destination URLs are withheld from guests and public GET / WebSocket state.
 - Published LiveKit `devkey` is refused unless LiveKit is loopback.
 - New studios copy `RTMP_YOUTUBE`, `RTMP_LINKEDIN` and `RTMP_X` only when they are loopback stand-ins. A real ingest URL there used to reach every account that created a studio. Studios created earlier keep what they copied; if you set real keys there, rotate them.
+- Only the host, co-hosts and guests on stage can start a per-person (ISO) recording. Guests waiting off stage used to be able to fill the session's track slots and push earlier recordings out of storage.

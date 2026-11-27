@@ -444,19 +444,6 @@ export async function deleteInvite(db: D1Database, studioId: string, email: stri
   await run(db, Q.deleteInvite, studioId, email);
 }
 
-export async function applyInvites(db: D1Database, account: Account): Promise<void> {
-  if (!account.email) return;
-  const invites = await invitesForEmail(db, account.email);
-  const now = Date.now();
-  for (const invite of invites) {
-    const existing = await memberFor(db, invite.studio_id, account.id);
-    if (!existing) {
-      await insertMember(db, invite.studio_id, account.id, "cohost", now);
-    }
-    await deleteInvite(db, invite.studio_id, account.email);
-  }
-}
-
 export async function allowRate(db: D1Database, key: string, max: number, windowMs: number, now = Date.now()): Promise<boolean> {
   const row = await first<{ count: number }>(db, Q.bumpRate, key, now, now, windowMs, now, windowMs, now);
   return (row?.count ?? 0) <= max;

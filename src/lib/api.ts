@@ -161,7 +161,7 @@ export function listRecordings(id: string) {
 }
 
 export function isoDownloadPath(studioId: string, trackId: string): string {
-  return `/api/studios/${encodeURIComponent(studioId)}/recordings/iso/${trackId}`;
+  return `/api/studios/${encodeURIComponent(studioId)}/recordings/iso/${encodeURIComponent(trackId)}`;
 }
 
 export function sendChat(
@@ -197,11 +197,11 @@ export function acceptCohostInvite(id: string) {
 }
 
 export function removeCohost(id: string, accountId: string) {
-  return api<{ ok: true }>(`/api/studios/${encodeURIComponent(id)}/cohosts/${accountId}`, { method: "DELETE" });
+  return api<{ ok: true }>(`/api/studios/${encodeURIComponent(id)}/cohosts/${encodeURIComponent(accountId)}`, { method: "DELETE" });
 }
 
 export function setReplayVisibility(studioId: string, replayId: string, visibility: ReplayVisibility) {
-  return api<PublicReplay>(`/api/studios/${encodeURIComponent(studioId)}/replays/${replayId}`, {
+  return api<PublicReplay>(`/api/studios/${encodeURIComponent(studioId)}/replays/${encodeURIComponent(replayId)}`, {
     method: "PATCH",
     body: JSON.stringify({ visibility }),
   });
@@ -227,7 +227,7 @@ export function getClip(clipId: string) {
 }
 
 export function setClipVisibility(studioId: string, clipId: string, visibility: ReplayVisibility) {
-  return api<PublicClip>(`/api/studios/${encodeURIComponent(studioId)}/clips/${clipId}`, {
+  return api<PublicClip>(`/api/studios/${encodeURIComponent(studioId)}/clips/${encodeURIComponent(clipId)}`, {
     method: "PATCH",
     body: JSON.stringify({ visibility }),
   });

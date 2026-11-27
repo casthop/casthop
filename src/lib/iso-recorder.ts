@@ -72,7 +72,7 @@ export async function uploadIsoChunk(
     "X-Casthop-Identity": auth.identity,
   };
   if (auth.guestSecret) headers["X-Casthop-Guest-Secret"] = auth.guestSecret;
-  const res = await fetch(`/api/studios/${encodeURIComponent(studioId)}/iso/${trackId}/chunks/${index}`, {
+  const res = await fetch(`/api/studios/${encodeURIComponent(studioId)}/iso/${encodeURIComponent(trackId)}/chunks/${index}`, {
     method: "PUT",
     credentials: "same-origin",
     headers,
@@ -85,7 +85,7 @@ export async function uploadIsoChunk(
 }
 
 export async function completeIsoTrack(studioId: string, trackId: string, auth: IsoAuth): Promise<void> {
-  await postJson(`/api/studios/${encodeURIComponent(studioId)}/iso/${trackId}/complete`, {
+  await postJson(`/api/studios/${encodeURIComponent(studioId)}/iso/${encodeURIComponent(trackId)}/complete`, {
     identity: auth.identity,
     guestSecret: auth.guestSecret,
   });

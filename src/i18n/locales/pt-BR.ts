@@ -21,6 +21,7 @@ const ptBR: Messages = {
   homeEmailMe: "Enviar link por e-mail",
   homeSending: "Enviando…",
   homeGitHub: "Continuar com o GitHub",
+  homeSignInExternal: "Entre pelo seu painel.",
   homeInvalidLink: "Esse link de acesso é inválido ou expirou.",
   homeSendFailed: "Não foi possível enviar o link",
   homeOpenStudio: "Abrir um estúdio",

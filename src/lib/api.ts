@@ -85,6 +85,7 @@ export function getConfig() {
     livekitUrl: string;
     maxOnStage: number;
     github: boolean;
+    signin: "external" | "default";
     signedIn: boolean;
     destinationChat: { youtube: boolean };
   }>("/api/config");

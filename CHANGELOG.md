@@ -8,6 +8,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 ### Added
 
+- Optional hosted-mode hooks for a separate control plane, all off unless their env var is set: a tenant id on studios with a `t/<tenant>/` R2 prefix, a signed sign-in handoff (`/api/auth/external`), `CASTHOP_SIGNIN=external` to turn off magic-link and GitHub sign-in, and a signed `/api/service/*` API to create, list and delete studios and tenants.
 - Host studio in the browser: stage, layouts (solo, side by side, screen + cams), screen share, lower-third banner, mic/camera, guest invite.
 - Guest join from a link with no account. Up to six people on stage; others wait backstage.
 - Accounts: email magic link, optional GitHub OAuth, owner and co-host sessions. Auth matrix for Worker routes.

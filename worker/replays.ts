@@ -2,6 +2,7 @@ import type { Account, Env, PublicReplay, ReplayRecord, ReplayVisibility } from 
 import { addReplayUsage, addReplayUsageIfUnderCap } from "./db";
 import { asName, randomId } from "./security";
 import { hostAuth } from "./auth";
+import type { StoreEnv } from "./tenant";
 
 export const HLS_INDEX = "index.m3u8";
 const MAX_FILES = 256;
@@ -125,7 +126,7 @@ export function decodeReplayFile(file: ReplayFileInput): Uint8Array | null {
   return new TextEncoder().encode(file.content);
 }
 
-export async function deleteReplayPrefix(env: Env, studioId: string, replayId: string): Promise<void> {
+export async function deleteReplayPrefix(env: StoreEnv, studioId: string, replayId: string): Promise<void> {
   const prefix = replayPrefix(studioId, replayId);
   let cursor: string | undefined;
   for (;;) {
@@ -155,7 +156,7 @@ export function replayUsageFromFiles(files: { name: string; bytes: Uint8Array }[
 }
 
 export async function replayUsageDelta(
-  env: Env,
+  env: StoreEnv,
   studioId: string,
   replayId: string,
   files: { name: string; bytes: Uint8Array }[],
@@ -185,7 +186,7 @@ export function replayUsageCapError(current: { bytes: number; files: number }, e
 }
 
 export async function putReplayFiles(
-  env: Env,
+  env: StoreEnv,
   studioId: string,
   replayId: string,
   files: { name: string; bytes: Uint8Array }[],
@@ -210,7 +211,7 @@ export async function putReplayFiles(
   }
 }
 
-export async function serveReplayObject(env: Env, replay: ReplayRecord, file: string): Promise<Response> {
+export async function serveReplayObject(env: StoreEnv, replay: ReplayRecord, file: string): Promise<Response> {
   if (!isHlsFilename(file)) return jsonError("not found", 404);
   const obj = await env.RECORDINGS.get(replayObjectKey(replay.studioId, replay.id, file));
   if (!obj) return jsonError("not found", 404);

@@ -8,7 +8,6 @@ import {
   asName,
   clearCookie,
   devKeyGuardError,
-  hostKeyFor,
   hostIdentityFor,
   isHostIdentity,
   isSecureRequest,
@@ -17,7 +16,6 @@ import {
   publicOrigin,
   randomId,
   requestIp,
-  sha256hex,
   TOKEN_IP_MAX,
   TOKEN_IP_WINDOW_MS,
 } from "./security";
@@ -46,7 +44,6 @@ import {
   ensureDb,
   insertInvite,
   insertMember,
-  insertStudioRow,
   insertReplay,
   insertClip,
   invitesForStudio,
@@ -130,13 +127,15 @@ import {
   sliceHlsPlaylist,
 } from "./clips";
 
+import { handleExternalAuth } from "./external-auth";
+import { signinExternal } from "./hosted";
+import { service } from "./service";
+import { storeFor } from "./tenant";
+import { createStudio, studioStub } from "./studios";
+
 export { StudioDurableObject };
 
 export const app = new Hono<AppEnv>();
-
-function studioStub(env: Env, id: string): DurableObjectStub {
-  return env.STUDIO.get(env.STUDIO.idFromName(id));
-}
 
 async function doAction(env: Env, id: string, action: string, body: unknown, method = "POST"): Promise<Response> {
   const stubRef = studioStub(env, id);
@@ -189,6 +188,7 @@ app.get("/api/config", async (c) => {
     livekitUrl: c.env.PUBLIC_LIVEKIT_URL,
     maxOnStage: MAX_ON_STAGE,
     github: githubConfigured(c.env),
+    signin: signinExternal(c.env) ? "external" : "default",
     signedIn: Boolean(sess),
     destinationChat: destChatConfigured(c.env),
   });
@@ -208,6 +208,18 @@ app.get("/api/auth/me", async (c) => {
     githubId: sess.account.githubId,
   });
 });
+
+// CASTHOP_SIGNIN=external: sessions come only from /api/auth/external.
+for (const path of ["/api/auth/magic-link", "/api/auth/callback", "/api/auth/github", "/api/auth/github/callback"]) {
+  app.use(path, async (c, next) => {
+    if (signinExternal(c.env)) return c.json({ error: "signin_external" }, 403);
+    await next();
+  });
+}
+
+app.get("/api/auth/external", handleExternalAuth);
+
+app.route("/api/service", service);
 
 app.post("/api/auth/magic-link", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { email?: string };
@@ -288,22 +300,15 @@ app.post("/api/studios", async (c) => {
   const sess = await loadSession(c);
   if (!sess) return c.json({ error: "sign in required" }, 401);
   attachSessionCookie(c, sess.cookie);
+  // Hosted studios are created by the signed service API so they carry a tenant.
+  if (signinExternal(c.env)) return c.json({ error: "signin_external" }, 403);
   const body = (await c.req.json().catch(() => ({}))) as { title?: string };
   const title = asName(body.title, "Weekly product update");
-  const id = randomId(8).toLowerCase();
-  const hostKey = await hostKeyFor(c.env, id);
-  const hostKeyHash = await sha256hex(hostKey);
-  const createdAt = Date.now();
-  await insertStudioRow(c.env.DB, id, title, createdAt, sess.account.id);
-  await insertMember(c.env.DB, id, sess.account.id, "owner", createdAt);
-  const created = await studioStub(c.env, id).fetch(`https://studio/${id}?action=create`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id, title, hostKeyHash }),
-  });
-  if (!created.ok) {
+  const created = await createStudio(c.env, { ownerId: sess.account.id, title });
+  if (!created) {
     return c.json({ error: "failed to create studio" }, 500);
   }
+  const id = created.id;
   const origin = new URL(c.req.url).origin;
   return c.json({
     id,
@@ -344,7 +349,7 @@ app.post("/api/studios/:id/replays", async (c) => {
     const extra = replayUsageFromFiles(ingested.files);
     const quota = replayWouldExceedQuota({ bytes: 0, files: 0 }, extra);
     if (quota) return c.json({ error: quota }, 400);
-    await putReplayFiles(c.env, id, replayId, ingested.files);
+    await putReplayFiles(await storeFor(c.env, id), id, replayId, ingested.files);
     const row: ReplayRecord = {
       id: replayId,
       studioId: id,
@@ -358,7 +363,7 @@ app.post("/api/studios/:id/replays", async (c) => {
     await insertReplay(c.env.DB, row);
     return c.json(publicReplay(row, true));
   } catch (err) {
-    await deleteReplayPrefix(c.env, id, replayId);
+    await deleteReplayPrefix(await storeFor(c.env, id), id, replayId);
     const status = errorStatus(err);
     if (status === 400) return c.json({ error: err instanceof Error ? err.message : "invalid files" }, 400);
     throw err;
@@ -399,11 +404,12 @@ app.put("/api/studios/:id/replays/:rid/hls/:file", async (c) => {
   }
   const bytes = new Uint8Array(await c.req.arrayBuffer());
   const files = [{ name: file, bytes }];
-  const delta = await replayUsageDelta(c.env, id, rid, files);
+  const store = await storeFor(c.env, id);
+  const delta = await replayUsageDelta(store, id, rid, files);
   const reserved = await applyReplayUsageIfUnderCap(c.env, rid, delta.bytes, delta.files);
   if (!reserved) return c.json({ error: replayUsageCapError(replay, delta) }, 400);
   try {
-    await putReplayFiles(c.env, id, rid, files);
+    await putReplayFiles(store, id, rid, files);
     return c.json(publicReplay({ ...replay, bytes: reserved.bytes, files: reserved.files }, true));
   } catch (err) {
     await applyReplayUsage(c.env, rid, -delta.bytes, -delta.files);
@@ -437,7 +443,7 @@ app.get("/api/replays/:rid/hls/:file", async (c) => {
   if (!access.ok) {
     return c.json({ error: access.status === 401 ? "sign in required" : "replay is private" }, access.status);
   }
-  return serveReplayObject(c.env, replay, file);
+  return serveReplayObject(await storeFor(c.env, replay.studioId), replay, file);
 });
 
 app.get("/api/studios/:id/clips", async (c) => {
@@ -467,13 +473,14 @@ app.post("/api/studios/:id/clips", async (c) => {
   if (!visibility) return c.json({ error: "visibility must be private or public" }, 400);
   const existing = await countClipsForStudio(c.env.DB, id);
   if (existing >= MAX_CLIPS_PER_STUDIO) return c.json({ error: "too many clips" }, 400);
-  const playlist = await loadLivePlaylist(c.env, id);
+  const store = await storeFor(c.env, id);
+  const playlist = await loadLivePlaylist(store, id);
   if (!playlist) return c.json({ error: "no program yet" }, 409);
   const sliced = sliceHlsPlaylist(playlist, seconds);
   if ("error" in sliced) return c.json({ error: sliced.error }, sliced.error === "no program yet" ? 409 : 400);
   const clipId = newClipId();
   try {
-    const usage = await copyLiveSliceToClip(c.env, id, clipId, sliced);
+    const usage = await copyLiveSliceToClip(store, id, clipId, sliced);
     const row: ClipRecord = {
       id: clipId,
       studioId: id,
@@ -488,7 +495,7 @@ app.post("/api/studios/:id/clips", async (c) => {
     await insertClip(c.env.DB, row);
     return c.json(publicClip(row, true));
   } catch (err) {
-    await deleteClipPrefix(c.env, id, clipId);
+    await deleteClipPrefix(store, id, clipId);
     const status = errorStatus(err);
     if (status === 400 || status === 409) {
       return c.json({ error: err instanceof Error ? err.message : "clip failed" }, status);
@@ -534,7 +541,7 @@ app.put("/api/studios/:id/live-hls/:file", async (c) => {
   const bytes = new Uint8Array(await c.req.arrayBuffer());
   if (bytes.byteLength > MAX_FILE_BYTES) return c.json({ error: "invalid file size" }, 400);
   try {
-    await putLiveHlsFile(c.env, id, file, bytes);
+    await putLiveHlsFile(await storeFor(c.env, id), id, file, bytes);
     return c.json({ ok: true });
   } catch (err) {
     const status = errorStatus(err);
@@ -566,7 +573,7 @@ app.get("/api/clips/:cid/file", async (c) => {
   if (!access.ok) {
     return c.json({ error: access.status === 401 ? "sign in required" : "clip is private" }, access.status);
   }
-  return serveClipDownload(c.env, clip);
+  return serveClipDownload(await storeFor(c.env, clip.studioId), clip);
 });
 
 app.get("/api/clips/:cid/hls/:file", async (c) => {
@@ -580,7 +587,7 @@ app.get("/api/clips/:cid/hls/:file", async (c) => {
   if (!access.ok) {
     return c.json({ error: access.status === 401 ? "sign in required" : "clip is private" }, access.status);
   }
-  return serveClipObject(c.env, clip, file);
+  return serveClipObject(await storeFor(c.env, clip.studioId), clip, file);
 });
 
 app.get("/api/studios/:id", async (c) => {
@@ -904,7 +911,7 @@ app.put("/api/studios/:id/iso/:trackId/chunks/:index", async (c) => {
   const check = await doAction(c.env, id, "iso-chunk", chunk);
   if (!check.ok) return new Response(check.body, { status: check.status, headers: check.headers });
   try {
-    await c.env.RECORDINGS.put(isoChunkKey(id, trackId, index), buf);
+    await (await storeFor(c.env, id)).RECORDINGS.put(isoChunkKey(id, trackId, index), buf);
   } catch {
     return c.json({ error: "upload failed" }, 502);
   }
@@ -947,10 +954,11 @@ app.get("/api/studios/:id/recordings/iso/:trackId", async (c) => {
   const res = await doAction(c.env, id, "iso-get", { hostKey: host.hostKey, trackId });
   if (!res.ok) return new Response(res.body, { status: res.status, headers: res.headers });
   const data = (await res.json()) as { track: IsoTrack };
-  const keys = downloadChunkKeys(await listIsoChunkKeys(c.env.RECORDINGS, id, trackId), isoPrefix(id, trackId), data.track.chunks);
+  const store = await storeFor(c.env, id);
+  const keys = downloadChunkKeys(await listIsoChunkKeys(store.RECORDINGS, id, trackId), isoPrefix(id, trackId), data.track.chunks);
   if (!keys.length) return c.json({ error: "track not found" }, 404);
   const filename = downloadName(data.track);
-  return new Response(concatChunkStream(c.env.RECORDINGS, keys), {
+  return new Response(concatChunkStream(store.RECORDINGS, keys), {
     headers: {
       "Content-Type": data.track.mimeType.split(";")[0]?.trim() || "application/octet-stream",
       "Content-Disposition": `attachment; filename="${filename}"`,
@@ -971,7 +979,7 @@ app.post("/api/studios/:id/live", async (c) => {
   if (body.live) {
     const current = await studioPublicState(c.env, id);
     if (!current || current.livePhase === "idle" || current.livePhase === "failed") {
-      await deleteLivePrefix(c.env, id);
+      await deleteLivePrefix(await storeFor(c.env, id), id);
     }
   }
   const action = body.live ? "start-live" : "stop-live";
@@ -979,7 +987,7 @@ app.post("/api/studios/:id/live", async (c) => {
   if (res.status === 404) return c.json({ error: "Studio not found" }, 404);
   if (res.status === 403) return c.json({ error: "host access required" }, 403);
   // Clips need a live stream, so drop the private program segments once stopped.
-  if (!body.live && res.ok) await deleteLivePrefix(c.env, id);
+  if (!body.live && res.ok) await deleteLivePrefix(await storeFor(c.env, id), id);
   return new Response(res.body, { status: res.status, headers: res.headers });
 });
 

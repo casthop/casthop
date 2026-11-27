@@ -1,58 +1,83 @@
 ---
 title: Destinations
-description: Destinations RTMP, substituts locaux, statut, enregistrements, et qui voit les URL complètes.
+description: Où va votre stream, les serveurs de test locaux, le statut en direct, les enregistrements, les replays et les clips.
 group: Exploiter
 order: 5
 ---
 
-Une destination est une URL RTMP. Chaque destination choisit **16:9** (le programme) ou **9:16** (un second composite empilé). Les destinations du même format partagent un transcodage Egress.
+Une destination est une adresse de diffusion (une URL RTMP ou RTMPS), comme l’URL d’ingest que vous donne YouTube. Casthop mixe la scène une fois et l’envoie à chaque destination activée.
 
-## Substituts locaux
+## Horizontal et vertical
 
-Par défaut, les destinations sont des substituts MediaMTX pour YouTube, LinkedIn et X :
+Chaque destination est soit en **16:9** (la vidéo large habituelle), soit en **9:16** (une vidéo verticale avec les caméras empilées, pour TikTok, YouTube Shorts ou Instagram Reels). Les destinations de même format partagent un seul encodage. Le vertical a son propre encodage sur le serveur, donc les invités n’envoient toujours leur caméra qu’une fois.
 
-| Destination | Ingest | Regarder |
+Le 9:16 exige que la page de mixage de Casthop (`EGRESS_TEMPLATE_URL`) soit définie.
+
+## Serveurs de test locaux
+
+Par défaut, les destinations pointent vers MediaMTX sur votre machine, qui remplace YouTube, LinkedIn et X :
+
+| Destination | Adresse | Pour la vérifier |
 |---|---|---|
 | Substitut YouTube | `rtmp://127.0.0.1:1935/live/youtube` | `ffprobe rtmp://127.0.0.1:1935/live/youtube` |
-| Substitut LinkedIn | `rtmp://127.0.0.1:1935/live/linkedin` | pareil, `/live/linkedin` |
-| Substitut X | `rtmp://127.0.0.1:1935/live/x` | pareil, `/live/x` |
+| Substitut LinkedIn | `rtmp://127.0.0.1:1935/live/linkedin` | pareil, avec `/live/linkedin` |
+| Substitut X | `rtmp://127.0.0.1:1935/live/x` | pareil, avec `/live/x` |
 
-## Vraies destinations
+## Destinations réelles
 
-En production, chaque propriétaire de studio saisit de vraies URL d’ingest YouTube, LinkedIn et X dans le panneau Destinations. Les valeurs `RTMP_*` ne sont copiées dans les nouveaux studios que si elles pointent vers le loopback : n’y mettez pas de vraies clés de stream. Casthop valide les destinations : seules les URL `rtmp:` sont acceptées des clients, et les cibles de réseau privé (RFC 1918) sont rejetées.
+Chaque propriétaire de studio ajoute ses vraies adresses dans le panneau **Destinations**, jusqu’à 16 par studio. Casthop n’accepte que les adresses `rtmp:` et `rtmps:`, et refuse les adresses de réseau privé comme `10.x` ou `192.168.x`.
 
-## Statut, Live et rétablissement
+Ne mettez pas de vraies clés de stream dans les réglages `RTMP_*`. Les nouveaux studios ne les copient que si elles pointent vers `127.0.0.1`.
 
-Chaque ligne de destination affiche son propre statut RTMP (`connecting`, `live`, `retrying`, `failed`). La pastille Live du studio reste sur Démarrage tant qu’Egress ne produit pas : octets ou durée du flux, ou un court settle après le `started_at` RTMP. Elle ne passe pas à Live juste parce que le processus du compositeur existe.
+## Statut et reprise
 
-Si Egress ou un flux tombe, le studio réessaie avec backoff. Ça s’appuie sur des webhooks LiveKit signés ; voir [Self-hosting](/docs/self-hosting).
+Chaque destination affiche son propre statut : `connecting`, `live`, `retrying` ou `failed`. La pastille du studio reste sur **Starting** jusqu’à ce que la vidéo circule vraiment, puis affiche **Live**.
+
+Si le mixeur plante ou si un stream tombe, le studio réessaie tout seul, en attendant de plus en plus longtemps à chaque fois. Sur un serveur, cela demande le webhook LiveKit, voir [Self-hosting](/docs/self-hosting).
 
 ## Enregistrements
 
 | Où | Quoi |
 |---|---|
-| `data/recordings/` | MP4 Egress du composite. |
-| `data/rtmp/` | fMP4 MediaMTX depuis le relais RTMP local. |
-| `RECORDINGS` (R2) | Pistes WebM par personne si Enregistrements séparés est activé. L’hôte les télécharge dans le panneau Enregistrements. |
+| `data/recordings/` | MP4 du show mixé, écrit par Egress. |
+| `data/rtmp/` | Ce que le MediaMTX local a reçu. |
+| `RECORDINGS` (R2) | Pistes par personne, quand **Separate recordings** est activé. |
 
-Inspectez un enregistrement avec l’outil Rust :
+Pour vérifier qu’un enregistrement a du son : `bash scripts/check-silent-audio.sh data/recordings/<file>.mp4`.
+
+## Enregistrements séparés (pistes par personne)
+
+Activez **Separate recordings** dans la boîte de dialogue Go live avant de passer en direct. Chaque personne sur scène enregistre alors sa propre caméra et son propre micro dans son navigateur, et les envoie par morceaux de 2 secondes pendant le show. Un onglet fermé ne fait perdre que le dernier morceau. Seules les personnes sur scène enregistrent. Les invités en coulisses ne le font pas.
+
+Après le show, ouvrez **Recordings** dans le studio pour télécharger chaque piste. Les fichiers sont en WebM, ou en MP4 depuis Safari.
+
+## Replays
+
+Transformez le MP4 mixé en replay avec l’outil Rust :
 
 ```bash
 cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
+cargo run -p casthop-post -- hls data/recordings/<file>.mp4 /tmp/replay-hls
 ```
 
-Pour vérifier qu’un enregistrement n’est pas silencieux, lancez `bash scripts/check-silent-audio.sh data/recordings/<file>.mp4`.
+Ensuite, connecté en tant que propriétaire ou co-hôte, envoyez-le avec `POST /api/studios/:id/replays` et réglez `visibility` sur `private` ou `public`. Les replays privés n’apparaissent que dans votre liste de studios. Les replays publics se lisent sur `/watch/:id`.
+
+## Clips
+
+Pendant le direct, appuyez sur **Clip** (ou sur la touche C) pour sauvegarder les 30 ou 60 dernières secondes. Les clips apparaissent à côté des replays avec un lien de téléchargement et suivent les mêmes règles privé et public.
 
 ## Chat
 
-Les gens dans le studio peuvent envoyer des commentaires dans la salle. Pendant que le show est en direct, Casthop peut aussi interroger le chat en direct YouTube (`liveChatMessages.list`) et fusionner ces commentaires dans le même panneau. Hôtes et co-hôtes peuvent en épingler un sur l’overlay du compositeur (pile lower-third Canvas2D). Le polling utilise le `pollingIntervalMillis` de l’API. Sans identifiants, l’ingest YouTube se masque ; le studio ne plante pas.
+Les personnes dans le studio peuvent discuter entre elles. Pendant le direct, les commentaires de YouTube, Twitch et Kick peuvent rejoindre le même panneau. Les hôtes et les co-hôtes peuvent épingler un commentaire sur la vidéo.
 
-Il faut des Worker secrets : `YOUTUBE_API_KEY` plus `YOUTUBE_LIVE_CHAT_ID` ou `YOUTUBE_VIDEO_ID`, ou le trio de refresh OAuth (`YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN`), qui cherche l’émission active du propriétaire. Voir [Configuration](/docs/configuration).
+- **YouTube :** définissez `YOUTUBE_API_KEY` plus `YOUTUBE_LIVE_CHAT_ID` ou `YOUTUBE_VIDEO_ID`, ou les trois valeurs `YOUTUBE_OAUTH_*` pour retrouver votre propre diffusion active.
+- **Twitch :** réglez `TWITCH_CHANNEL` sur le nom de la chaîne.
+- **Kick :** réglez `KICK_CHATROOM_ID` sur le numéro du chatroom.
 
-L’API de X exige un palier payant. Les commentaires en direct LinkedIn demandent une API partenaire. Ni l’un ni l’autre n’est branché. Il n’y a pas de VOD / replay du chat de destination ; le polling ne tourne que pendant que le studio est en direct. Le curseur page-token YouTube reste dans le stockage du Durable Object et n’est jamais envoyé aux invités ni à l’état GET / WebSocket public.
+Non défini, cette source reste masquée. Rien ne casse. Les commentaires ne sont lus que pendant le direct, et ils ne sont pas enregistrés avec le replay. Le chat X n’est pas pris en charge, car X n’a pas d’API de chat gratuite. Les commentaires LinkedIn demandent une API partenaire et ne sont pas pris en charge. Voir [Configuration](/docs/configuration).
 
 ## Qui voit quoi
 
-- **Propriétaires et co-hôtes** reçoivent les URL de destination complètes une fois connectés (cookie de session).
-- **Invités et requêtes publiques** n’ont qu’un suffixe masqué, plus un flag `hasKey`. Ça s’applique à `GET /api/studios/:id` et à la trame `state` du WebSocket.
-- Les clés de stream sont stockées dans le Durable Object, pas dans le dépôt.
+- **Les propriétaires et les co-hôtes** reçoivent les URL de destination complètes quand ils sont connectés (cookie de session).
+- **Les invités et les requêtes publiques** n’obtiennent qu’un suffixe masqué, et un indicateur `hasKey`. Cela vaut pour `GET /api/studios/:id` et pour la trame `state` du WebSocket.
+- Les clés de stream sont stockées dans le stockage des Durable Objects, pas dans le dépôt.

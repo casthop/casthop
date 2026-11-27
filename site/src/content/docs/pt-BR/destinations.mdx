@@ -1,58 +1,83 @@
 ---
 title: Destinos
-description: Destinos RTMP, stand-ins locais, status, gravações e quem vê as URLs completas.
+description: Para onde vai a sua transmissão, os servidores de teste locais, o status ao vivo, gravações, replays e clipes.
 group: Operar
 order: 5
 ---
 
-Um destino é uma URL RTMP. Cada destino escolhe **16:9** (o programa) ou **9:16** (um segundo vídeo final empilhado). Destinos com o mesmo formato compartilham uma transcodificação no Egress.
+Um destino é um endereço de streaming (uma URL RTMP ou RTMPS), como a URL de ingest que o YouTube te dá. O Casthop mixa o palco uma vez e envia para cada destino que você ligar.
 
-## Stand-ins locais
+## Horizontal e vertical
 
-De fábrica, os destinos são stand-ins do MediaMTX para YouTube, LinkedIn e X:
+Cada destino é **16:9** (o vídeo horizontal normal) ou **9:16** (um vídeo vertical com as câmeras empilhadas, para TikTok, YouTube Shorts ou Instagram Reels). Destinos com o mesmo formato compartilham uma codificação. O vertical tem a própria codificação no servidor, então os convidados continuam enviando a câmera só uma vez.
 
-| Destino | Ingest | Assistir |
+O 9:16 exige que a página de mixagem do Casthop (`EGRESS_TEMPLATE_URL`) esteja definida.
+
+## Servidores de teste locais
+
+De fábrica, os destinos apontam para o MediaMTX na sua máquina, fazendo o papel de YouTube, LinkedIn e X:
+
+| Destino | Endereço | Como conferir |
 |---|---|---|
 | Stand-in do YouTube | `rtmp://127.0.0.1:1935/live/youtube` | `ffprobe rtmp://127.0.0.1:1935/live/youtube` |
-| Stand-in do LinkedIn | `rtmp://127.0.0.1:1935/live/linkedin` | o mesmo, `/live/linkedin` |
-| Stand-in do X | `rtmp://127.0.0.1:1935/live/x` | o mesmo, `/live/x` |
+| Stand-in do LinkedIn | `rtmp://127.0.0.1:1935/live/linkedin` | igual, com `/live/linkedin` |
+| Stand-in do X | `rtmp://127.0.0.1:1935/live/x` | igual, com `/live/x` |
 
-## Destinos de verdade
+## Destinos reais
 
-Em produção, cada dono de estúdio coloca URLs de ingest reais do YouTube, LinkedIn e X no painel de destinos. Os valores `RTMP_*` só são copiados para estúdios novos quando apontam para loopback, então não coloque chaves de stream reais neles. O Casthop valida destinos: só URLs `rtmp:` são aceitas dos clientes, e alvos de rede privada (RFC 1918) são recusados.
+Cada dono de estúdio adiciona os endereços reais no painel **Destinations**, até 16 por estúdio. O Casthop só aceita endereços `rtmp:` e `rtmps:`, e recusa endereços de rede privada, como `10.x` ou `192.168.x`.
 
-## Status, Live e recuperação
+Não coloque chaves de transmissão reais nas configurações `RTMP_*`. Estúdios novos só copiam esses valores quando eles apontam para `127.0.0.1`.
 
-Cada linha de destino mostra o próprio status RTMP (`connecting`, `live`, `retrying`, `failed`). O indicador Ao vivo do estúdio fica em Iniciando até o Egress estar produzindo: bytes ou duração do stream, ou uma breve espera depois do `started_at` do RTMP. Ele não mostra Ao vivo só porque o processo do compositor existe.
+## Status e recuperação
 
-Se o Egress ou um fluxo cair, o estúdio tenta de novo com backoff. Isso depende de webhooks assinados do LiveKit; veja [Self-hosting](/docs/self-hosting).
+Cada destino mostra o próprio status: `connecting`, `live`, `retrying` ou `failed`. O indicador do estúdio fica em **Starting** até o vídeo realmente estar passando, e então mostra **Live**.
+
+Se o mixer cair ou a transmissão for interrompida, o estúdio tenta de novo sozinho, esperando mais a cada tentativa. Em um servidor, isso exige o webhook do LiveKit, veja [Self-hosting](/docs/self-hosting).
 
 ## Gravações
 
 | Onde | O quê |
 |---|---|
-| `data/recordings/` | MP4 do Egress com o vídeo final. |
-| `data/rtmp/` | fMP4 do MediaMTX na borda RTMP local. |
-| `RECORDINGS` (R2) | Faixas WebM por pessoa quando Gravações separadas está ligado. O apresentador baixa no painel Gravações. |
+| `data/recordings/` | MP4 do show mixado, escrito pelo Egress. |
+| `data/rtmp/` | O que o MediaMTX local recebeu. |
+| `RECORDINGS` (R2) | Faixas por pessoa, quando **Separate recordings** está ligado. |
 
-Inspecione uma gravação com o helper em Rust:
+Para conferir se uma gravação tem som: `bash scripts/check-silent-audio.sh data/recordings/<file>.mp4`.
+
+## Gravações separadas (faixas por pessoa)
+
+Ligue **Separate recordings** no diálogo Go live antes de entrar ao vivo. Cada pessoa no palco passa a gravar a própria câmera e o próprio microfone no navegador e envia em pedaços de 2 segundos durante o show. Se uma aba fechar, só o último pedaço se perde. Só quem está no palco grava. Convidados nos bastidores não gravam.
+
+Depois do show, abra **Recordings** no estúdio para baixar cada faixa. Os arquivos são WebM, ou MP4 no Safari.
+
+## Replays
+
+Transforme o MP4 mixado em replay com o utilitário em Rust:
 
 ```bash
 cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
+cargo run -p casthop-post -- hls data/recordings/<file>.mp4 /tmp/replay-hls
 ```
 
-Para conferir que uma gravação não está silenciosa, rode `bash scripts/check-silent-audio.sh data/recordings/<file>.mp4`.
+Depois, logado como dono ou co-anfitrião, envie com `POST /api/studios/:id/replays` e defina `visibility` como `private` ou `public`. Replays privados aparecem só na lista dos seus estúdios. Replays públicos tocam em `/watch/:id`.
+
+## Clipes
+
+Durante a transmissão, aperte **Clip** (ou a tecla C) para salvar os últimos 30 ou 60 segundos. Os clipes aparecem ao lado dos replays, com um link de download, e seguem as mesmas regras de privado e público.
 
 ## Chat
 
-Quem está no estúdio pode mandar comentários na sala. Com o programa ao vivo, o Casthop também pode consultar o chat ao vivo do YouTube (`liveChatMessages.list`) e juntar esses comentários no mesmo painel. Apresentadores e coapresentadores podem fixar um comentário no overlay do compositor (pilha de lower third em Canvas2D). A consulta usa o `pollingIntervalMillis` da API. Sem credenciais, o ingest do YouTube some; o estúdio não quebra.
+As pessoas no estúdio podem conversar entre si. Enquanto você está ao vivo, os comentários do YouTube, da Twitch e do Kick podem entrar no mesmo painel. Anfitriões e co-anfitriões podem fixar um comentário no vídeo.
 
-Precisa de Worker secrets: `YOUTUBE_API_KEY` mais `YOUTUBE_LIVE_CHAT_ID` ou `YOUTUBE_VIDEO_ID`, ou o trio de refresh OAuth (`YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN`), que busca a transmissão ativa do dono. Veja [Configuração](/docs/configuration).
+- **YouTube:** defina `YOUTUBE_API_KEY` mais `YOUTUBE_LIVE_CHAT_ID` ou `YOUTUBE_VIDEO_ID`, ou os três valores `YOUTUBE_OAUTH_*` para encontrar a sua própria transmissão ativa.
+- **Twitch:** defina `TWITCH_CHANNEL` com o nome do canal.
+- **Kick:** defina `KICK_CHATROOM_ID` com o número da sala de chat.
 
-A API do X pede plano pago. Comentários ao vivo do LinkedIn pedem API de parceiro. Nenhum dos dois está ligado. Não há VOD / replay do chat de destino; a consulta só roda enquanto o estúdio está ao vivo. O cursor de page-token do YouTube fica no armazenamento do Durable Object e nunca vai para convidados nem para GET / estado WebSocket públicos.
+Se não estiver definido, essa fonte fica oculta. Nada quebra. Os comentários só são lidos enquanto você está ao vivo e não são salvos com o replay. O chat do X não é suportado, porque o X não tem API de chat gratuita. Os comentários do LinkedIn exigem uma API de parceiro e não são suportados. Veja [Configuração](/docs/configuration).
 
 ## Quem vê o quê
 
-- **Donos e coapresentadores** recebem as URLs completas de destino quando estão logados (cookie de sessão).
-- **Convidados e pedidos públicos** só recebem um sufixo mascarado, e uma flag `hasKey`. Vale para `GET /api/studios/:id` e o frame `state` do WebSocket.
-- Chaves de stream ficam no armazenamento do Durable Object, não no repositório.
+- **Donos e co-anfitriões** recebem as URLs completas dos destinos quando estão logados (cookie de sessão).
+- **Convidados e requisições públicas** recebem só um sufixo mascarado e um flag `hasKey`. Isso vale para `GET /api/studios/:id` e para o frame `state` do WebSocket.
+- As chaves de transmissão ficam no armazenamento do Durable Object, não no repositório.

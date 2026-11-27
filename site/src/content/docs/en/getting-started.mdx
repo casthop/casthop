@@ -1,68 +1,139 @@
 ---
 title: Getting started
-description: Run Casthop on your own machine with Docker, then go live to local RTMP stand-ins.
+description: Run Casthop on your own machine with Docker, then go live to local test destinations.
 group: Start
 order: 1
 ---
 
-Linux with Docker host networking is the supported local path. Docker uses host networking so the browser, LiveKit ICE, Egress and RTMP all see `127.0.0.1`.
+Casthop is an open-source live studio that runs in the browser. You sign in as the host, send guests a link, put up to six people on stage, and send one mixed video to several streaming sites at once. A recording is kept.
 
-## Before you start
+This page gets it running on one Linux machine in about ten minutes. Nothing here needs a paid account. The "streaming sites" are local test servers, so you can go live without touching YouTube.
 
-- [Bun](https://bun.com) 1.4+ (the repo pins `packageManager` to Bun). Do not use npm.
-- Docker with Compose.
-- A Linux host. Host networking is Linux-only, see [Docker Desktop](#docker-desktop-macos-and-windows) below.
+## What you need
 
-You do not need a Rust toolchain. Prebuilt `src/wasm/casthop_media.wasm` is committed, so the dev server works without one. Rebuild it only if you change the Rust crate (needs rustc 1.100+ and the `wasm32-unknown-unknown` target).
+- **Linux** with Docker and Docker Compose. macOS and Windows need extra steps, see [Docker Desktop](#docker-desktop-macos-and-windows).
+- **[Bun](https://bun.com) 1.4.5 or newer.** Bun is the JavaScript runtime and package manager this repo uses. Do not use npm.
+- **Chrome or another Chromium browser** to open the studio.
 
-## Run it
+You do not need Rust. The compiled WebAssembly file is in the repo.
 
-From the root of the [Casthop repository](https://github.com/casthop/casthop):
+## Quick start
+
+Run each step from the root of the [Casthop repository](https://github.com/casthop/casthop).
+
+**1. Get the code.**
+
+```bash
+git clone https://github.com/casthop/casthop.git
+cd casthop
+```
+
+**2. Copy the example settings.**
 
 ```bash
 cp .env.example .env
-cp .dev.vars.example .dev.vars   # Worker secrets, gitignored
+cp .dev.vars.example .dev.vars
+```
+
+`.env` is read by Docker. `.dev.vars` is read by the app server. Both are ignored by git, and the defaults work as is.
+
+**3. Make the folders for recordings.**
+
+```bash
 mkdir -p data/recordings data/rtmp && chmod 777 data/recordings
+```
+
+The recorder runs as another user inside Docker, so it needs write access to `data/recordings`.
+
+**4. Start the media servers.**
+
+```bash
 docker compose up -d
+docker compose ps
+```
+
+You should see four services running: `redis`, `livekit`, `egress` and `mediamtx`. LiveKit moves the audio and video between browsers. Egress mixes the stage into one video and sends it out. MediaMTX stands in for YouTube, LinkedIn and X. Redis lets LiveKit and Egress talk.
+
+The first run downloads the images, which can take a few minutes.
+
+**5. Install and start the app.**
+
+```bash
 bun install
 bun run dev
 ```
 
-The website you are reading is a separate package in `site/` (`cd site && bun install && bun run dev`).
+You should see `Local: http://127.0.0.1:5173/`. Leave this terminal open. The app only listens on `127.0.0.1`, so other machines on your network cannot reach it.
 
-`docker compose up -d` starts Redis, LiveKit, LiveKit Egress and MediaMTX. LiveKit, Redis and MediaMTX bind `127.0.0.1`, so the published `devkey` is not reachable from your LAN.
+**6. Check that it is healthy.**
+
+In a second terminal:
+
+```bash
+curl http://127.0.0.1:5173/api/health
+```
+
+You should see `{"ok":true,"livekit":{"ok":true},"maxOnStage":6}`. If `ok` is `false`, the app cannot reach LiveKit. See [Troubleshooting](#troubleshooting).
 
 ## Your first stream
 
-1. Open [http://127.0.0.1:5173](http://127.0.0.1:5173).
-2. Enter your email to get a magic link. Locally the Worker prints the link in its console, so copy it from the terminal running `bun run dev`.
-3. Open a studio.
-4. Copy the guest link and send it to anyone who should join. See [Guests](/docs/guests).
-5. Bring people on stage. Up to six can be on stage.
-6. Press **Go live**, pick destinations in the dialog, and confirm. The Live pill stays on Starting until Egress output is flowing. Each destination in the rail panel shows its own RTMP status.
+1. Open [http://127.0.0.1:5173](http://127.0.0.1:5173) and enter your email.
+2. No email is sent locally. The sign-in link is printed in the terminal running `bun run dev`, under `[casthop mail]`. Open it and click **Sign in**.
+3. Give the studio a title and click **Open studio**.
+4. Copy the guest link and open it in another browser window, or send it to someone. Guests need no account. See [Guests](/docs/guests).
+5. Bring the guest on stage. Up to six people can be on stage.
+6. Press **Go live**, pick destinations, and confirm. The pill shows **Starting** and turns **Live** once video is really flowing. Each destination shows its own status.
 
-By default the destinations are local MediaMTX stand-ins for YouTube, LinkedIn and X. See [Destinations](/docs/destinations) to watch them and to point at real ingest.
+To watch what went out, run `ffprobe rtmp://127.0.0.1:1935/live/youtube`. The recording is written to `data/recordings/`. See [Destinations](/docs/destinations).
 
-## Optional: GitHub sign-in
+## Optional extras
 
-Set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `.dev.vars`. Leave them unset and the GitHub button is hidden. Email magic link works either way.
+All of these are off until you set them in `.dev.vars`, then restart `bun run dev`. Each one is explained in [Configuration](/docs/configuration).
 
-## Optional: YouTube Live chat
+- **GitHub sign-in:** `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`.
+- **YouTube chat in the studio:** `YOUTUBE_API_KEY` plus `YOUTUBE_LIVE_CHAT_ID` or `YOUTUBE_VIDEO_ID`.
+- **Twitch and Kick chat:** `TWITCH_CHANNEL` and `KICK_CHATROOM_ID`.
+- **Sign-in link in the browser instead of the terminal**, for tests and `bun run measure`: `CASTHOP_DEV_LOGIN=1`.
 
-While the studio is live, Casthop can poll YouTube comments into the studio chat panel. Set `YOUTUBE_API_KEY` plus `YOUTUBE_LIVE_CHAT_ID` or `YOUTUBE_VIDEO_ID` in `.dev.vars`, or a YouTube OAuth refresh token. Unset, destination comments stay hidden and the studio does not error. See [Configuration](/docs/configuration) and [Destinations](/docs/destinations).
+## Troubleshooting
 
-## Without cameras
+**`permission denied while trying to connect to the Docker daemon socket`**
+Your user is not in the `docker` group. Run `sudo usermod -aG docker $USER`, log out and back in, or prefix the Docker commands with `sudo`.
 
-If there is no camera, the app falls back to a generated canvas and a silent audio track, so a VM without `/dev/video0` can still join. Chrome can also be launched with `--use-fake-device-for-media-stream`.
+**`Port 5173 is already in use`**
+Another dev server is running. Stop it, or find it with `ss -ltnp | grep 5173`. Casthop does not pick another port, because the recorder expects `5173`.
+
+**Health shows `"ok":false`**
+LiveKit is not running or not reachable. Check `docker compose ps` and `docker compose logs livekit`. Port `7880` must be free.
+
+**`Refusing default LiveKit devkey/secret outside local loopback`**
+You pointed the app at a LiveKit server that is not on `127.0.0.1` while still using the public test keys. Generate real keys (see [Self-hosting](/docs/self-hosting)) and put them in `.dev.vars`.
+
+**No sign-in link**
+Look in the `bun run dev` terminal, not your inbox. If you asked for links many times, sign-in is paused for a few minutes (every 15 minutes: 5 requests per network, 3 links per email).
+
+**Stuck on Starting**
+Egress could not open the studio page or reach MediaMTX. Check `docker compose logs egress`. Make sure `bun run dev` is still running and `data/recordings` is writable.
+
+**No camera on the machine**
+Casthop falls back to a test picture and silent audio, so a server or VM can still join. You can also start Chrome with `--use-fake-device-for-media-stream`.
+
+**Bun warns about the version**
+Run `bun upgrade`. The repo expects Bun 1.4.5 or newer.
 
 ## Docker Desktop (macOS and Windows)
 
-Host networking is Linux-only. On Docker Desktop you need to drop `network_mode: host`, publish `127.0.0.1:7880-7882`, `127.0.0.1:1935`, `127.0.0.1:8888`, `127.0.0.1:6379` and `127.0.0.1:9090`, set LiveKit `rtc.node_ip` to `host.docker.internal`, and point Egress `ws_url` and Redis at that host. ICE from a browser on the same machine is fiddly. Linux is the supported path for now.
+The compose file uses host networking, which only works on Linux. On Docker Desktop:
 
-## Check that it works
+- remove `network_mode: host` from each service,
+- publish `127.0.0.1:7880-7882`, `127.0.0.1:1935`, `127.0.0.1:8888`, `127.0.0.1:6379` and `127.0.0.1:9090`,
+- set LiveKit `rtc.node_ip` to `host.docker.internal`,
+- point Egress `ws_url` and Redis at `host.docker.internal`.
 
-- Health: [http://127.0.0.1:5173/api/health](http://127.0.0.1:5173/api/health)
-- Latency probe (dev only): [http://127.0.0.1:5173/internal/probe](http://127.0.0.1:5173/internal/probe)
-- Load measurement with 2, 4 and 6 publishers: `bun run measure`
+Browser video on the same machine can still be unreliable this way. Linux is the supported path for now.
 
-Tests, the perf gate, and how to open a PR: [CONTRIBUTING.md](https://github.com/casthop/casthop/blob/main/CONTRIBUTING.md) in the repo.
+## Next
+
+- [Self-hosting](/docs/self-hosting): run it on a server.
+- [Configuration](/docs/configuration): every setting.
+- Tests and how to open a pull request: [CONTRIBUTING.md](https://github.com/casthop/casthop/blob/main/CONTRIBUTING.md).

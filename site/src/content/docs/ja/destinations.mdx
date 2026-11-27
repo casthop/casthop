@@ -1,58 +1,83 @@
 ---
 title: 配信先
-description: RTMP の配信先、ローカルの代替、状態、録画、誰が完全な URL を見るか。
+description: 配信の送り先、ローカルのテスト用サーバー、ライブの状態、録画、リプレイ、クリップ。
 group: 運用
 order: 5
 ---
 
-配信先は RTMP URL です。配信先ごとに **16:9**（番組）か **9:16**（縦の合成）を選べます。同じ比率の配信先は Egress の 1 回のエンコードを共有します。
+配信先とは、YouTube が発行するインジェスト URL のような、配信用のアドレス（RTMP または RTMPS の URL）のことです。Casthop はステージを 1 回だけミックスし、オンにしたすべての配信先へ送ります。
 
-## ローカルの代替
+## 横長と縦長
 
-最初から、配信先は YouTube、LinkedIn、X 向けの MediaMTX 代替です:
+配信先は、**16:9**（ふつうの横長の映像）か **9:16**（カメラを縦に並べた縦長の映像。TikTok、YouTube Shorts、Instagram Reels 向け）のどちらかです。同じ形の配信先は、1 回のエンコードを共有します。縦長はサーバー側で別にエンコードするので、ゲストがカメラ映像を送るのは今までどおり 1 回だけです。
 
-| 配信先 | Ingest | 確認 |
+9:16 を使うには、Casthop のミックス用ページ（`EGRESS_TEMPLATE_URL`）の設定が必要です。
+
+## ローカルのテスト用サーバー
+
+初期状態では、配信先は手元のマシンの MediaMTX を指します。YouTube、LinkedIn、X の代わりです。
+
+| 配信先 | アドレス | 確認方法 |
 |---|---|---|
-| YouTube 代替 | `rtmp://127.0.0.1:1935/live/youtube` | `ffprobe rtmp://127.0.0.1:1935/live/youtube` |
-| LinkedIn 代替 | `rtmp://127.0.0.1:1935/live/linkedin` | 同じ、`/live/linkedin` |
-| X 代替 | `rtmp://127.0.0.1:1935/live/x` | 同じ、`/live/x` |
+| YouTube の代替 | `rtmp://127.0.0.1:1935/live/youtube` | `ffprobe rtmp://127.0.0.1:1935/live/youtube` |
+| LinkedIn の代替 | `rtmp://127.0.0.1:1935/live/linkedin` | 同じ。`/live/linkedin` にします |
+| X の代替 | `rtmp://127.0.0.1:1935/live/x` | 同じ。`/live/x` にします |
 
-## 本番の配信先
+## 本物の配信先
 
-本番では、各スタジオのオーナーが本物の YouTube、LinkedIn、X インジェスト URL を配信先パネルで入力します。`RTMP_*` の既定値が新しいスタジオにコピーされるのはループバックを指す場合だけなので、本物のストリームキーは入れないでください。Casthop は配信先を検証します。クライアントから受け付けるのは `rtmp:` URL だけで、プライベートネットワーク（RFC 1918）は拒否します。
+スタジオのオーナーは、**Destinations** パネルで本物のアドレスを追加します。1 つのスタジオに最大 16 件です。Casthop が受け付けるのは `rtmp:` と `rtmps:` のアドレスだけで、`10.x` や `192.168.x` のようなプライベートネットワークのアドレスは拒否します。
 
-## 状態、Live、復旧
+`RTMP_*` の設定に本物のストリームキーを入れないでください。新しいスタジオは、これらが `127.0.0.1` を指しているときだけコピーします。
 
-各配信先行は、それぞれの RTMP 状態（`connecting`、`live`、`retrying`、`failed`）を出します。スタジオの Live 表示は、Egress が出力を出すまで「開始中」のままです。ストリームのバイト数か尺、あるいは RTMP の `started_at` のあとの短い settle です。コンポジタープロセスがあるだけでは Live になりません。
+## 状態と復旧
 
-Egress やストリームが落ちると、スタジオは間隔を空けながら再試行します。署名付き LiveKit webhook に依存します。[セルフホスト](/docs/self-hosting) を見てください。
+配信先ごとに、`connecting`、`live`、`retrying`、`failed` のいずれかの状態が表示されます。スタジオのステータス表示は、映像が実際に流れ始めるまで **Starting** のままで、流れ始めると **Live** になります。
+
+ミキサーがクラッシュしたり、配信が途切れたりすると、スタジオは待ち時間を少しずつ延ばしながら自動で再試行します。サーバーでは、LiveKit の webhook が必要です。[セルフホスト](/docs/self-hosting) を見てください。
 
 ## 録画
 
 | 場所 | 内容 |
 |---|---|
-| `data/recordings/` | 合成映像の Egress MP4。 |
-| `data/rtmp/` | ローカル RTMP エッジからの MediaMTX fMP4。 |
-| `RECORDINGS` (R2) | 個別録画がオンのときの人ごとの WebM。ホストは録画パネルからダウンロードします。 |
+| `data/recordings/` | Egress が書き込む、ミックスしたショーの MP4。 |
+| `data/rtmp/` | ローカルの MediaMTX が受け取ったもの。 |
+| `RECORDINGS` (R2) | **Separate recordings** がオンのときの、個人別のトラック。 |
 
-録画の中身は Rust ヘルパーで確認できます:
+録画に音が入っているか確認するには、`bash scripts/check-silent-audio.sh data/recordings/<file>.mp4` を実行します。
+
+## 個別録画（個人別トラック）
+
+ライブを始める前に、Go live ダイアログで **Separate recordings** をオンにします。すると、ステージにいる各人が、自分のカメラとマイクをそれぞれのブラウザで録画し、ショーの間に 2 秒ごとの断片としてアップロードします。タブが閉じられても、失われるのは最後の断片だけです。録画するのはステージにいる人だけで、バックステージのゲストは録画しません。
+
+ショーのあと、スタジオの **Recordings** を開くと、各トラックをダウンロードできます。ファイルは WebM で、Safari の場合は MP4 です。
+
+## リプレイ
+
+ミックスした MP4 は、Rust 製のツールでリプレイにできます。
 
 ```bash
 cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
+cargo run -p casthop-post -- hls data/recordings/<file>.mp4 /tmp/replay-hls
 ```
 
-無音でないことを確かめるには `bash scripts/check-silent-audio.sh data/recordings/<file>.mp4` を実行します。
+そのあと、オーナーか共同ホストとしてサインインした状態で、`POST /api/studios/:id/replays` でアップロードし、`visibility` を `private` か `public` にします。非公開のリプレイは、自分のスタジオ一覧にだけ表示されます。公開のリプレイは `/watch/:id` で再生されます。
+
+## クリップ
+
+ライブ中に **Clip**（または C キー）を押すと、直前の 30 秒か 60 秒を保存できます。クリップはリプレイの隣に、ダウンロードリンク付きで表示され、非公開と公開のルールもリプレイと同じです。
 
 ## チャット
 
-スタジオにいる人は、部屋にコメントを送れます。番組がライブ中、Casthop は YouTube ライブチャット（`liveChatMessages.list`）もポーリングし、同じパネルに混ぜます。ホストと共同ホストは、コメント 1 件をコンポジターのオーバーレイ（Canvas2D のテロップ表示）にピンできます。ポーリングは API の `pollingIntervalMillis` に従います。資格情報が無いと YouTube の取り込みは隠れ、スタジオはエラーになりません。
+スタジオにいる人どうしで、チャットができます。ライブ中は、YouTube、Twitch、Kick のコメントも同じパネルに表示できます。ホストと共同ホストは、コメントを 1 件、映像にピン留めできます。
 
-必要な Worker secrets は、`YOUTUBE_API_KEY` に `YOUTUBE_LIVE_CHAT_ID` か `YOUTUBE_VIDEO_ID` を足すか、オーナーの進行中配信を探す OAuth リフレッシュ 3 点（`YOUTUBE_OAUTH_CLIENT_ID`、`YOUTUBE_OAUTH_CLIENT_SECRET`、`YOUTUBE_OAUTH_REFRESH_TOKEN`）です。[設定](/docs/configuration) を見てください。
+- **YouTube:** `YOUTUBE_API_KEY` と、`YOUTUBE_LIVE_CHAT_ID` または `YOUTUBE_VIDEO_ID` を設定します。または、3 つの `YOUTUBE_OAUTH_*` の値を設定すると、自分の進行中のライブ配信を探します。
+- **Twitch:** `TWITCH_CHANNEL` にチャンネル名を設定します。
+- **Kick:** `KICK_CHATROOM_ID` にチャットルーム番号を設定します。
 
-X の API は有料プランが要ります。LinkedIn のライブコメントはパートナー API が要ります。どちらもつながっていません。配信先チャットの VOD / リプレイはなく、ポーリングはスタジオがライブのときだけ動きます。YouTube の page-token カーソルは Durable Object のストレージに留まり、ゲストや公開 GET / WebSocket 状態には送られません。
+未設定の場合、そのソースは表示されません。何も壊れません。コメントを読み取るのはライブ中だけで、リプレイには保存されません。X には無料のチャット API がないため、X のチャットは非対応です。LinkedIn のコメントにはパートナー API が必要で、非対応です。[設定](/docs/configuration) を見てください。
 
-## 誰が何を見るか
+## 誰に何が見えるか
 
-- **オーナーと共同ホスト** は、サインイン中（セッション cookie）に配信先の完全な URL を受け取ります。
-- **ゲストと公開リクエスト** が得るのは、マスクした末尾と `hasKey` フラグだけです。`GET /api/studios/:id` と WebSocket の `state` フレームに適用されます。
-- ストリームキーは Durable Object のストレージにあり、リポジトリにはありません。
+- **オーナーと共同ホスト**は、サインイン中（セッション Cookie）に、配信先の完全な URL を受け取ります。
+- **ゲストと公開リクエスト**には、マスクされた末尾と `hasKey` フラグだけが渡されます。これは `GET /api/studios/:id` と、WebSocket の `state` フレームに当てはまります。
+- ストリームキーは、リポジトリではなく Durable Object のストレージに保存されます。

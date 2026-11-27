@@ -1,62 +1,80 @@
 ---
 title: Destinations
-description: RTMP destinations, local stand-ins, status, recordings, and who sees full URLs.
+description: Where your stream goes, the local test servers, live status, recordings, replays and clips.
 group: Operate
 order: 5
 ---
 
-A destination is an RTMP URL. Each destination picks **16:9** (the program) or **9:16** (a second stacked composite). Destinations that share an aspect share one Egress encode.
+A destination is a streaming address (an RTMP or RTMPS URL) such as the ingest URL YouTube gives you. Casthop mixes the stage once and sends it to every destination you turn on.
 
-## Local stand-ins
+## Wide and vertical
 
-Out of the box, the destinations are MediaMTX stand-ins for YouTube, LinkedIn and X:
+Each destination is either **16:9** (the normal wide video) or **9:16** (a tall video with cameras stacked, for TikTok, YouTube Shorts or Instagram Reels). Destinations with the same shape share one encode. Vertical gets its own encode on the server, so guests still only send their camera once.
 
-| Destination | Ingest | Watch |
+9:16 needs the Casthop mixing page (`EGRESS_TEMPLATE_URL`) to be set.
+
+## Local test servers
+
+Out of the box, the destinations point at MediaMTX on your machine, standing in for YouTube, LinkedIn and X:
+
+| Destination | Address | Check it |
 |---|---|---|
 | YouTube stand-in | `rtmp://127.0.0.1:1935/live/youtube` | `ffprobe rtmp://127.0.0.1:1935/live/youtube` |
-| LinkedIn stand-in | `rtmp://127.0.0.1:1935/live/linkedin` | same, `/live/linkedin` |
-| X stand-in | `rtmp://127.0.0.1:1935/live/x` | same, `/live/x` |
+| LinkedIn stand-in | `rtmp://127.0.0.1:1935/live/linkedin` | same, with `/live/linkedin` |
+| X stand-in | `rtmp://127.0.0.1:1935/live/x` | same, with `/live/x` |
 
 ## Real destinations
 
-For production, each studio owner enters real YouTube, LinkedIn and X ingest URLs in the Destinations panel. The `RTMP_*` defaults are copied into new studios only when they point at loopback, so do not put real stream keys there. Casthop validates destinations: only `rtmp:` URLs are accepted from clients, and private-network (RFC 1918) targets are rejected.
+Each studio owner adds real addresses in the **Destinations** panel, up to 16 per studio. Casthop only accepts `rtmp:` and `rtmps:` addresses, and refuses private network addresses such as `10.x` or `192.168.x`.
 
-## Status, Live, and recovery
+Do not put real stream keys in the `RTMP_*` settings. New studios copy those only when they point at `127.0.0.1`.
 
-Each destination row shows its own RTMP status (`connecting`, `live`, `retrying`, `failed`). The Destinations panel also shows 16:9 and 9:16 output status separately. The studio Live pill stays on Starting until Egress is producing: stream bytes or duration, or a short settle after RTMP `started_at`. It does not flip to Live just because the compositor process exists.
+## Status and recovery
 
-Mark a destination 9:16 for TikTok, YouTube Shorts, or Instagram Reels ingest. The 16:9 layout (solo / side / screen) is unchanged. Vertical uses its own stacked-camera layout with a captions band. Guests still publish once.
+Each destination shows its own status: `connecting`, `live`, `retrying` or `failed`. The studio pill stays on **Starting** until video is really flowing, then shows **Live**.
 
-If Egress or a stream drops, the studio retries with backoff. This relies on signed LiveKit webhooks, see [Self-hosting](/docs/self-hosting).
+If the mixer crashes or a stream drops, the studio retries on its own, waiting longer each time. On a server this needs the LiveKit webhook, see [Self-hosting](/docs/self-hosting).
 
 ## Recordings
 
 | Where | What |
 |---|---|
-| `data/recordings/` | Egress MP4 of the composite. |
-| `data/rtmp/` | MediaMTX fMP4 from the local RTMP edge. |
-| `RECORDINGS` (R2) | Per-person WebM tracks when Separate recordings is on. Hosts download them from the studio Recordings panel. |
+| `data/recordings/` | MP4 of the mixed show, written by Egress. |
+| `data/rtmp/` | What the local MediaMTX received. |
+| `RECORDINGS` (R2) | Per-person tracks, when **Separate recordings** is on. |
 
-Inspect a recording with the Rust helper:
+To check that a recording has sound: `bash scripts/check-silent-audio.sh data/recordings/<file>.mp4`.
+
+## Separate recordings (per-person tracks)
+
+Turn on **Separate recordings** in the Go live dialog before you go live. Each person on stage then records their own camera and mic in their browser and uploads it in 2-second pieces during the show. A closed tab only loses the last piece. Only people on stage record. Guests backstage do not.
+
+After the show, open **Recordings** in the studio to download each track. Files are WebM, or MP4 from Safari.
+
+## Replays
+
+Turn the mixed MP4 into a replay with the Rust helper:
 
 ```bash
 cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
 cargo run -p casthop-post -- hls data/recordings/<file>.mp4 /tmp/replay-hls
 ```
 
-`hls` remuxes a VOD playlist (fMP4, 4s targets) for the R2 replay viewer. `POST /api/studios/:id/replays` as the owner to archive it. Private replays stay on the studio list; public ones are `/watch/:id`. While the studio is live, the compositor writes a short HLS window of the program; Clip (C) copies the last 30 or 60 seconds into a downloadable clip with the same private/public rules.
+Then, signed in as the owner or a co-host, upload it with `POST /api/studios/:id/replays` and set `visibility` to `private` or `public`. Private replays show on your studio list only. Public replays play at `/watch/:id`.
 
-To check that a recording is not silent, run `bash scripts/check-silent-audio.sh data/recordings/<file>.mp4`.
+## Clips
 
-Turn on **Separate recordings** in the Go live dialog before you go live. Each person on stage records in their own browser and uploads 2-second chunks to R2 while the show runs, so a dropped tab only loses the last slice. After you end live, open the Recordings rail to download each track. The mixed Egress MP4 stays on the compositor volume; ISO files are WebM (or MP4 on Safari).
+While you are live, press **Clip** (or the C key) to save the last 30 or 60 seconds. Clips appear next to the replays with a download link and follow the same private and public rules.
 
 ## Chat
 
-People in the studio can send comments in the room. While the show is live, Casthop can also poll YouTube Live chat (`liveChatMessages.list`) and merge those comments into the same panel. Hosts and co-hosts can pin one comment onto the compositor overlay (Canvas2D lower-third stack). Polling uses the API’s `pollingIntervalMillis`. Unset credentials hide YouTube ingest; the studio does not error.
+People in the studio can chat with each other. While you are live, comments from YouTube, Twitch and Kick can join the same panel. Hosts and co-hosts can pin one comment onto the video.
 
-Need Worker secrets: `YOUTUBE_API_KEY` plus `YOUTUBE_LIVE_CHAT_ID` or `YOUTUBE_VIDEO_ID`, or the OAuth refresh trio (`YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN`) which looks up the owner’s active broadcast. See [Configuration](/docs/configuration).
+- **YouTube:** set `YOUTUBE_API_KEY` plus `YOUTUBE_LIVE_CHAT_ID` or `YOUTUBE_VIDEO_ID`, or the three `YOUTUBE_OAUTH_*` values to find your own active broadcast.
+- **Twitch:** set `TWITCH_CHANNEL` to the channel name.
+- **Kick:** set `KICK_CHATROOM_ID` to the chatroom number.
 
-X’s API requires a paid tier. LinkedIn live comments need a partner API. Neither is wired. There is no VOD / replay of destination chat; polling runs only while the studio is live. The YouTube page-token cursor stays in Durable Object storage and is never sent to guests or public GET / WebSocket state.
+Unset means that source stays hidden. Nothing breaks. Comments are only read while you are live, and they are not saved with the replay. X chat is not supported because X has no free chat API. LinkedIn comments need a partner API and are not supported. See [Configuration](/docs/configuration).
 
 ## Who sees what
 

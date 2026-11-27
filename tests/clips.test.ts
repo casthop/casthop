@@ -286,6 +286,29 @@ test("host clips last 30s from live HLS without starting another egress", async 
   assert.equal(guest.status, 401);
 });
 
+test("stop-live deletes the private live HLS segments", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "owner@example.com");
+  const { id } = await createStudio(env, cookie);
+  await goLive(env, cookie, id);
+  await putLiveFiles(env, cookie, id, hlsFilesForSegments(4));
+  const before = await env.RECORDINGS.list({ prefix: `live/${id}/` });
+  assert.ok(before.objects.length > 0);
+
+  const stopped = await app.request(
+    `https://casthop.test/api/studios/${id}/live`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ live: false }),
+    },
+    env,
+  );
+  assert.equal(stopped.status, 200, await stopped.clone().text());
+  const left = await env.RECORDINGS.list({ prefix: `live/${id}/` });
+  assert.equal(left.objects.length, 0);
+});
+
 test("public clip omits studioId; 60s clip keeps more segments", async () => {
   const env = makeEnv();
   const cookie = await signIn(env, "owner@example.com");

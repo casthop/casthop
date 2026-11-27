@@ -840,6 +840,8 @@ app.post("/api/studios/:id/live", async (c) => {
   const res = await doAction(c.env, id, action, { hostKey });
   if (res.status === 404) return c.json({ error: "Studio not found" }, 404);
   if (res.status === 403) return c.json({ error: "host access required" }, 403);
+  // Clips need a live stream, so drop the private program segments once stopped.
+  if (!body.live && res.ok) await deleteLivePrefix(c.env, id);
   return new Response(res.body, { status: res.status, headers: res.headers });
 });
 

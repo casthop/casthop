@@ -96,6 +96,7 @@ You should not need these. Tests set some of them to `0`.
 | `CASTHOP_EMPTY_GRACE_MS` | End the stream after the studio has been empty this long. | `45000` (45 s) |
 | `CASTHOP_COMPOSITOR_GRACE_MS` | How long to wait for the mixing page to join after starting. | `15000` |
 | `CASTHOP_RECOVERY_MS` | Stop retrying a crashed mixer after this. The host can press Retry. | `30000` |
+| `CASTHOP_MAX_STUDIOS` | How many studios one account can own. | `20` |
 | `CASTHOP_HEARTBEAT_MS` | Treat the mixing page as dead after this much silence. It checks in every second. | `3000` |
 | `CASTHOP_BACKOFF_MS` | Wait between stream retries. Unset means 1, 2, 4, 8, 16, then 30 s. | unset |
 

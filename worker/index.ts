@@ -60,6 +60,7 @@ import {
   listReplaysForStudio,
   listClipsForStudio,
   listStudiosFor,
+  maxStudiosPerAccount,
   memberFor,
   membersOf,
   replayById,
@@ -315,7 +316,15 @@ app.post("/api/studios", async (c) => {
   if (signinExternal(c.env)) return c.json({ error: "signin_external" }, 403);
   const body = (await c.req.json().catch(() => ({}))) as { title?: string };
   const title = asName(body.title, "Weekly product update");
-  const created = await createStudio(c.env, { ownerId: sess.account.id, title });
+  // The owner insert is the cap, so parallel POSTs cannot all pass a separate count.
+  const created = await createStudio(c.env, {
+    ownerId: sess.account.id,
+    title,
+    maxStudios: maxStudiosPerAccount(c.env.CASTHOP_MAX_STUDIOS),
+  });
+  if (created && "limited" in created) {
+    return c.json({ error: "studio limit reached" }, 429);
+  }
   if (!created) {
     return c.json({ error: "failed to create studio" }, 500);
   }
@@ -637,7 +646,7 @@ app.post("/api/studios/:id/token", async (c) => {
   // Guest join + host refresh. JWT is WebCrypto HMAC; workers-rs did not beat it (MEASUREMENTS.md).
   const id = c.req.param("id");
   const ip = requestIp(c);
-  if (!(await allowRate(c.env.DB, `token:ip:${ip}`, TOKEN_IP_MAX, TOKEN_IP_WINDOW_MS))) {
+  if (!(await allowRate(c.env.DB, `token:ip:${ipBucket(ip)}`, TOKEN_IP_MAX, TOKEN_IP_WINDOW_MS))) {
     return c.json({ error: "too many joins" }, 429);
   }
   const body = (await c.req.json().catch(() => ({}))) as {
@@ -1068,7 +1077,7 @@ app.post("/api/studios/:id/cohosts", async (c) => {
     return c.json({ error: "too many invites" }, 429);
   }
   if (!(await allowRate(c.env.DB, emailKey, INVITE_EMAIL_MAX, SIGNIN_WINDOW_MS))) {
-    await refundRate(c.env.DB, acctKey);
+    await refundRate(c.env.DB, acctKey, SIGNIN_WINDOW_MS);
     return c.json({ error: "too many invites" }, 429);
   }
   await insertInvite(c.env.DB, randomId(10), id, email, Date.now());
@@ -1080,8 +1089,8 @@ app.post("/api/studios/:id/cohosts", async (c) => {
     });
   } catch (err) {
     await deleteInvite(c.env.DB, id, email);
-    await refundRate(c.env.DB, acctKey);
-    await refundRate(c.env.DB, emailKey);
+    await refundRate(c.env.DB, acctKey, SIGNIN_WINDOW_MS);
+    await refundRate(c.env.DB, emailKey, SIGNIN_WINDOW_MS);
     if (err instanceof MailSendError) return c.json({ error: "could not send invite" }, 502);
     throw err;
   }

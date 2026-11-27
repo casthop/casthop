@@ -169,6 +169,8 @@ export type Env = {
   CASTHOP_COMPOSITOR_GRACE_MS?: string;
   CASTHOP_BACKOFF_MS?: string;
   CASTHOP_RECOVERY_MS?: string;
+  /** Studios one account can own. Default 20. */
+  CASTHOP_MAX_STUDIOS?: string;
   CASTHOP_HEARTBEAT_MS?: string;
   CASTHOP_TRUST_FORWARDED?: string;
   /** Hosted mode. Each is off unless set; see the configuration docs. */

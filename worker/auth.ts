@@ -10,6 +10,8 @@ import {
   SIGNIN_WINDOW_MS,
   SIGNIN_IP_MAX,
   SIGNIN_EMAIL_MAX,
+  SIGNIN_TO_MAX,
+  SIGNIN_TO_GAP_MS,
   SESSION_PREV_GRACE_MS,
   localDevMode,
   asEmail,
@@ -18,6 +20,7 @@ import {
   cookieValue,
   hostIdentityFor,
   hostKeyFor,
+  ipBucket,
   isLoopbackHost,
   isLoopbackUrl,
   isSecureRequest,
@@ -32,6 +35,7 @@ import {
   accountByEmail,
   accountByGithub,
   accountById,
+  allowInboxRate,
   allowRate,
   consumeMagic,
   deleteOauth,
@@ -44,6 +48,7 @@ import {
   magicByHash,
   memberFor,
   oauthByState,
+  refundRate,
   rotateSession,
   sessionByTokenHash,
   updateAccountGithub,
@@ -187,26 +192,37 @@ function showDevLogin(c: AppCtx, ip: string): boolean {
 
 export async function issueMagicLink(c: AppCtx, email: string): Promise<{ ok: true; devLogin?: string }> {
   const ip = requestIp(c);
-  if (!(await allowRate(c.env.DB, `signin:ip:${ip}`, SIGNIN_IP_MAX, SIGNIN_WINDOW_MS))) {
+  // One IPv6 host holds a whole /64; key limits on the network, not each address in it.
+  const client = ipBucket(ip);
+  if (!(await allowRate(c.env.DB, `signin:ip:${client}`, SIGNIN_IP_MAX, SIGNIN_WINDOW_MS))) {
     return Promise.reject(Object.assign(new Error("too many attempts"), { status: 429 }));
   }
-  if (!(await allowRate(c.env.DB, `signin:email:${email}:${ip}`, SIGNIN_EMAIL_MAX, SIGNIN_WINDOW_MS))) {
+  if (!(await allowRate(c.env.DB, `signin:email:${email}:${client}`, SIGNIN_EMAIL_MAX, SIGNIN_WINDOW_MS))) {
     return { ok: true };
   }
-  const token = randomId(32);
-  const tokenHash = await sha256hex(token);
-  const now = Date.now();
-  await insertMagic(c.env.DB, tokenHash, email, now + MAGIC_TTL_MS, now);
-  const origin = publicOrigin(c.env, c.req.url);
-  if (!origin) throw Object.assign(new Error("PUBLIC_ORIGIN required"), { status: 503 });
-  const loginPath = `/api/auth/callback?token=${encodeURIComponent(token)}`;
-  const loginUrl = `${origin}${loginPath}`;
-  await mailerFor(c.env).send({
-    to: email,
-    subject: "Sign in to Casthop",
-    text: `Open this link and click Sign in. It expires in 15 minutes.\n\n${loginUrl}\n`,
-  });
-  return showDevLogin(c, ip) ? { ok: true, devLogin: loginPath } : { ok: true };
+  // Burst, then at most one more per minute so a flood cannot lock the owner out.
+  if (!(await allowInboxRate(c.env.DB, `signin:to:${email}`, SIGNIN_TO_MAX, SIGNIN_WINDOW_MS, SIGNIN_TO_GAP_MS))) {
+    return { ok: true };
+  }
+  try {
+    const token = randomId(32);
+    const tokenHash = await sha256hex(token);
+    const now = Date.now();
+    await insertMagic(c.env.DB, tokenHash, email, now + MAGIC_TTL_MS, now);
+    const origin = publicOrigin(c.env, c.req.url);
+    if (!origin) throw Object.assign(new Error("PUBLIC_ORIGIN required"), { status: 503 });
+    const loginPath = `/api/auth/callback?token=${encodeURIComponent(token)}`;
+    const loginUrl = `${origin}${loginPath}`;
+    await mailerFor(c.env).send({
+      to: email,
+      subject: "Sign in to Casthop",
+      text: `Open this link and click Sign in. It expires in 15 minutes.\n\n${loginUrl}\n`,
+    });
+    return showDevLogin(c, ip) ? { ok: true, devLogin: loginPath } : { ok: true };
+  } catch (err) {
+    await refundRate(c.env.DB, `signin:to:${email}`, SIGNIN_WINDOW_MS);
+    throw err;
+  }
 }
 
 export async function magicLinkPending(c: AppCtx, token: string): Promise<boolean> {
@@ -253,7 +269,7 @@ export async function consumeMagicToken(c: AppCtx, token: string): Promise<Accou
 
 export async function startGithub(c: AppCtx): Promise<{ url: string; cookie: string } | null> {
   if (!githubConfigured(c.env)) return null;
-  const ip = requestIp(c);
+  const ip = ipBucket(requestIp(c));
   if (!(await allowRate(c.env.DB, `signin:ip:${ip}`, SIGNIN_IP_MAX, SIGNIN_WINDOW_MS))) {
     throw Object.assign(new Error("too many attempts"), { status: 429 });
   }

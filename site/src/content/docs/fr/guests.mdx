@@ -1,29 +1,46 @@
 ---
 title: Invités
-description: Comment les invités rejoignent un studio par un lien, et ce que l’hôte doit faire.
+description: Comment les invités et les co-hôtes rejoignent un studio, et ce que chacun peut faire.
 group: Démarrer
 order: 2
 ---
 
-Les invités arrivent par un lien. Ils n’ont pas besoin de compte.
+Les invités rejoignent depuis un lien. Ils n’ont besoin ni de compte ni d’installation.
 
-## Comment ça marche
+## Comment un invité rejoint
 
-1. L’hôte ouvre un studio et copie le lien invité.
-2. L’invité ouvre le lien dans un navigateur et entre un nom.
-3. L’invité attend en coulisses. L’hôte le voit, mais il n’est pas encore dans le flux.
-4. L’hôte l’ajoute à la scène. Jusqu’à six personnes à la fois.
+1. L’hôte ouvre un studio et clique sur **Invite guest** pour copier le lien.
+2. L’invité ouvre le lien, saisit un nom et vérifie sa caméra et son micro.
+3. L’invité attend en coulisses. L’hôte peut le voir, mais il n’est pas dans la diffusion.
+4. L’hôte le fait monter sur scène. Jusqu’à six personnes peuvent être sur scène en même temps.
 
-![L’écran d’arrivée de l’invité, avec une image de test verte.](/guest.png)
+![L’écran d’arrivée d’un invité avec une image de test verte.](/guest.png)
 
-*L’image verte est une fausse caméra dans une capture de test, pas un vrai invité.*
+*L’image verte vient d’une fausse caméra dans une capture de test, pas d’un vrai invité.*
+
+## Co-hôtes
+
+Un co-hôte peut gérer le studio avec le propriétaire : faire monter des invités sur scène, changer la disposition, passer en direct et épingler un message du chat.
+
+1. Le propriétaire clique sur **Invite co-host** et saisit un e-mail.
+2. La personne reçoit un e-mail avec le lien du studio. Le propriétaire voit la même réponse, que cet e-mail ait un compte ou non.
+3. La personne se connecte avec cet e-mail, ouvre le lien et clique sur **Accept and join as co-host**. Tant qu’elle n’a pas accepté, elle n’est pas co-hôte.
+
+Un co-hôte peut quitter un studio à tout moment.
 
 ## Qui peut faire quoi
 
-- **Animer le studio demande un compte.** L’hôte se connecte avec un magic link par e-mail, ou GitHub si vous l’avez configuré. Le propriétaire du studio, et tout co-hôte qu’il invite, peut le contrôler.
-- **Les invités ne se font pas passer pour l’hôte.** Les identités sont attribuées par le Worker, et chaque action est vérifiée côté serveur.
-- **Les invités ne voient jamais les clés de stream.** L’état public du studio n’inclut qu’un suffixe masqué de chaque URL de destination. Voir [Destinations](/docs/destinations).
+- **Animer exige un compte.** Le propriétaire et les co-hôtes se connectent avec un lien envoyé par e-mail, ou avec GitHub s’il est configuré.
+- **Les invités ne peuvent pas agir en tant qu’hôte.** Le serveur décide qui est qui et vérifie chaque action.
+- **Les invités ne voient jamais les clés de stream.** Ils ne voient que les derniers caractères de chaque adresse. Voir [Destinations](/docs/destinations).
+- **Seules les personnes sur scène peuvent enregistrer leur propre piste.** Quand **Separate recordings** est activé, l’hôte, les co-hôtes et les invités sur scène enregistrent chacun dans leur navigateur. Les invités en coulisses ne le peuvent pas.
 
-## Si un invité ne se connecte pas
+## Limites pour les invités
 
-Le TURN pour les invités derrière un NAT strict n’est pas encore pris en charge. Sur un réseau restrictif, la connexion de l’invité peut échouer pour l’instant.
+Pour éviter qu’une seule personne remplisse un studio de faux invités, chaque réseau (une adresse IPv4, ou un bloc IPv6 /64) peut ajouter jusqu’à 10 nouveaux invités par minute et occuper jusqu’à 16 places d’invité dans un studio. Quand un studio est plein, les invités absents depuis plus d’une minute perdent leur place.
+
+Gardez-le en tête si de nombreux vrais invités partagent le même réseau de bureau.
+
+## Si un invité n’arrive pas à se connecter
+
+TURN n’est pas encore inclus. TURN est un serveur relais pour les réseaux qui bloquent la vidéo directe. Un invité sur un réseau d’entreprise ou d’hôtel strict peut échouer à se connecter. Demandez-lui d’essayer un autre réseau, ou faites tourner votre propre serveur TURN avec LiveKit.

@@ -6,7 +6,7 @@ By participating you agree to the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## Dev setup
 
-Linux + Docker host networking is the supported local path. Install [Bun](https://bun.com) 1.4+ (`packageManager` in `package.json`). Do not use npm.
+Linux + Docker host networking is the supported local path. Install [Bun](https://bun.com) 1.4.5 or newer (`packageManager` in `package.json`). Do not use npm.
 
 ```bash
 cp .env.example .env
@@ -55,7 +55,7 @@ Needs compose + `bun run dev` (same setup as above). These flows sign in through
 ```bash
 bunx --bun @e2e-dev/web install chromium   # once per machine; Linux may need --with-deps
 bun run test:e2e-ui         # studio UI flows in tests/studio/*.e2e.ts
-E2E=1 bun run test:e2e      # headless Go Live → MediaMTX; audio must not be silent
+E2E=1 bun run test:e2e      # headless Go Live → MediaMTX; audio must not be silent. Needs ffmpeg. Set CHROME=/path/to/chrome if it is not /usr/local/bin/chrome
 ```
 
 `test:e2e-ui` uses locators and `expect` (no model, no API key). `reuseExisting` locally if something is already on :5173. Do not start a second app on that port.
@@ -86,7 +86,7 @@ Never force-push to `main`. Never delete source. Never commit secrets. Never add
 
 ## CI
 
-Jobs (all must pass): `lint` (rustfmt), `typecheck`, `test`, `rust` (test + clippy), `wasm` budget, `audit` (`bun audit` + `cargo audit`), `perf` (Chrome compositor budget), `e2e` (Go Live → MediaMTX), `e2e-studio` (UI flows, no secrets, no model). Dependabot: `.github/dependabot.yml`.
+Jobs (all must pass): `lint` (rustfmt), `typecheck`, `test`, `rust` (test + clippy), `wasm` budget, `audit` (`bun audit` + `cargo audit`), `perf` (Chrome compositor budget), `e2e` (Go Live → MediaMTX), `e2e-studio` (UI flows, no secrets, no model), `e2e-site` (marketing site header). Dependabot: `.github/dependabot.yml`.
 
 ## Code review
 

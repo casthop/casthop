@@ -1,95 +1,173 @@
 ---
 title: 設定
-description: docker compose と Worker の環境変数と、ローカルの既定値。
+description: Casthop が読むすべての設定と、その働き、変更するタイミング。
 group: 運用
 order: 4
 ---
 
-docker compose 用に `.env.example` を `.env` へ、Worker 用に `.dev.vars.example` を `.dev.vars` へコピーします。本番では Worker の値を Worker secrets か vars として置きます。両方の example に、アプリが読む変数が一行コメント付きで並んでいます。
+Casthop は、2 つのファイルから設定を読みます。
 
-<p class="note">example ファイルの <code>casthop_dev_secret_…</code> は、文書化されたローカル既定値です。公開されているので本番には使いません。キーは <code>lk generate-keys</code> で自分で作ってください。</p>
+- **`.env`** は Docker Compose（メディアサーバー）用です。`.env.example` をもとに作ります。
+- **`.dev.vars`** は、`bun run dev` で動かすときのアプリサーバー（Cloudflare Worker）用です。`.dev.vars.example` をもとに作ります。
+
+本番のサーバーでは、アプリの値を Worker の変数として設定し、秘密にする値は `wrangler secret put NAME` で設定します。本物の値を git にコミットしないでください。
+
+ローカルでのテストなら、何も変えなくて構いません。初期値で動きます。
+
+<p class="note">サンプルファイルの <code>devkey</code> と <code>casthop_dev_secret_…</code> は、公開されているテスト用のキーです。LiveKit が <code>127.0.0.1</code> にない限り、Casthop はこれらを受け付けません。ネットワークに載せる前に、<code>lk generate-keys</code> で自分のキーを作ってください。</p>
 
 ## LiveKit
 
-| 名前 | 用途 | ローカルの既定値 |
-|---|---|---|
-| `LIVEKIT_API_KEY` | LiveKit の API キー。 | `devkey` |
-| `LIVEKIT_API_SECRET` | LiveKit の API シークレット。Worker secrets に置き、ブラウザへ送らないでください。 | 文書化されたローカル既定値。本番には使わない |
-| `LIVEKIT_HTTP_URL` | Worker が LiveKit に届く先。 | `http://127.0.0.1:7880` |
-| `PUBLIC_LIVEKIT_URL` | ブラウザがつなぐ LiveKit の URL。 | `ws://127.0.0.1:7880` |
+LiveKit は、ブラウザ間で音声と映像を運ぶサーバーです。
 
-`devkey` をループバック以外の LiveKit URL と組み合わせると、Worker は 503 を返します。`CASTHOP_ALLOW_DEV_KEYS=1` はこれを上書きし、テスト専用です。
+| 名前 | 働き | 変更するタイミング | 初期値 |
+|---|---|---|---|
+| `LIVEKIT_API_KEY` | アプリが LiveKit と通信するためのキー。 | 本番のサーバーでは必ず。自分のキーを使います。 | `devkey` |
+| `LIVEKIT_API_SECRET` | キーとセットのシークレット。ブラウザには送られません。 | 本番のサーバーでは必ず。Worker のシークレットとして保存します。 | 公開テスト値 |
+| `LIVEKIT_HTTP_URL` | アプリサーバーが LiveKit に届くアドレス。 | LiveKit が別のホストで動くとき。 | `http://127.0.0.1:7880` |
+| `PUBLIC_LIVEKIT_URL` | ブラウザが LiveKit に届くアドレス。ゲストから届く必要があります。 | 本番のサーバーでは必ず。例: `wss://livekit.example.com`。 | `ws://127.0.0.1:7880` |
 
-## Egress
+## 録画とミックス
 
-| 名前 | 用途 | ローカルの既定値 |
-|---|---|---|
-| `EGRESS_OUTPUT_DIR` | egress コンテナ内のパス。Compose はここに `./data/recordings` をマウントします。Worker の変数ではありません。 | `/out` |
-| `EGRESS_TEMPLATE_URL` | Egress が開くコンポジターページ。 | `http://127.0.0.1:5173/egress-template` |
+Egress は LiveKit のサービスです。非表示のスタジオページを開き、ステージを 1 本の映像にミックスし、録画して、送り出します。
 
-## 配信先
+| 名前 | 働き | 変更するタイミング | 初期値 |
+|---|---|---|---|
+| `EGRESS_TEMPLATE_URL` | Egress が映像をミックスするために開くスタジオページ。 | 本番のサーバーでは `https://<your site>/egress-template` にします。 | `http://127.0.0.1:5173/egress-template` |
+| `EGRESS_OUTPUT_DIR` | 録画の保存先となる、Egress コンテナ内のフォルダー。Docker のみで、アプリは読みません。 | ほとんど変更しません。Compose が `./data/recordings` をここにマウントします。 | `/out` |
 
-| 名前 | 用途 | ローカルの既定値 |
-|---|---|---|
-| `RTMP_YOUTUBE` | YouTube の既定配信先。 | `rtmp://127.0.0.1:1935/live/youtube` |
-| `RTMP_LINKEDIN` | LinkedIn の既定配信先。 | `rtmp://127.0.0.1:1935/live/linkedin` |
-| `RTMP_X` | X の既定配信先。 | `rtmp://127.0.0.1:1935/live/x` |
+## 既定の配信先
 
-ローカルの MediaMTX 代替です。新しいスタジオにコピーされるのはループバックを指す場合だけです。どのアカウントでもスタジオを作れるため、ここに本物のインジェスト URL を入れると、すべてのオーナーにストリームキーが渡ってしまいます。本物のインジェスト URL は、オーナーがスタジオごとに配信先パネルで入力します。
+配信先とは、YouTube のインジェストのような配信用アドレス（RTMP URL）のことです。
 
-## Worker
+| 名前 | 働き | 変更するタイミング | 初期値 |
+|---|---|---|---|
+| `RTMP_YOUTUBE` | 新しいスタジオの既定の YouTube アドレス。 | 別のローカルテストサーバーを指したいときだけ。 | `rtmp://127.0.0.1:1935/live/youtube` |
+| `RTMP_LINKEDIN` | 既定の LinkedIn アドレス。 | 上と同じ。 | `rtmp://127.0.0.1:1935/live/linkedin` |
+| `RTMP_X` | 既定の X アドレス。 | 上と同じ。 | `rtmp://127.0.0.1:1935/live/x` |
 
-| 名前 | 用途 | ローカルの既定値 |
-|---|---|---|
-| `HOST_KEY_SECRET` | Worker から Durable Object へのホストキー用の別 HMAC。未設定だと `LIVEKIT_API_SECRET` に落ちます。本番では設定してください。 | unset |
-| `PUBLIC_ORIGIN` | マジックリンクのメール、共同ホスト招待、GitHub OAuth に使う公開サイト URL。 | unset（ループバックの Host を使う） |
-| `CASTHOP_TRUST_FORWARDED` | リバースプロキシの後ろで `CF-Connecting-IP` と `X-Forwarded-For` を信じるときは `1`。 | unset |
-| `CASTHOP_ALLOW_DEV_KEYS` | 公開 dev キーペアを、ループバック以外の LiveKit と一緒に許可する。テスト専用。 | unset |
+新しいスタジオは、`127.0.0.1` を指している場合にだけ、これらをコピーします。本物のストリームキーはここに入れないでください。どのアカウントでもスタジオを作れるので、キーが全員に渡ってしまいます。オーナーは、**Destinations** パネルで、スタジオごとに本物のアドレスを入力します。
 
-## タイミングの上書き
+## サーバーとセキュリティ
 
-任意です。未設定なら `worker/egress.ts` のコード既定値が使われます。テストでは一部を `0` や数ミリ秒にします。
+| 名前 | 働き | 変更するタイミング | 初期値 |
+|---|---|---|---|
+| `PUBLIC_ORIGIN` | サイトの公開アドレス。サインインメール、共同ホストの招待、GitHub のコールバックで使います。 | 本番のサーバーでは必ず。例: `https://studio.example.com`。未設定だと、`127.0.0.1` 以外ではサインインに失敗します。 | 未設定 |
+| `HOST_KEY_SECRET` | アプリ内のホストキー用の別のシークレット。未設定なら `LIVEKIT_API_SECRET` を使います。 | 本番のサーバーでは必ず。あとで LiveKit のキーを変えても、スタジオに入れなくなりません。 | 未設定 |
+| `CASTHOP_TRUST_FORWARDED` | `1` にすると、`X-Forwarded-For` と `CF-Connecting-IP` のクライアントアドレスを信頼します。サインインとゲストの上限は、このアドレスを使います。 | 自前のリバースプロキシ（nginx、Caddy）の背後でのみ。Cloudflare では不要です。`bun run dev` では使わないでください。 | 未設定 |
+| `CASTHOP_DEV_LOGIN` | `1` にすると、サインインリンクをターミナルだけでなく、ブラウザへのレスポンスにも含めます。`127.0.0.1` でのみ動きます。 | e2e テスト、`bun run measure`、`/internal/probe` 用。サーバーでは使わないでください。 | 未設定 |
+| `CASTHOP_ALLOW_DEV_KEYS` | `1` にすると、`127.0.0.1` にない LiveKit でも公開テスト用キーを許可します。 | テスト専用。 | 未設定 |
 
-| 名前 | 用途 | 既定値 |
-|---|---|---|
-| `CASTHOP_EMPTY_GRACE_MS` | スタジオがこの時間空いたらライブを終える。 | `45000` |
-| `CASTHOP_COMPOSITOR_GRACE_MS` | StartRoomComposite のあと、コンポジターの Chrome が参加するまで待つ。 | `15000` |
-| `CASTHOP_RECOVERY_MS` | 死んだコンポジターの再起動を諦める。ホストは再試行できる。 | `30000` |
-| `CASTHOP_HEARTBEAT_MS` | この時間を過ぎるとコンポジターの beat は古い（ページは 1 秒ごとに POST）。 | `3000` |
-| `CASTHOP_BACKOFF_MS` | RTMP 再試行のバックオフを上書き。Unset = 1 s、2 s、4 s、8 s、16 s、30 s。テストでは `0`。 | unset |
+シェルで `X_LOCAL_EXPLORER=true` を指定すると（`.dev.vars` ではありません）、`bun run dev` でローカルのデータブラウザが有効になります。既定ではオフです。
 
 ## サインイン
 
-| 名前 | 用途 | ローカルの既定値 |
+ホストはメールのリンクでサインインします。ゲストはサインイン不要です。
+
+| 名前 | 働き | 変更するタイミング | 初期値 |
+|---|---|---|---|
+| `MAIL_WEBHOOK_URL` | メールを送るたびに、Casthop がここへ JSON `{ to, subject, text }` を POST します。 | 本番のサーバーでは、メールサービスを指定します。未設定ならメールはターミナルに出力されます。 | 未設定 |
+| `MAIL_WEBHOOK_TOKEN` | Webhook の呼び出しごとに `Authorization: Bearer <token>` として送られ、メール側で検証できます。 | メール Webhook に認証が必要なとき。 | 未設定 |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | 「Sign in with GitHub」を有効にします。GitHub で OAuth アプリを作り、コールバックを `<PUBLIC_ORIGIN>/api/auth/github/callback` にします。 | GitHub でサインインしたいとき。未設定ならボタンは出ません。 | 未設定 |
+
+## 配信サイトのチャット
+
+ライブ中は、これらのサイトのコメントがスタジオのチャットに表示されます。ホストと共同ホストは、コメントを映像にピン留めできます。未設定の場合、この機能は表示されません。何も壊れません。
+
+| 名前 | 働き | 初期値 |
 |---|---|---|
-| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | 任意の GitHub OAuth。未設定だと GitHub ボタンは出ない。 | unset |
-| `MAIL_WEBHOOK_URL` | 任意。Casthop は JSON `{ to, subject, text }` を POST する。未設定だとマジックリンクは Worker コンソールへ。 | unset |
-| `MAIL_WEBHOOK_TOKEN` | メール webhook 用の任意トークン。 | unset |
+| `YOUTUBE_API_KEY` | 公開ライブチャットを読むための YouTube Data API キー。 | 未設定 |
+| `YOUTUBE_LIVE_CHAT_ID` | このライブチャットを直接読みます。API キーと一緒に使います。 | 未設定 |
+| `YOUTUBE_VIDEO_ID` | この動画からライブチャットを探します。API キーと一緒に使います。 | 未設定 |
+| `YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN` | ID の代わりに、自分の進行中のライブ配信を探します。 | 未設定 |
+| `TWITCH_CHANNEL` | 読み取る Twitch のチャンネル名。ログインは不要です。 | 未設定 |
+| `KICK_CHATROOM_ID` | 読み取る Kick のチャットルーム番号。 | 未設定 |
 
-## YouTube ライブチャット
+YouTube では、API キーと ID のどれか 1 つ、または 3 つの OAuth の値を設定します。X には無料のチャット API がないため、X のチャットは非対応です。LinkedIn のコメントも非対応です。
 
-番組がライブ中、YouTube 配信のコメントがスタジオのチャットパネルに出ます。ホストは 1 件をコンポジターのオーバーレイにピンできます。資格情報が無いと隠れ、スタジオはエラーになりません。
+## タイミング
 
-| 名前 | 用途 | ローカルの既定値 |
+通常は変更する必要はありません。テストでは、いくつかを `0` にします。
+
+| 名前 | 働き | 初期値 |
 |---|---|---|
-| `YOUTUBE_API_KEY` | 公開 `liveChatMessages.list` 用の YouTube Data API キー。 | unset |
-| `YOUTUBE_LIVE_CHAT_ID` | 検索を飛ばして、このライブチャットをポーリングする。 | unset |
-| `YOUTUBE_VIDEO_ID` | 動画から `activeLiveChatId` を解決する。 | unset |
-| `YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN` | オーナーの進行中配信を探す（`liveBroadcasts.list?mine=true`）。 | unset |
+| `CASTHOP_EMPTY_GRACE_MS` | スタジオが空になってから、この時間が過ぎると配信を終了します。 | `45000`（45 秒） |
+| `CASTHOP_COMPOSITOR_GRACE_MS` | 開始後、ミックス用ページの参加を待つ時間。 | `15000` |
+| `CASTHOP_RECOVERY_MS` | クラッシュしたミキサーの再試行を、この時間でやめます。ホストは Retry を押せます。 | `30000` |
+| `CASTHOP_HEARTBEAT_MS` | ミックス用ページから、この時間連絡がなければ停止とみなします。ページは 1 秒ごとに報告します。 | `3000` |
+| `CASTHOP_BACKOFF_MS` | 配信の再試行までの待ち時間。未設定なら 1、2、4、8、16 秒、その後は 30 秒です。 | 未設定 |
 
-API キーにライブチャットか動画 ID を足すか、OAuth リフレッシュの 3 点が必要です。ポーリングは API の `pollingIntervalMillis` に従います。X の API は有料プラン、LinkedIn のコメントはパートナー API が要り、それらの配信先は取り込みません。
+## Cloudflare のバインディング
 
-## Twitch と Kick のチャット
+これらは変数ではなく、`wrangler.jsonc` で設定します。
 
-配信中、これらのコメントは同じチャットパネルに表示されます。未設定なら表示されません。
-
-| 名前 | 用途 | ローカルの既定値 |
-|---|---|---|
-| `TWITCH_CHANNEL` | 読み取る Twitch チャンネル名。 | unset |
-| `KICK_CHATROOM_ID` | 読み取る Kick のチャットルーム ID（数字）。 | unset |
-
-X のチャットは、無料のチャット API がないため、まだ対応していません。
+| バインディング | 内容 |
+|---|---|
+| `DB` | アカウント、セッション、スタジオ一覧用の D1 データベース。テーブルは最初のリクエストで作られます。 |
+| `STUDIO` | スタジオごとに 1 つの Durable Object。ステージ、レイアウト、チャット、配信先を持ちます。 |
+| `RECORDINGS` | リプレイ、クリップ、個人別トラック用の R2 バケット。 |
 
 ## ストリームキー
 
-ストリームキーは環境変数ではありません。Durable Object のストレージにあり、リポジトリには入りません。公開 API が返すのは `rtmp://…/xxxx` のようなマスクした末尾と、`hasKey` フラグだけです。
+ストリームキーは設定ではありません。スタジオごとに、Durable Object のストレージへ保存されます。ゲストと公開ページには、末尾の数文字と `hasKey` フラグしか見えません。
+
+## ホスト型モード（任意）
+
+Casthop のホスト型サービスを準備中です。これらのフックを使うと、別のサービスが多数のチームの代わりに Casthop を運用できます。セルフホストには不要です。どれも、対応する変数を設定するまで無効で、何も設定しなければ何も変わりません。
+
+テナント ID は、そのサービスにおける 1 つの顧客チームの ID です。サービス API で作られたスタジオはこれを持ち、ファイルは `t/<tenantId>/` の下に保存されます。
+
+| 名前 | 働き |
+|---|---|
+| `CASTHOP_EXTERNAL_AUTH_KEYS` | `kid:secret`（secret は 32 文字以上）のカンマ区切りリスト。`GET /api/auth/external` を有効にします。未設定なら 404 を返します。 |
+| `CASTHOP_EXTERNAL_AUTH_ISSUER` | キーと一緒に必須です。トークンの `iss` がこれと一致する必要があります。 |
+| `CASTHOP_SIGNIN` | `external` にすると、メールと GitHub のサインイン、およびアプリからのスタジオ作成が無効になります（どちらも 403 `signin_external`）。スタジオはサービス API から作られるので、すべてテナントを持ちます。既存のセッションとゲストリンクは引き続き使えます。`/api/config` は `signin: "external"` を返します。 |
+| `CASTHOP_SERVICE_KEYS` | `kid:secret`（secret は 32 文字以上）のカンマ区切りリスト。署名付きの `/api/service/*` API を有効にします。未設定ならそれらのルートは 404 を返します。 |
+
+### サインインの引き継ぎ
+
+`GET /api/auth/external?token=<jwt>&next=<path>` は、ユーザーをサインインさせて `next` にリダイレクトします。`next` は、1 つの `/` で始まる必要があります（`//` とバックスラッシュは不可）。それ以外は `/` に移動します。
+
+トークンは、ヘッダーが `{"alg":"HS256","typ":"JWT","kid":"<kid>"}` の、コンパクト形式の JWS（HS256）です。
+
+| クレーム | ルール |
+|---|---|
+| `iss` | `CASTHOP_EXTERNAL_AUTH_ISSUER` と同じ。 |
+| `aud` | `casthop`。 |
+| `sub` | 外部ユーザー ID（文字列）。 |
+| `email` | 有効なメールアドレス。これでアカウントを探すか作成し、保留中の招待を適用します。 |
+| `exp` | Unix 秒。未来で、現在から 120 秒以内。 |
+| `iat` | Unix 秒。 |
+| `jti` | 128 文字以下の文字列。1 回しか使えません。 |
+| `name` | 任意。 |
+| `tenant` | 任意。指定する場合は有効なテナント ID。 |
+
+### サービス API
+
+`/api/service/*` へのリクエストは、すべて次のヘッダーを付けます。
+
+| ヘッダー | 値 |
+|---|---|
+| `X-Casthop-Key-Id` | `kid`。 |
+| `X-Casthop-Timestamp` | Unix 秒。Worker の時計との差が 300 秒以内である必要があります。 |
+| `X-Casthop-Nonce` | `A-Za-z0-9_-` の 16 〜 64 文字。1 回しか使えません。 |
+| `X-Casthop-Signature` | 小文字の 16 進数による HMAC-SHA256。 |
+
+署名は、次の文字列を、シークレットをキーにして HMAC-SHA256 で計算したものです。
+
+```text
+${timestamp}\n${nonce}\n${METHOD}\n${pathname+search}\n${sha256hex(body)}
+```
+
+`body` は生のリクエストボディです。ボディがなければ空文字列にします。署名が不正、タイムスタンプが古い、キーが不明、nonce が再利用された場合は、401 `{"error":"bad_signature"}` を返します。
+
+| ルート | 内容 |
+|---|---|
+| `POST /api/service/studios` | ボディは `{tenantId, ownerEmail, ownerName?, name?}`。テナントのスタジオを作成します。201 `{studio:{id,name,tenantId,ownerId}}` を返します。 |
+| `GET /api/service/tenants/:tenantId/studios` | `{studios:[{id,name,ownerId,createdAt}]}` を返します。 |
+| `DELETE /api/service/studios/:id?tenantId=…` | ライブ出力を止め、スタジオの状態、行、ファイルを削除します。そのテナントのスタジオでなければ 404。`{deleted:true}` を返します。 |
+| `DELETE /api/service/tenants/:tenantId` | テナントのすべてのスタジオに同じ処理をしたあと、`t/<tenantId>/` の下をすべて削除します。`{deleted:n}` を返します。 |
+
+これらのルートがアカウントを削除することはありません。
+
+テナント ID は `^[a-z0-9][a-z0-9_-]{0,62}$` に一致します。テナント ID を持つスタジオのファイルは、録画バケットの `t/<tenantId>/` の下に保存されます。持たないスタジオは、従来のキーのままです。

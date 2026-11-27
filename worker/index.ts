@@ -14,6 +14,7 @@ import {
   INVITE_ACCOUNT_MAX,
   INVITE_EMAIL_MAX,
   ipBucket,
+  STUDIO_WS_IP_HEADER,
   isHostIdentity,
   isSecureRequest,
   OAUTH_COOKIE,
@@ -628,6 +629,8 @@ app.get("/api/studios/:id/ws", async (c) => {
   // Forward the upgrade only. The client's URL and query must not reach the action dispatcher.
   const headers = new Headers(c.req.raw.headers);
   headers.set("Upgrade", "websocket");
+  headers.delete(STUDIO_WS_IP_HEADER);
+  headers.set(STUDIO_WS_IP_HEADER, ipBucket(requestIp(c)));
   return studioStub(c.env, id).fetch(new Request(`https://studio/${id}`, { headers }));
 });
 

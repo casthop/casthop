@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { app, StudioDurableObject } from "../worker/index.ts";
 import { GUEST_STAGE_TOKEN_TTL_SEC, GUEST_TOKEN_TTL_SEC, HOST_TOKEN_TTL_SEC, signLivekitWebhook } from "../worker/livekit.ts";
-import { DEV_API_KEY, DEV_API_SECRET, GUEST_MINT_PER_SOURCE, HOST_IDENTITY, INVITE_ACCOUNT_MAX, INVITE_EMAIL_MAX, SESSION_COOKIE } from "../worker/security.ts";
+import { DEV_API_KEY, DEV_API_SECRET, GUEST_MINT_PER_SOURCE, HOST_IDENTITY, INVITE_ACCOUNT_MAX, INVITE_EMAIL_MAX, SESSION_COOKIE, STUDIO_WS_IP_HEADER } from "../worker/security.ts";
 import type { Env, PublicClip, PublicReplay, PublicStudio, StudioRecord } from "../worker/types.ts";
 import { insertClip } from "../worker/db.ts";
 import { clipObjectKey } from "../worker/clips.ts";
@@ -1286,6 +1286,21 @@ test("the ws route forwards only the upgrade, never the client's query, to the s
   assert.equal(new URL(seen[0]!.url).search, "");
   assert.equal(seen[0]!.method, "GET");
   assert.equal(seen[0]!.headers.get("Upgrade"), "websocket");
+  assert.equal(seen[0]!.headers.get(STUDIO_WS_IP_HEADER), "local");
+
+  const spoof = await app.request(
+    `https://casthop.test/api/studios/${id}/ws`,
+    {
+      headers: {
+        Upgrade: "WebSocket",
+        [STUDIO_WS_IP_HEADER]: "spoofed",
+        "cf-connecting-ip": "2001:db8:1:2:3:4:5:6",
+      },
+    },
+    env,
+  );
+  assert.equal(spoof.status, 200);
+  assert.equal(seen[1]!.headers.get(STUDIO_WS_IP_HEADER), "2001:db8:1:2::/64");
 });
 
 test("the studio refuses actions that do not come as POST or PUT", async () => {

@@ -1,8 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { StudioDurableObject } from "../worker/index.ts";
-import { asChatText, asName, DEV_API_KEY, DEV_API_SECRET, MAX_STUDIO_SOCKETS, sha256hex } from "../worker/security.ts";
+import { asChatText, asName, DEV_API_KEY, DEV_API_SECRET, MAX_STUDIO_SOCKETS, MAX_STUDIO_SOCKETS_PER_IP, STUDIO_WS_IP_HEADER, sha256hex } from "../worker/security.ts";
 import type { Env, PublicStudio } from "../worker/types.ts";
+
+if (typeof globalThis.WebSocketPair === "undefined") {
+  (globalThis as unknown as { WebSocketPair: new () => { 0: unknown; 1: { send: (data: string) => void } } }).WebSocketPair =
+    class {
+      0 = {};
+      1 = { send: () => undefined };
+    };
+}
 
 const env = {
   LIVEKIT_API_KEY: DEV_API_KEY,
@@ -12,7 +20,10 @@ const env = {
   CASTHOP_ALLOW_DEV_KEYS: "1",
 } as Env;
 
-function ctxWithSockets(open: number): { ctx: DurableObjectState; accepted: () => number } {
+function ctxWithSockets(
+  open: number,
+  perTag: Record<string, number> = {},
+): { ctx: DurableObjectState; accepted: () => number } {
   const store = new Map<string, unknown>();
   let accepted = 0;
   const ctx = {
@@ -22,7 +33,8 @@ function ctxWithSockets(open: number): { ctx: DurableObjectState; accepted: () =
         store.set(key, structuredClone(value));
       },
     },
-    getWebSockets: () => Array.from({ length: open }, () => ({ send: () => undefined })),
+    getWebSockets: (tag?: string) =>
+      Array.from({ length: tag ? (perTag[tag] ?? 0) : open }, () => ({ send: () => undefined })),
     acceptWebSocket: () => {
       accepted += 1;
     },
@@ -30,7 +42,10 @@ function ctxWithSockets(open: number): { ctx: DurableObjectState; accepted: () =
   return { ctx, accepted: () => accepted };
 }
 
-const upgrade = () => new Request("https://studio/room1", { headers: { Upgrade: "websocket" } });
+const upgrade = (bucket?: string) =>
+  new Request("https://studio/room1", {
+    headers: { Upgrade: "websocket", ...(bucket ? { [STUDIO_WS_IP_HEADER]: bucket } : {}) },
+  });
 
 async function create(room: StudioDurableObject): Promise<void> {
   const hostKeyHash = await sha256hex("host-key");
@@ -54,6 +69,18 @@ test("a studio stops accepting sockets at its cap", async () => {
   const res = await room.fetch(upgrade());
   assert.equal(res.status, 503);
   assert.equal(accepted(), 0);
+});
+
+test("a studio caps sockets from one network below the room cap", async () => {
+  const { ctx, accepted } = ctxWithSockets(MAX_STUDIO_SOCKETS_PER_IP, { "203.0.113.10": MAX_STUDIO_SOCKETS_PER_IP });
+  const room = new StudioDurableObject(ctx, env);
+  await create(room);
+  const res = await room.fetch(upgrade("203.0.113.10"));
+  assert.equal(res.status, 429);
+  assert.equal(accepted(), 0);
+  const other = await room.fetch(upgrade("198.51.100.2"));
+  assert.equal(other.status, 101);
+  assert.equal(accepted(), 1);
 });
 
 test("chat text and names drop control characters", async () => {

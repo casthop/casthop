@@ -334,6 +334,10 @@ export function sanitizeDestinations(
 
 /** Sockets one studio keeps open. Every state write is sent to each of them. */
 export const MAX_STUDIO_SOCKETS = 256;
+/** Concurrent state sockets from one IPv4 address or IPv6 /64. The 256 cap is a backstop. */
+export const MAX_STUDIO_SOCKETS_PER_IP = 8;
+/** Set by the Worker on a socket upgrade; a client-supplied value is ignored. */
+export const STUDIO_WS_IP_HEADER = "x-casthop-ip-bucket";
 
 // Control characters are invisible but JSON-escape to six bytes each, and chat rides in every broadcast.
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/g;

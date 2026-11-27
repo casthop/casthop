@@ -590,7 +590,7 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
       path: `/api/studios/${id}/iso/missing/chunks/0`,
       init: {
         method: "PUT",
-        headers: { "Content-Type": "application/octet-stream", "X-Casthop-Identity": guestMint.identity, "X-Casthop-Guest-Secret": guestMint.guestSecret },
+        headers: { "Content-Type": "application/octet-stream", "Content-Length": "3", "X-Casthop-Identity": guestMint.identity, "X-Casthop-Guest-Secret": guestMint.guestSecret },
         body: new Uint8Array([1, 2, 3]),
       },
       expect: { owner: 404, cohost: 404, guest: 404, signedOut: 404, expired: 403, outsider: 404 },

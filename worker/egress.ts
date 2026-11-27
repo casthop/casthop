@@ -700,6 +700,7 @@ export function normalizeStudio(state: StudioState): StudioState {
     egressHeartbeatAt: state.egressHeartbeatAt ?? null,
     portraitEgressId: state.portraitEgressId ?? null,
     portraitHeartbeatAt: state.portraitHeartbeatAt ?? null,
+    portraitStartedAt: state.portraitStartedAt ?? null,
     portraitRetryCount: state.portraitRetryCount ?? 0,
     portraitRetryAt: state.portraitRetryAt ?? null,
     portraitRecoveringSince: state.portraitRecoveringSince ?? null,

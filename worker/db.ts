@@ -52,6 +52,9 @@ export const SCHEMA = [
     created_at INTEGER NOT NULL,
     UNIQUE (studio_id, email)
   )`,
+  // Listing and sign-in look rows up by account and by invited email; without these they scan every row.
+  `CREATE INDEX IF NOT EXISTS studio_members_account ON studio_members(account_id)`,
+  `CREATE INDEX IF NOT EXISTS studio_invites_email ON studio_invites(email)`,
   `CREATE TABLE IF NOT EXISTS rate_limits (
     key TEXT PRIMARY KEY,
     count INTEGER NOT NULL,

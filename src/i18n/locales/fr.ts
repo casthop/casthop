@@ -64,6 +64,9 @@ const fr: Messages = {
   guestDefaultOutput: "Sortie par défaut",
   guestInviteBadge: "Invitation d’invité",
   guestJoinTitle: "Rejoindre le studio",
+  cohostInviteNote: "Vous êtes invité à co-animer ce studio.",
+  cohostInviteAccept: "Accepter et rejoindre comme co-animateur",
+  cohostInviteFailed: "Impossible d’accepter l’invitation",
   guestJoinSub:
     "Pas de téléchargement ni de compte. Vous attendez en coulisses jusqu’à ce que l’hôte vous fasse monter sur scène.",
   guestYourName: "Votre nom",

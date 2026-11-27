@@ -183,7 +183,7 @@ async function benchApp(appBase) {
   });
   const magicBody = await magic.json();
   if (!magicBody.devLogin) {
-    return { health, config, skipped: "no devLogin (need loopback default keys)" };
+    return { health, config, skipped: "no devLogin (need loopback default keys and CASTHOP_DEV_LOGIN=1)" };
   }
   const login = await fetch(`${appBase}${magicBody.devLogin}`, { method: "POST", redirect: "manual" });
   const cookie = (login.headers.getSetCookie?.() ?? [])

@@ -31,6 +31,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 ### Fixed
 
+- Kick chat was broken after Kick left Pusher. It now uses Kick's public Centrifugo feed and reconnects with a fresh guest token when the old one expires.
 - Opening `/studio/:id` as a signed-in co-host invitee now shows the Accept prompt, as the invite email says. It used to show only the guest gate. After accepting, the studio opens as a co-host. Accepting from the guest join page still works.
 - The header no longer says Live when every destination has failed to connect. A failed stream no longer counts as output, even with a start time, so the header stays Starting while destinations retry and turns to Live failed once they all fail.
 - A studio whose Go live failed stops polling YouTube chat and closes Twitch and Kick chat until a host presses Retry or End. It used to keep calling YouTube every few seconds, even after everyone left.

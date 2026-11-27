@@ -8,19 +8,22 @@ export type PlatformMessage = ChatMessage & { source: PlatformId };
 export const PLATFORM_BACKOFF_MIN_MS = 2_000;
 export const PLATFORM_BACKOFF_MAX_MS = 60_000;
 
-// Kick's public web-client Pusher app key. It is not a secret.
-const KICK_PUSHER_URL = "wss://ws-us2.pusher.com/app/32cbd69e4b950bf97679?protocol=7&client=js&version=8.4.0&flash=false";
+const KICK_API = "https://web.kick.com/api/v1/realtime";
+// Kick's realtime endpoints reject requests and upgrades without this Origin.
+const KICK_ORIGIN = "https://kick.com";
 const TWITCH_URL = "wss://irc-ws.chat.twitch.tv:443";
 const MAX_TEXT = 400;
 
 export type Parsed = { messages: PlatformMessage[]; reply: string[] };
 
+/** Where to connect, which headers the upgrade needs, and what to send first. */
+export type PlatformSession = { url: string; headers?: Record<string, string>; hello: string[] };
+
 /** One adapter per platform: how to connect, what to say first, how to read frames. */
 export type PlatformAdapter = {
   id: PlatformId;
   configured: (env: PlatformEnv) => boolean;
-  url: string;
-  hello: (env: PlatformEnv) => string[];
+  prepare: (env: PlatformEnv) => Promise<PlatformSession>;
   parse: (frame: string) => Parsed;
 };
 
@@ -96,20 +99,12 @@ function parseJson(text: unknown): unknown {
   }
 }
 
-export function parseKick(frame: string): Parsed {
-  const out: Parsed = { messages: [], reply: [] };
-  const env = asObj(parseJson(frame));
-  if (!env) return out;
-  if (env.event === "pusher:ping") {
-    out.reply.push(JSON.stringify({ event: "pusher:pong", data: {} }));
-    return out;
-  }
-  if (env.event !== "App\\Events\\ChatMessageEvent") return out;
-  const data = asObj(parseJson(env.data));
-  if (!data) return out;
+function kickChat(value: unknown): PlatformMessage | null {
+  const data = asObj(parseJson(value));
+  if (!data) return null;
   const sender = asObj(data.sender);
   const created = typeof data.created_at === "string" ? Date.parse(data.created_at) : NaN;
-  const msg = message(
+  return message(
     "kick",
     typeof data.id === "string" ? data.id : "",
     sender && typeof sender.id === "number" ? String(sender.id) : "",
@@ -117,31 +112,86 @@ export function parseKick(frame: string): Parsed {
     typeof data.content === "string" ? data.content : "",
     Number.isFinite(created) ? created : 0,
   );
-  if (msg) out.messages.push(msg);
+}
+
+/** Centrifugo frames: `{}` is a server ping, pushes carry the chat event. A frame can hold several JSON lines. */
+export function parseKick(frame: string): Parsed {
+  const out: Parsed = { messages: [], reply: [] };
+  for (const line of frame.split("\n")) {
+    const obj = asObj(parseJson(line.trim()));
+    if (!obj) continue;
+    if (Object.keys(obj).length === 0) {
+      out.reply.push("{}");
+      continue;
+    }
+    const event = asObj(asObj(asObj(obj.push)?.pub)?.data);
+    if (!event || event.event !== "App\\Events\\ChatMessageEvent") continue;
+    const msg = kickChat(event.data);
+    if (msg) out.messages.push(msg);
+  }
   return out;
+}
+
+async function kickPost(path: string, body: unknown): Promise<Record<string, unknown>> {
+  const res = await fetch(`${KICK_API}${path}`, {
+    method: "POST",
+    headers: { Origin: KICK_ORIGIN, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`kick ${path} ${res.status}`);
+  const data = asObj(asObj(await res.json())?.data);
+  if (!data) throw new Error(`kick ${path} bad response`);
+  return data;
+}
+
+/**
+ * Resolve the Centrifugo URL and a guest token. The token lasts ~45 min and is not
+ * refreshed: the server then closes the socket and the hub reconnects with a new one.
+ */
+async function kickPrepare(env: PlatformEnv): Promise<PlatformSession> {
+  const room = kickChatroomId(env);
+  const clientId = crypto.randomUUID();
+  const conn = await kickPost(`/channels/${room}/chat/connection`, {
+    client: { id: clientId, type: "web" },
+    capabilities: { accepted_providers: [{ provider: "pusher" }, { provider: "centrifugo" }] },
+  });
+  const centrifugo = Array.isArray(conn.connections)
+    ? conn.connections.map(asObj).find((c) => c?.provider === "centrifugo")
+    : undefined;
+  const url = asObj(centrifugo?.credentials)?.url;
+  if (typeof url !== "string" || !url.startsWith("wss://")) throw new Error("kick: no centrifugo url");
+  const auth = await kickPost("/auth/connection", { client_id: clientId });
+  if (typeof auth.token !== "string" || !auth.token) throw new Error("kick: no token");
+  return {
+    url,
+    headers: { Origin: KICK_ORIGIN },
+    hello: [
+      JSON.stringify({ id: 1, connect: { token: auth.token, name: "js" } }),
+      JSON.stringify({ id: 2, subscribe: { channel: `chatrooms.${room}.v2` } }),
+    ],
+  };
 }
 
 export const twitchAdapter: PlatformAdapter = {
   id: "twitch",
   configured: (env) => Boolean(twitchChannel(env)),
-  url: TWITCH_URL,
   // Anonymous read-only login. No token needed.
-  hello: (env) => [
-    "CAP REQ :twitch.tv/tags",
-    "PASS SCHMOOPIIE",
-    `NICK justinfan${Math.floor(10_000 + Math.random() * 80_000)}`,
-    `JOIN #${twitchChannel(env)}`,
-  ],
+  prepare: async (env) => ({
+    url: TWITCH_URL,
+    hello: [
+      "CAP REQ :twitch.tv/tags",
+      "PASS SCHMOOPIIE",
+      `NICK justinfan${Math.floor(10_000 + Math.random() * 80_000)}`,
+      `JOIN #${twitchChannel(env)}`,
+    ],
+  }),
   parse: parseTwitch,
 };
 
 export const kickAdapter: PlatformAdapter = {
   id: "kick",
   configured: (env) => Boolean(kickChatroomId(env)),
-  url: KICK_PUSHER_URL,
-  hello: (env) => [
-    JSON.stringify({ event: "pusher:subscribe", data: { auth: "", channel: `chatrooms.${kickChatroomId(env)}.v2` } }),
-  ],
+  prepare: kickPrepare,
   parse: parseKick,
 };
 
@@ -159,10 +209,10 @@ export type ChatSocket = {
   onclose: (() => void) | null;
 };
 
-export type OpenSocket = (url: string) => Promise<ChatSocket>;
+export type OpenSocket = (url: string, headers?: Record<string, string>) => Promise<ChatSocket>;
 
-export const openWorkerSocket: OpenSocket = async (url) => {
-  const res = await fetch(url.replace(/^wss:/, "https:"), { headers: { Upgrade: "websocket" } });
+export const openWorkerSocket: OpenSocket = async (url, headers) => {
+  const res = await fetch(url.replace(/^wss:/, "https:"), { headers: { ...headers, Upgrade: "websocket" } });
   const ws = res.webSocket;
   if (!ws) throw new Error("no websocket");
   ws.accept();
@@ -251,14 +301,15 @@ export class PlatformHub {
   private async connect(adapter: PlatformAdapter, link: Link, now: number): Promise<void> {
     let sock: ChatSocket | undefined;
     try {
-      sock = await this.open(adapter.url);
+      const session = await adapter.prepare(this.env);
+      sock = await this.open(session.url, session.headers);
       const opened = sock;
       link.socket = opened;
       opened.onmessage = (frame) => this.receive(adapter, link, opened, frame);
       opened.onclose = () => {
         if (link.socket === opened) this.fail(link, Date.now());
       };
-      for (const line of adapter.hello(this.env)) opened.send(line);
+      for (const line of session.hello) opened.send(line);
     } catch (err) {
       console.warn(`${adapter.id} chat connect`, err);
       // Unlink first so a synchronous onclose does not count a second failure.

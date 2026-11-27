@@ -13,7 +13,7 @@ import {
   SIGNIN_TO_MAX,
   SIGNIN_TO_GAP_MS,
   SESSION_PREV_GRACE_MS,
-  allowDevLogin,
+  localDevMode,
   asEmail,
   asName,
   clearCookie,
@@ -184,7 +184,7 @@ function showDevLogin(c: AppCtx, ip: string): boolean {
   // (Miniflare stamps 127.0.0.1), so they cannot prove a local peer. Opt in explicitly too.
   return (
     c.env.CASTHOP_DEV_LOGIN === "1" &&
-    allowDevLogin(c.env) &&
+    localDevMode(c.env) &&
     isLoopbackUrl(c.req.url) &&
     (ip === "local" || isLoopbackHost(ip))
   );

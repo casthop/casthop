@@ -89,6 +89,7 @@ jobs:
       - run: |
           cp .env.example .env
           cp .dev.vars.example .dev.vars
+          echo "CASTHOP_DEV_LOGIN=1" >> .dev.vars
       - name: Start app
         run: bun run dev > /tmp/casthop-dev.log 2>&1 &
       - name: Wait for app
@@ -128,6 +129,7 @@ jobs:
       - run: |
           cp .env.example .env
           cp .dev.vars.example .dev.vars
+          echo "CASTHOP_DEV_LOGIN=1" >> .dev.vars
           mkdir -p data/recordings data/rtmp
           chmod 777 data/recordings
       - run: docker compose up -d
@@ -178,6 +180,7 @@ jobs:
       - run: |
           cp .env.example .env
           cp .dev.vars.example .dev.vars
+          echo "CASTHOP_DEV_LOGIN=1" >> .dev.vars
           mkdir -p data/recordings data/rtmp
           chmod 777 data/recordings
       - run: docker compose up -d

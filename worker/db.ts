@@ -58,7 +58,8 @@ export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS rate_limits (
     key TEXT PRIMARY KEY,
     count INTEGER NOT NULL,
-    window_start INTEGER NOT NULL
+    window_start INTEGER NOT NULL,
+    last_at INTEGER NOT NULL DEFAULT 0
   )`,
   `CREATE TABLE IF NOT EXISTS replays (
     id TEXT PRIMARY KEY,
@@ -139,7 +140,9 @@ export const Q = {
   deleteInvite: "DELETE FROM studio_invites WHERE studio_id = ? AND email = ?",
   bumpRate:
     "INSERT INTO rate_limits (key, count, window_start) VALUES (?, 1, ?) ON CONFLICT(key) DO UPDATE SET count = CASE WHEN ? - window_start > ? THEN 1 ELSE count + 1 END, window_start = CASE WHEN ? - window_start > ? THEN ? ELSE window_start END RETURNING count",
-  refundRate: "UPDATE rate_limits SET count = MAX(0, count - 1) WHERE key = ?",
+  claimInboxRate:
+    "INSERT INTO rate_limits (key, count, window_start, last_at) VALUES (?, 1, ?, ?) ON CONFLICT(key) DO UPDATE SET count = CASE WHEN excluded.last_at - window_start > ? THEN 1 ELSE count + 1 END, window_start = CASE WHEN excluded.last_at - window_start > ? THEN excluded.last_at ELSE window_start END, last_at = excluded.last_at WHERE excluded.last_at - window_start > ? OR count < ? OR excluded.last_at - last_at >= ? RETURNING count",
+  refundRate: "UPDATE rate_limits SET count = count - 1, last_at = 0 WHERE key = ? AND ? - window_start <= ? AND count > 0",
   insertReplay:
     "INSERT INTO replays (id, studio_id, title, visibility, duration_ms, created_at, bytes, files) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
   replayById: "SELECT id, studio_id, title, visibility, duration_ms, created_at, bytes, files FROM replays WHERE id = ?",
@@ -261,6 +264,11 @@ export async function ensureDb(db: D1Database): Promise<void> {
     }
     try {
       await db.prepare("ALTER TABLE studios ADD COLUMN tenant_id TEXT").run();
+    } catch {
+      /* already present */
+    }
+    try {
+      await db.prepare("ALTER TABLE rate_limits ADD COLUMN last_at INTEGER NOT NULL DEFAULT 0").run();
     } catch {
       /* already present */
     }
@@ -482,8 +490,22 @@ export async function allowRate(db: D1Database, key: string, max: number, window
   return (row?.count ?? 0) <= max;
 }
 
-export async function refundRate(db: D1Database, key: string): Promise<void> {
-  await run(db, Q.refundRate, key);
+/** Take one inbox send: burst up to max per window, then one more if the last send was at least gapMs ago. */
+export async function allowInboxRate(
+  db: D1Database,
+  key: string,
+  max: number,
+  windowMs: number,
+  gapMs: number,
+  now = Date.now(),
+): Promise<boolean> {
+  const row = await first<{ count: number }>(db, Q.claimInboxRate, key, now, now, windowMs, windowMs, windowMs, max, gapMs);
+  return row !== null;
+}
+
+/** Give back a slot taken by allowRate or allowInboxRate when the counted work did not happen. */
+export async function refundRate(db: D1Database, key: string, windowMs: number, now = Date.now()): Promise<void> {
+  await run(db, Q.refundRate, key, now, windowMs);
 }
 
 export async function insertReplay(db: D1Database, row: ReplayRecord): Promise<void> {

@@ -453,6 +453,45 @@ export class FakeD1 implements D1Database {
         return { results: [], changes: 1 };
       }
     }
+    if (q === norm(Q.refundRate)) {
+      const [key, nowBind, windowBind] = binds;
+      const row = this.rows("rate_limits").find((r) => r.key === key);
+      const live = row && Number(nowBind) - Number(row.window_start) <= Number(windowBind);
+      if (live && Number(row.count) > 0) {
+        row.count = Number(row.count) - 1;
+        row.last_at = 0;
+        return { results: [], changes: 1 };
+      }
+      return { results: [], changes: 0 };
+    }
+    if (q === norm(Q.claimInboxRate)) {
+      const [key, nowBind, , windowBind, , , maxBind, gapBind] = binds;
+      const now = Number(nowBind);
+      const windowMs = Number(windowBind);
+      const max = Number(maxBind);
+      const gapMs = Number(gapBind);
+      let row = this.rows("rate_limits").find((r) => r.key === key);
+      if (!row) {
+        row = { key, count: 1, window_start: now, last_at: now };
+        this.rows("rate_limits").push(row);
+        return { results: [{ count: 1 }], changes: 1 };
+      }
+      const lastAt = Number(row.last_at ?? 0);
+      const windowStart = Number(row.window_start);
+      const count = Number(row.count);
+      const newWindow = now - windowStart > windowMs;
+      if (!newWindow && count >= max && now - lastAt < gapMs) {
+        return { results: [], changes: 0 };
+      }
+      if (newWindow) {
+        row.count = 1;
+        row.window_start = now;
+      } else {
+        row.count = count + 1;
+      }
+      row.last_at = now;
+      return { results: [{ count: row.count }], changes: 1 };
+    }
     if (q === norm(Q.bumpRate)) {
       const [key, nowBind, , windowBind] = binds;
       const now = Number(nowBind);
@@ -468,12 +507,6 @@ export class FakeD1 implements D1Database {
         row.count = Number(row.count) + 1;
       }
       return { results: [{ count: row.count }], changes: 1 };
-    }
-    if (q === norm(Q.refundRate)) {
-      const row = this.rows("rate_limits").find((r) => r.key === binds[0]);
-      if (!row) return { results: [], changes: 0 };
-      row.count = Math.max(0, Number(row.count) - 1);
-      return { results: [], changes: 1 };
     }
     throw new Error(`unhandled sql: ${q}`);
   }

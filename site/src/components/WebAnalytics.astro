@@ -1,0 +1,9 @@
+---
+// Public Cloudflare Web Analytics site token for casthop.com.
+// This is the same value Cloudflare puts in the official JS snippet; it is not an API secret.
+// Auto-install does not inject into this assets-only Worker, so the snippet ships in the HTML.
+// Rendered with set:html so the official attribute quotes are not entity-encoded.
+const snippet =
+  "<!-- Cloudflare Web Analytics --><script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{\"token\": \"947b47cc73ac4686bf48de67e54dbc1f\"}'></script><!-- End Cloudflare Web Analytics -->";
+---
+<Fragment set:html={snippet} />

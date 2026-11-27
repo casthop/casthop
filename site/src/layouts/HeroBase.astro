@@ -5,6 +5,7 @@ import "../styles/hero-variants.css";
 import Hreflang from "../components/Hreflang.astro";
 import { htmlLang, t, type Locale } from "../i18n";
 import { localeRedirectInline } from "../lib/locale-redirect";
+import WebAnalytics from "../components/WebAnalytics.astro";
 
 interface Props { locale: Locale; path?: string; }
 const { locale, path = "/" } = Astro.props;
@@ -39,5 +40,6 @@ const description = t(locale, "metaDescription");
   <body class="hv">
     <a class="hv-skip" href="#main">{t(locale, "skip")}</a>
     <slot />
+    <WebAnalytics />
   </body>
 </html>

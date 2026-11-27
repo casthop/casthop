@@ -22,6 +22,10 @@ export const ABSENT_GUEST_GRACE_MS = 60_000;
 export const SIGNIN_WINDOW_MS = 15 * 60 * 1000;
 export const SIGNIN_IP_MAX = 5;
 export const SIGNIN_EMAIL_MAX = 3;
+/** Mails actually sent to one address from all clients together. After this, one more per SIGNIN_TO_GAP_MS. */
+export const SIGNIN_TO_MAX = 20;
+/** After the inbox burst cap, wait this long since the last sent mail before allowing one more. */
+export const SIGNIN_TO_GAP_MS = 60_000;
 /** Co-host invites per inviting account, and per recipient across all studios, per SIGNIN_WINDOW_MS. */
 export const INVITE_ACCOUNT_MAX = 10;
 export const INVITE_EMAIL_MAX = 2;

@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { Aperture, AudioLines, Check, Mic, MicOff, Video, VideoOff } from "lucide-react";
 import { Logo } from "../components/Logo";
 import { LanguageSwitcher, useI18n, type MessageKey } from "../i18n";
-import { getHealth, getStudio, mintToken } from "../lib/api";
+import { acceptCohostInvite, getHealth, getStudio, mintToken } from "../lib/api";
 import { copyBlurPref, loadBlurPref, saveBlurPrefPair } from "../lib/blur-prefs";
 import { startCameraBlur, type CameraBlurHandle } from "../lib/camera-blur";
 import { copyDenoisePref, loadDenoisePref, saveDenoisePrefPair } from "../lib/denoise-prefs";
@@ -39,6 +39,7 @@ export function GuestJoin() {
   const navigate = useNavigate();
   const { t } = useI18n();
   const [title, setTitle] = useState("");
+  const [cohostInvite, setCohostInvite] = useState(false);
   const [name, setName] = useState<string | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [devices, setDevices] = useState<DeviceSet>({ cameras: [], mics: [], speakers: [] });
@@ -67,6 +68,7 @@ export function GuestJoin() {
     getStudio(id)
       .then((s) => {
         setTitle(s.title);
+        setCohostInvite(Boolean(s.cohostInvite));
         if (s.viewerRole === "owner" || s.viewerRole === "cohost") navigate(`/studio/${id}`);
       })
       .catch(() => undefined);
@@ -155,6 +157,18 @@ export function GuestJoin() {
   }, [camOn, micOn, stream]);
 
   const bars = useMemo(() => Math.max(1, Math.round(level * 5)), [level]);
+
+  async function onAcceptCohost() {
+    setBusy(true);
+    setError("");
+    try {
+      await acceptCohostInvite(id);
+      navigate(`/studio/${id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("cohostInviteFailed"));
+      setBusy(false);
+    }
+  }
 
   async function onJoin(e: FormEvent) {
     e.preventDefault();
@@ -269,6 +283,14 @@ export function GuestJoin() {
           </div>
         </div>
         <form onSubmit={onJoin}>
+          {cohostInvite ? (
+            <div className="cohost-invite">
+              <p>{t("cohostInviteNote")}</p>
+              <button className="btn primary wide" type="button" disabled={busy} onClick={() => void onAcceptCohost()}>
+                {t("cohostInviteAccept")}
+              </button>
+            </div>
+          ) : null}
           <div className="badge-soft">{t("guestInviteBadge")}</div>
           <h1>{t("guestJoinTitle")}</h1>
           <p className="sub">{t("guestJoinSub")}</p>

@@ -607,7 +607,9 @@ app.get("/api/studios/:id", async (c) => {
   const res = await studioStub(c.env, id).fetch(`https://studio/${id}`);
   if (!res.ok) return new Response(res.body, { status: res.status, headers: res.headers });
   const state = (await res.json()) as PublicStudio;
-  return c.json({ ...state, viewerRole: "guest" as const });
+  const email = sess?.account.email;
+  const cohostInvite = email ? (await invitesForStudio(c.env.DB, id)).some((p) => p.email === email) : false;
+  return c.json({ ...state, viewerRole: "guest" as const, ...(cohostInvite ? { cohostInvite } : {}) });
 });
 
 app.get("/api/studios/:id/ws", async (c) => {
@@ -1021,30 +1023,42 @@ app.post("/api/studios/:id/cohosts", async (c) => {
   const email = asEmail(body.email);
   if (!email) return c.json({ error: "valid email required" }, 400);
   if (sess.account.email === email) return c.json({ error: "already a member" }, 409);
-  const existingAccount = await accountByEmail(c.env.DB, email);
-  if (existingAccount) {
-    const already = await memberFor(c.env.DB, id, existingAccount.id);
-    if (already) return c.json({ error: "already a member" }, 409);
-    await insertMember(c.env.DB, id, existingAccount.id, "cohost", Date.now());
-    return c.json({ ok: true, member: { accountId: existingAccount.id, email, name: existingAccount.name, role: "cohost" } });
-  }
   const origin = publicOrigin(c.env, c.req.url);
   if (!origin) return c.json({ error: "PUBLIC_ORIGIN required" }, 503);
+  // The same answer whether or not the email has an account, so this is not a lookup.
+  // Nobody becomes a member until they accept or sign in after the invite mail.
+  const invited = c.json({ ok: true, pending: true, email });
+  const existingAccount = await accountByEmail(c.env.DB, email);
+  if (existingAccount && (await memberFor(c.env.DB, id, existingAccount.id))) return invited;
   const pending = await invitesForStudio(c.env.DB, id);
-  if (pending.some((p) => p.email === email)) return c.json({ error: "already invited" }, 409);
+  if (pending.some((p) => p.email === email)) return invited;
   await insertInvite(c.env.DB, randomId(10), id, email, Date.now());
   try {
     await mailerFor(c.env).send({
       to: email,
       subject: "Co-host invite for a Casthop studio",
-      text: `You were invited to co-host a studio. Sign in at ${origin} with this email, then open ${origin}/studio/${id}\n`,
+      text: `You were invited to co-host a studio. Sign in at ${origin} with this email, then open ${origin}/studio/${id} and accept the invite.\n`,
     });
   } catch (err) {
     await deleteInvite(c.env.DB, id, email);
     if (err instanceof MailSendError) return c.json({ error: "could not send invite" }, 502);
     throw err;
   }
-  return c.json({ ok: true, pending: true, email });
+  return invited;
+});
+
+app.post("/api/studios/:id/cohosts/accept", async (c) => {
+  const id = c.req.param("id");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const email = sess?.account.email;
+  if (!sess || !email) return c.json({ error: "sign in required" }, 401);
+  if (await memberFor(c.env.DB, id, sess.account.id)) return c.json({ ok: true });
+  const pending = await invitesForStudio(c.env.DB, id);
+  if (!pending.some((p) => p.email === email)) return c.json({ error: "no invite" }, 404);
+  await insertMember(c.env.DB, id, sess.account.id, "cohost", Date.now());
+  await deleteInvite(c.env.DB, id, email);
+  return c.json({ ok: true });
 });
 
 app.delete("/api/studios/:id/cohosts/:accountId", async (c) => {
@@ -1053,7 +1067,9 @@ app.delete("/api/studios/:id/cohosts/:accountId", async (c) => {
   const sess = await loadSession(c);
   attachSessionCookie(c, sess?.cookie);
   const host = await hostAuth(c.env, id, sess?.account);
-  if (!host || host.role !== "owner") return c.json({ error: "owner required" }, 403);
+  // The owner removes co-hosts; a co-host can remove themselves.
+  const leaving = host?.role === "cohost" && sess?.account.id === accountId;
+  if (!host || (host.role !== "owner" && !leaving)) return c.json({ error: "owner required" }, 403);
   const member = await memberFor(c.env.DB, id, accountId);
   if (member?.role !== "cohost") return c.json({ error: "co-host not found" }, 404);
   const target = await accountById(c.env.DB, accountId);

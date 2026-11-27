@@ -62,6 +62,9 @@ export const en = {
   guestDefaultOutput: "Default output",
   guestInviteBadge: "Guest invite",
   guestJoinTitle: "Join the studio",
+  cohostInviteNote: "You were invited to co-host this studio.",
+  cohostInviteAccept: "Accept and join as co-host",
+  cohostInviteFailed: "Could not accept the invite",
   guestJoinSub:
     "No download or account needed. You’ll wait backstage until the host brings you on stage.",
   guestYourName: "Your name",

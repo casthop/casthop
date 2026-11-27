@@ -64,6 +64,9 @@ const ptBR: Messages = {
   guestDefaultOutput: "Saída padrão",
   guestInviteBadge: "Convite de convidado",
   guestJoinTitle: "Entrar no estúdio",
+  cohostInviteNote: "Você foi convidado para ser coanfitrião deste estúdio.",
+  cohostInviteAccept: "Aceitar e entrar como coanfitrião",
+  cohostInviteFailed: "Não foi possível aceitar o convite",
   guestJoinSub:
     "Sem download e sem conta. Você espera nos bastidores até o apresentador colocar você no palco.",
   guestYourName: "Seu nome",

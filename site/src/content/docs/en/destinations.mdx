@@ -19,7 +19,7 @@ Out of the box, the destinations are MediaMTX stand-ins for YouTube, LinkedIn an
 
 ## Real destinations
 
-For production, replace these with real YouTube, LinkedIn and X ingest URLs. Casthop validates destinations: only `rtmp:` URLs are accepted from clients, and private-network (RFC 1918) targets are rejected.
+For production, each studio owner enters real YouTube, LinkedIn and X ingest URLs in the Destinations panel. The `RTMP_*` defaults are copied into new studios only when they point at loopback, so do not put real stream keys there. Casthop validates destinations: only `rtmp:` URLs are accepted from clients, and private-network (RFC 1918) targets are rejected.
 
 ## Status, Live, and recovery
 

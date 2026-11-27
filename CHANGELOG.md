@@ -50,3 +50,4 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 - Stream keys and full destination URLs are withheld from guests and public GET / WebSocket state.
 - Published LiveKit `devkey` is refused unless LiveKit is loopback.
 - The magic-link response includes the dev sign-in link only when `CASTHOP_DEV_LOGIN=1` is set. Under `bun run dev` the Host header and client IP the old check used are controlled by the client. CI sets the flag; set it in `.dev.vars` to run e2e or `bun run measure` locally.
+- Only the host, co-hosts and guests on stage can start a per-person (ISO) recording. Guests waiting off stage used to be able to fill the session's track slots and push earlier recordings out of storage.

@@ -324,8 +324,8 @@ test("host can enable ISO, each person uploads chunks, host downloads concat", a
   assert.equal(hostTrack.track.identity, HOST_IDENTITY);
   assert.equal(hostTrack.track.complete, false);
 
-  const guestTrack = await json<{ track: IsoTrack }>(
-    await app.request(
+  const guestStart = () =>
+    app.request(
       `https://casthop.test/api/studios/${id}/iso`,
       {
         method: "POST",
@@ -340,8 +340,20 @@ test("host can enable ISO, each person uploads chunks, host downloads concat", a
         }),
       },
       env,
-    ),
+    );
+  const greenRoom = await guestStart();
+  assert.equal(greenRoom.status, 403, "a guest who is not on stage does not record");
+  const staged = await app.request(
+    `https://casthop.test/api/studios/${id}/stage`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ identity: guestMint.identity, on: true }),
+    },
+    env,
   );
+  assert.equal(staged.status, 200, await staged.clone().text());
+  const guestTrack = await json<{ track: IsoTrack }>(await guestStart());
 
   const steal = await app.request(
     `https://casthop.test/api/studios/${id}/iso/${hostTrack.track.id}/chunks/0`,

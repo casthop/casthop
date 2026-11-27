@@ -59,6 +59,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 - Stream keys and full destination URLs are withheld from guests and public GET / WebSocket state.
 - Published LiveKit `devkey` is refused unless LiveKit is loopback.
+- CI rebuilds the committed `.wasm` files from the Rust source in `rust:1.100.0` and fails if the bytes differ, so the binaries every participant's browser runs match the reviewed source.
 - The app encodes studio, replay, clip, track and account ids in API paths, and refuses `.` and `..` ids. A crafted link (for example an egress template token whose room is `../auth/logout?x=`) could make the page call other API routes with the visitor's cookie.
 - A studio refuses socket upgrades when it does not exist and caps open sockets at 256; every state write goes to each socket. Chat text and names drop control characters, which were invisible but six bytes each in every broadcast.
 - Cookie-authenticated POST, PUT, PATCH and DELETE requests under `/api` are refused when the browser says they come from another origin, including a sibling subdomain or the `http://` version of the site, which SameSite=Lax does not cover.

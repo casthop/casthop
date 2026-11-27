@@ -32,6 +32,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 ### Fixed
 
 - A studio whose Go live failed stops polling YouTube chat and closes Twitch and Kick chat until a host presses Retry or End. It used to keep calling YouTube every few seconds, even after everyone left.
+- The background egress check no longer undoes a host action that lands while it waits on LiveKit. Taking a guest off stage, turning off a destination, or stopping the stream used to be reverted, and a stopped stream could restart.
 - 9:16 destinations need a custom Egress template; overlapping starts share one portrait compositor. An already-enabled 9:16 row still saves if the template is later unset.
 - 9:16 start and crash retries follow the same recovery budget as 16:9. A compositor that never beats is timed out.
 - Studio tiles attach camera video when the track arrives after the first render.
@@ -50,3 +51,4 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 - Stream keys and full destination URLs are withheld from guests and public GET / WebSocket state.
 - Published LiveKit `devkey` is refused unless LiveKit is loopback.
+- Only the host, co-hosts and guests on stage can start a per-person (ISO) recording. Guests waiting off stage used to be able to fill the session's track slots and push earlier recordings out of storage.

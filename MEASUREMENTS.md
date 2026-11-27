@@ -76,6 +76,10 @@ Rust WebGPU is **not** the live default. It does not beat Canvas2D on this bench
 
 Takeaway: ship RNNoise in WASM because a JS gate is not the same filter. Do **not** put the CPU compositor on the live tab-capture path; keep it for overlays / Worker / measurement. Live Canvas2D compose runs in a dedicated Worker with OffscreenCanvas when WebCodecs is present (`?thread=main` to force the old path). Layout math from Rust is shared by Canvas2D and WebGPU. Camera blur mix is WASM by default (~14 ms/frame @ 720p, holds 30 fps); `?fx=js` is the same algorithm.
 
+Per-person ISO tracks use the browser `MediaRecorder` (VP8/Opus WebM, 2 s timeslices, 2 Mbps video / 128 kbps audio) and R2 PUTs. Target ~2.1 Mbps per person; a 2 s slice is ~500 KiB. That is not a WASM candidate: the encode is already native, and chunk concat on download is a stream copy. No compose/denoise numbers changed.
+
+A second 9:16 output is another Egress Chrome + Canvas2D at 720×1280 (same pixel count as 1280×720). Guests still publish once. No extra WASM on the guest path; portrait layout is the same `casthop_layout` fill (mode 4). Dual output was not re-benched on this machine — expect roughly two compositor Chromes when any destination is 9:16.
+
 ## 7. Off-main-thread compose (this PR)
 
 `/internal/perf`, 6 canvas tiles + banner overlay, 30 s after warmup. Local Chrome 157 `--disable-gpu` compared `?thread=main` vs Worker. CI runs both paths on the same runner.

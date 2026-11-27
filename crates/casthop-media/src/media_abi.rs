@@ -128,7 +128,7 @@ pub unsafe extern "C" fn casthop_meter(
     u32::from(m.voice)
 }
 
-/// Layout mode: 0 solo, 1 side, 2 grid, 3 screen. Writes n * 4 f32 (x,y,w,h) in 0..1.
+/// Layout mode: 0 solo, 1 side, 2 grid, 3 screen, 4 portrait. Writes n * 4 f32 (x,y,w,h) in 0..1.
 #[no_mangle]
 pub unsafe extern "C" fn casthop_layout(n: u32, mode: u32, out: *mut f32, cap: u32) -> u32 {
     if out.is_null() || cap < 4 {

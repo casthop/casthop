@@ -28,6 +28,7 @@ function dest(
     url: `rtmp://127.0.0.1:1935/live/${id}`,
     status: live && enabled ? "live" : "idle",
     error: null,
+    aspect: "landscape",
   };
 }
 
@@ -66,6 +67,8 @@ export function shotStudio(shot: ShotState): StudioView {
       ? { id: "c2", name: "pedro.dev", text: "Will you share the repo link?", source: "youtube" }
       : null,
     createdAt: at,
+    separateRecordings: false,
+    isoSessionId: null,
   };
   return { ...studio, viewerRole: "owner" };
 }

@@ -1217,6 +1217,32 @@ a {
   align-content: start;
 }
 
+.studio .rec-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.studio .rec-row .t b {
+  display: block;
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--tx);
+}
+
+.studio .rec-row .t small {
+  color: var(--mu2);
+  font-size: 12px;
+}
+
+.studio .rec-dl {
+  flex: none;
+  text-decoration: none;
+  font-size: 12px;
+}
+
 .studio .panel-body.stack label,
 .studio .dest .t label {
   display: grid;
@@ -1258,6 +1284,69 @@ a {
 
 .studio .dest-status.failed {
   color: var(--live);
+}
+
+.studio .output-row {
+  display: flex;
+  gap: 8px;
+  padding: 12px 22px 4px;
+}
+
+.studio .sidepanel .output-row {
+  padding: 12px 20px 0;
+}
+
+.studio .output-pill {
+  font-size: 11px;
+  color: var(--mu2);
+  border: 1px solid var(--line2);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+.studio .output-pill.live {
+  color: var(--tx);
+  border-color: var(--tx);
+}
+
+.studio .output-pill.failed {
+  color: var(--live);
+}
+
+.studio .dest-hint {
+  color: var(--mu2);
+  font-size: 12px;
+  padding: 8px 20px 4px;
+  margin: 0;
+}
+
+.studio .aspect {
+  display: inline-flex;
+  gap: 0;
+  margin-top: 8px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.studio .aspect button {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  color: var(--mu);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.studio .aspect button.on {
+  color: var(--bg);
+  background: var(--tx);
+}
+
+.studio .aspect button:disabled {
+  opacity: 0.45;
 }
 
 .studio .lang-field {

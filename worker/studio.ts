@@ -1,8 +1,19 @@
 import { DEST_CHAT_BACKOFF_MS, destChatProviders, type YoutubeTokenCache } from "./chat-ingest";
-import { defaultDestinations, MAX_ON_STAGE, type Env, type LayoutId, type StudioState } from "./types";
+import { defaultDestinations, destAspectOf, MAX_ON_STAGE, type Env, type IsoTrack, type LayoutId, type StudioState } from "./types";
+import {
+  ISO_CHUNK_MAX_BYTES,
+  isoChunkFits,
+  deleteIsoTrackObjects,
+  isoKindOk,
+  isoMimeOk,
+  isoTracksForStart,
+  mixedFilename,
+  parseChunkIndex,
+} from "./iso";
 import {
   asIdentity,
   asName,
+  randomId,
   CHAT_MAX,
   CHAT_WINDOW_MS,
   claimIsHeld,
@@ -21,6 +32,7 @@ import {
   listEgressRaw,
   listRoomParticipantsRaw,
   sha256hex,
+  PORTRAIT_LAYOUT,
   startRoomComposite,
   stopEgress,
   updateEgressLayout,
@@ -28,10 +40,12 @@ import {
 } from "./livekit";
 import {
   applyStreamResults,
+  beginPortraitRecovery,
   beginRecovery,
   compositorGraceMs,
   egressIsProducing,
   emptyGraceMs,
+  destsForAspect,
   enabledUrls,
   failedStreamUrls,
   heartbeatLost,
@@ -48,10 +62,13 @@ import {
   parseEgressList,
   parseParticipantIdentities,
   pickActiveEgress,
+  skipIds,
+  portraitRecoveryTimedOut,
   publicError,
   recordingPathFor,
   recoveryBudgetMs,
   recoveryTimedOut,
+  remainingPortraitRecoveryMs,
   remainingRecoveryMs,
   rememberAbandoned,
   setDestStatuses,
@@ -70,6 +87,7 @@ type Incoming =
 
 export class StudioDurableObject {
   private launching = false;
+  private portraitLaunching = false;
   ctx: DurableObjectState;
   env: Env;
   private chatHits = new Map<string, { n: number; t: number }>();
@@ -115,6 +133,9 @@ export class StudioDurableObject {
         emptySince: null,
         egressId: null,
         recordingPath: null,
+        separateRecordings: false,
+        isoSessionId: null,
+        isoTracks: [],
         bannerTitle: body.title,
         bannerSubtitle: "Building in public, episode 1",
         destinations: defaultDestinations(this.env),
@@ -238,29 +259,23 @@ export class StudioDurableObject {
     if (action === "destinations") {
       if (!isHost) return json({ error: "host key required" }, 403);
       const allowLoopback = isLoopbackUrl(this.env.LIVEKIT_HTTP_URL);
-      const destinations = sanitizeDestinations(body.destinations, state.destinations, { allowLoopback });
+      const destinations = sanitizeDestinations(body.destinations, state.destinations, {
+        allowLoopback,
+        allowPortrait: Boolean(this.env.EGRESS_TEMPLATE_URL),
+      });
       if (!destinations) return json({ error: "invalid destinations" }, 400);
-      const prevUrls = enabledUrls(state.destinations);
+      const prevLand = enabledUrls(state.destinations, "landscape");
+      const prevPort = enabledUrls(state.destinations, "portrait");
       state.destinations = destinations;
       await this.putState(state);
-      if (state.wantLive && state.egressId) {
-        const nextUrls = enabledUrls(destinations);
-        const add = nextUrls.filter((u) => !prevUrls.includes(u));
-        const remove = prevUrls.filter((u) => !nextUrls.includes(u));
+      if (state.wantLive) {
         try {
-          await updateStream(this.env, state.egressId, add, remove);
-          const fresh = (await this.getState()) ?? state;
-          if (!fresh.wantLive) return json(publicState(fresh, { includeUrls: true }));
-          setDestStatuses(
-            fresh.destinations.filter((d) => add.includes(d.url)),
-            "connecting",
-          );
-          await this.putState(fresh);
-          return json(publicState(fresh, { includeUrls: true }));
+          await this.syncLiveDestinations(state, prevLand, prevPort);
         } catch (err) {
           console.warn("update stream failed", err);
           await this.scheduleWatch(Date.now() + WATCH_MS);
         }
+        return json(publicState((await this.getState()) ?? state, { includeUrls: true }));
       }
       return json(publicState((await this.getState()) ?? state, { includeUrls: true }));
     }
@@ -274,14 +289,125 @@ export class StudioDurableObject {
       return json(publicState(state, { includeUrls: true }));
     }
 
+    if (action === "iso-pref") {
+      if (!isHost) return json({ error: "host key required" }, 403);
+      if (typeof body.separateRecordings !== "boolean") return json({ error: "separateRecordings required" }, 400);
+      const phaseLive = state.wantLive || state.live;
+      if (phaseLive && body.separateRecordings !== Boolean(state.separateRecordings)) {
+        return json({ error: "cannot change while live" }, 409);
+      }
+      state.separateRecordings = body.separateRecordings;
+      await this.putState(state);
+      return json(publicState(state, { includeUrls: true }));
+    }
+
+    if (action === "iso-start") {
+      const person = await this.isoAuthor(state, body, isHost);
+      if (!person) return json({ error: "iso auth required" }, 403);
+      if (!state.separateRecordings || !state.isoSessionId) return json({ error: "not recording" }, 409);
+      const sessionId = typeof body.sessionId === "string" ? body.sessionId : "";
+      if (sessionId !== state.isoSessionId) return json({ error: "not recording" }, 409);
+      const kind = body.kind;
+      if (!isoKindOk(kind)) return json({ error: "kind required" }, 400);
+      const mimeType = typeof body.mimeType === "string" ? body.mimeType.trim().slice(0, 80) : "";
+      if (!isoMimeOk(mimeType)) return json({ error: "mimeType required" }, 400);
+      const startedAt = typeof body.startedAt === "number" && Number.isFinite(body.startedAt) ? body.startedAt : Date.now();
+      const plan = isoTracksForStart(state.isoTracks ?? [], person.identity, state.isoSessionId);
+      if (!plan) return json({ error: "too many tracks" }, 429);
+      const track: IsoTrack = {
+        id: randomId(8).toLowerCase(),
+        sessionId: state.isoSessionId,
+        identity: person.identity,
+        name: person.name,
+        kind,
+        mimeType,
+        startedAt,
+        endedAt: null,
+        bytes: 0,
+        chunks: 0,
+        complete: false,
+      };
+      state.isoTracks = [...plan.kept, track];
+      await this.putState(state);
+      for (const droppedId of plan.dropped) {
+        try {
+          await deleteIsoTrackObjects(this.env.RECORDINGS, state.id, droppedId);
+        } catch {
+          /* list no longer points at these objects */
+        }
+      }
+      return json({ track });
+    }
+
+    if (action === "iso-chunk") {
+      const person = await this.isoAuthor(state, body, isHost);
+      if (!person) return json({ error: "iso auth required" }, 403);
+      const trackId = typeof body.trackId === "string" ? body.trackId : "";
+      const index = parseChunkIndex(String(body.index ?? ""));
+      const bytes = typeof body.bytes === "number" && Number.isFinite(body.bytes) ? body.bytes : -1;
+      if (!trackId || index === null) return json({ error: "chunk required" }, 400);
+      if (bytes < 0 || bytes > ISO_CHUNK_MAX_BYTES) return json({ error: "chunk too large" }, 400);
+      const track = (state.isoTracks ?? []).find((row) => row.id === trackId);
+      if (!track || track.identity !== person.identity) return json({ error: "track not found" }, 404);
+      if (track.complete) return json({ error: "track complete" }, 409);
+      // Only the next index: rewriting an earlier chunk would dodge the byte caps.
+      if (index !== track.chunks) return json({ error: "chunk out of order" }, 409);
+      if (!isoChunkFits(state.isoTracks ?? [], track, bytes)) {
+        return json({ error: "recording too large" }, 413);
+      }
+      // Without commit this only validates; the Worker commits after the R2 put succeeds.
+      if (body.commit === true) {
+        track.bytes += bytes;
+        track.chunks = index + 1;
+        await this.putState(state);
+      }
+      return json({ track });
+    }
+
+    if (action === "iso-complete") {
+      const person = await this.isoAuthor(state, body, isHost);
+      if (!person) return json({ error: "iso auth required" }, 403);
+      const trackId = typeof body.trackId === "string" ? body.trackId : "";
+      const track = (state.isoTracks ?? []).find((row) => row.id === trackId);
+      if (!track || track.identity !== person.identity) return json({ error: "track not found" }, 404);
+      track.complete = true;
+      track.endedAt = Date.now();
+      await this.putState(state);
+      return json({ track });
+    }
+
+    if (action === "iso-list") {
+      if (!isHost) return json({ error: "host key required" }, 403);
+      return json({
+        mixed: state.recordingPath
+          ? { filename: mixedFilename(state.recordingPath), startedAt: state.liveStartedAt }
+          : null,
+        tracks: [...(state.isoTracks ?? [])],
+      });
+    }
+
+    if (action === "iso-get") {
+      if (!isHost) return json({ error: "host key required" }, 403);
+      const trackId = typeof body.trackId === "string" ? body.trackId : "";
+      const track = (state.isoTracks ?? []).find((row) => row.id === trackId);
+      if (!track) return json({ error: "track not found" }, 404);
+      return json({ track });
+    }
+
     if (action === "egress-beat") {
       const latest = (await this.getState()) ?? state;
       const egressId = typeof body.egressId === "string" ? body.egressId : "";
-      if (!latest.wantLive || !latest.egressId || egressId !== latest.egressId) {
+      if (!latest.wantLive || !egressId) {
         return json({ ok: true, ignored: true });
       }
       const now = Date.now();
-      latest.egressHeartbeatAt = now;
+      if (egressId === latest.egressId) {
+        latest.egressHeartbeatAt = now;
+      } else if (egressId === latest.portraitEgressId) {
+        latest.portraitHeartbeatAt = now;
+      } else {
+        return json({ ok: true, ignored: true });
+      }
       await this.putState(latest);
       await this.scheduleWatch(now + heartbeatStaleMs(this.env.CASTHOP_HEARTBEAT_MS));
       return json({ ok: true });
@@ -426,6 +552,15 @@ export class StudioDurableObject {
 
   private async startLive(state: StudioState, fromWatch = false): Promise<Response> {
     if (state.live && state.egressId) {
+      if (enabledUrls(state.destinations, "portrait").length && !state.portraitEgressId && !this.launching) {
+        this.launching = true;
+        try {
+          await this.ensurePortraitEgress(state);
+        } finally {
+          this.launching = false;
+        }
+        return json(publicState((await this.getState()) ?? state, { includeUrls: true }));
+      }
       await this.scheduleWatch(Date.now() + WATCH_MS);
       return json(publicState(state, { includeUrls: true }));
     }
@@ -450,11 +585,20 @@ export class StudioDurableObject {
     }
   }
 
+  private beginIsoSession(state: StudioState): void {
+    if (!state.separateRecordings) return;
+    if (!state.isoSessionId) state.isoSessionId = randomId(8).toLowerCase();
+  }
+
   private async runStartLive(state: StudioState, fromWatch = false): Promise<Response> {
     state.wantLive = true;
     state.liveFailed = false;
-    if (!fromWatch) state.egressRecoveringSince = null;
+    if (!fromWatch) {
+      state.egressRecoveringSince = null;
+      this.clearPortraitRecovery(state);
+    }
     state.liveStartingAt = Date.now();
+    this.beginIsoSession(state);
     await this.putState(state);
 
     let listed: ReturnType<typeof parseEgressList> = [];
@@ -481,9 +625,23 @@ export class StudioDurableObject {
     state = afterPeople;
     const occupied = identities ? studioHasPeople(identities) : false;
 
-    const active = pickActiveEgress(listed, state.egressId, state.abandonedEgressIds);
+    const landSkip = skipIds(state.abandonedEgressIds, state.portraitEgressId);
+    const portSkip = skipIds(state.abandonedEgressIds, state.egressId);
+    const active = pickActiveEgress(listed, state.egressId, landSkip);
+    const portraitActive = pickActiveEgress(listed, state.portraitEgressId ?? null, portSkip);
+    if (!portraitActive && state.portraitEgressId) {
+      state.portraitEgressId = null;
+      state.portraitHeartbeatAt = null;
+    }
     const producing = active ? egressIsProducing(active, { alreadyLive: state.live }) : false;
-    if (active && producing && !this.compositorGone(state, identities, active.egressId) && !heartbeatLost(state, Date.now(), heartbeatStaleMs(this.env.CASTHOP_HEARTBEAT_MS))) {
+    const portraitProducing = portraitActive ? egressIsProducing(portraitActive, { alreadyLive: false }) : false;
+    const stale = heartbeatStaleMs(this.env.CASTHOP_HEARTBEAT_MS);
+    const landHealthy =
+      Boolean(active) &&
+      producing &&
+      !this.compositorGone(state, identities, active!.egressId) &&
+      !heartbeatLost(state, Date.now(), stale);
+    if (landHealthy && active) {
       state.wantLive = true;
       state.live = true;
       state.liveFailed = false;
@@ -494,13 +652,26 @@ export class StudioDurableObject {
       state.egressRetryCount = 0;
       state.egressRetryAt = null;
       state.egressRecoveringSince = null;
-      applyStreamResults(state.destinations, active.streams, true, Date.now(), true);
+      applyStreamResults(destsForAspect(state.destinations, "landscape"), active.streams, true, Date.now(), true);
+      if (portraitActive) {
+        state.portraitEgressId = portraitActive.egressId;
+        applyStreamResults(
+          destsForAspect(state.destinations, "portrait"),
+          portraitActive.streams,
+          true,
+          Date.now(),
+          portraitProducing,
+        );
+      }
       await this.putState(state);
+      if (enabledUrls(state.destinations, "portrait").length && !state.portraitEgressId) {
+        await this.ensurePortraitEgress(state);
+      }
       await this.scheduleWatch(Date.now() + nextWatchMs(true));
-      return json(publicState(state, { includeUrls: true }));
+      return json(publicState((await this.getState()) ?? state, { includeUrls: true }));
     }
     if (active && state.egressId === active.egressId && isRunningHealth(active.status)) {
-      setDestStatuses(state.destinations, "connecting");
+      setDestStatuses(state.destinations, "connecting", null, "landscape");
       await this.putState(state);
       await this.scheduleWatch(Date.now() + nextWatchMs(false));
       return json(publicState(state, { includeUrls: true }));
@@ -513,7 +684,10 @@ export class StudioDurableObject {
     }
 
     state.liveError = null;
-    setDestStatuses(state.destinations, "connecting");
+    setDestStatuses(state.destinations, "connecting", null, "landscape");
+    if (enabledUrls(state.destinations, "portrait").length && !state.portraitEgressId) {
+      setDestStatuses(state.destinations, "connecting", null, "portrait");
+    }
     await this.putState(state);
 
     if (!occupied) {
@@ -521,7 +695,8 @@ export class StudioDurableObject {
       return json(publicState(state, { includeUrls: true }));
     }
 
-    const urls = enabledUrls(state.destinations);
+    const landUrls = enabledUrls(state.destinations, "landscape");
+    const portUrls = enabledUrls(state.destinations, "portrait");
     const filepath = recordingPathFor(state.id);
     const budget = recoveryBudgetMs(this.env.CASTHOP_RECOVERY_MS);
     const remaining = remainingRecoveryMs(state, Date.now(), budget);
@@ -531,7 +706,7 @@ export class StudioDurableObject {
         env: this.env,
         room: state.id,
         layout: state.layout,
-        urls,
+        urls: landUrls,
         filepath,
         timeoutMs: startEgressTimeoutMs(remaining),
       });
@@ -553,10 +728,11 @@ export class StudioDurableObject {
       latest.egressRetryCount = 0;
       latest.egressRetryAt = null;
       latest.egressHeartbeatAt = null;
-      setDestStatuses(latest.destinations, "connecting");
+      setDestStatuses(latest.destinations, "connecting", null, "landscape");
       await this.putState(latest);
+      if (portUrls.length) await this.ensurePortraitEgress(latest);
       await this.scheduleWatch(Date.now() + nextWatchMs(false));
-      return json(publicState(latest, { includeUrls: true }));
+      return json(publicState((await this.getState()) ?? latest, { includeUrls: true }));
     } catch (err) {
       console.warn("egress start failed", err);
       const latest = (await this.getState()) ?? state;
@@ -579,11 +755,15 @@ export class StudioDurableObject {
     latest.liveStartedAt = null;
     latest.liveStartingAt = undefined;
     latest.egressId = null;
+    latest.isoSessionId = null;
+    latest.portraitEgressId = null;
     latest.liveError = reason === "stopped" ? null : reason;
     latest.egressRetryCount = 0;
     latest.egressRetryAt = null;
     latest.egressRecoveringSince = null;
     latest.egressHeartbeatAt = null;
+    latest.portraitHeartbeatAt = null;
+    this.clearPortraitRecovery(latest);
     latest.destChat = undefined;
     setDestStatuses(latest.destinations, reason === "stopped" ? "stopped" : "idle", null);
     if (reason === "stopped") {
@@ -710,8 +890,13 @@ export class StudioDurableObject {
       await this.markFailed(latest, latest.liveError ?? "Could not go live");
       return;
     }
-    if (heartbeatLost(latest, now, heartbeatStaleMs(this.env.CASTHOP_HEARTBEAT_MS))) {
+    const stale = heartbeatStaleMs(this.env.CASTHOP_HEARTBEAT_MS);
+    if (heartbeatLost(latest, now, stale)) {
       await this.restartDeadEgress(latest, latest.egressId, "Egress heartbeat lost");
+      return;
+    }
+    if (this.portraitBeatLost(latest, now, stale)) {
+      await this.restartPortraitEgress(latest, "Egress heartbeat lost");
       return;
     }
     if (this.compositorGone(latest, identities)) {
@@ -721,35 +906,52 @@ export class StudioDurableObject {
 
     try {
       const listed = parseEgressList(await listEgressRaw(this.env, latest.id));
-      const active = pickActiveEgress(listed, latest.egressId, latest.abandonedEgressIds);
-      if (active) {
-        await this.applyEgress(latest, active, "poll", identities);
-        return;
+      const landSkip = skipIds(latest.abandonedEgressIds, latest.portraitEgressId);
+      const portSkip = skipIds(latest.abandonedEgressIds, latest.egressId);
+      const active = pickActiveEgress(listed, latest.egressId, landSkip);
+      const portrait = pickActiveEgress(listed, latest.portraitEgressId ?? null, portSkip);
+      if (active) await this.applyEgress(latest, active, "poll", identities);
+      if (portrait) {
+        const fresh = (await this.getState()) ?? latest;
+        await this.applyEgress(fresh, portrait, "poll", identities);
       }
-      const known = listed.find((e) => e.egressId === latest.egressId);
+      const after = (await this.getState()) ?? latest;
+      if (!after.wantLive) return;
+      const wantPort = enabledUrls(after.destinations, "portrait").length > 0;
+      if (wantPort && !after.portraitEgressId) {
+        await this.ensurePortraitEgress(after);
+      } else if (wantPort && !portrait) {
+        const knownPort = listed.find((e) => e.egressId === after.portraitEgressId);
+        if (knownPort && isTerminalHealth(knownPort.status)) {
+          await this.restartPortraitEgress(after, publicError(knownPort.error) ?? "Egress ended");
+        }
+      }
+      // Portrait-only in ListEgress must not skip a missing 16:9 compositor.
+      if (active) return;
+      const known = listed.find((e) => e.egressId === after.egressId);
       if (known && isTerminalHealth(known.status)) {
-        await this.applyEgress(latest, known, "poll", identities);
+        await this.applyEgress(after, known, "poll", identities);
         return;
       }
-      if (latest.live || latest.egressId) {
-        if (!latest.live) {
-          const started = latest.liveStartingAt ?? latest.liveStartedAt ?? 0;
+      if (after.live || after.egressId) {
+        if (!after.live) {
+          const started = after.liveStartingAt ?? after.liveStartedAt ?? 0;
           const grace = compositorGraceMs(this.env.CASTHOP_COMPOSITOR_GRACE_MS);
-          const remaining = remainingRecoveryMs(latest, Date.now(), recoveryBudgetMs(this.env.CASTHOP_RECOVERY_MS));
+          const remaining = remainingRecoveryMs(after, Date.now(), recoveryBudgetMs(this.env.CASTHOP_RECOVERY_MS));
           const wait = remaining == null ? grace : Math.min(grace, remaining);
           if (started && Date.now() - started < wait) {
             await this.scheduleWatch(Date.now() + WATCH_MS);
             return;
           }
         }
-        await this.restartDeadEgress(latest, latest.egressId, latest.liveError ?? "Egress disappeared");
+        await this.restartDeadEgress(after, after.egressId, after.liveError ?? "Egress disappeared");
         return;
       }
-      if (latest.egressRetryAt && Date.now() < latest.egressRetryAt) {
-        await this.scheduleWatch(latest.egressRetryAt);
+      if (after.egressRetryAt && Date.now() < after.egressRetryAt) {
+        await this.scheduleWatch(after.egressRetryAt);
         return;
       }
-      await this.startLive(latest, true);
+      await this.startLive(after, true);
     } catch (err) {
       console.warn("egress watch", err);
       await this.scheduleWatch(Date.now() + WATCH_MS);
@@ -763,33 +965,69 @@ export class StudioDurableObject {
     identities: string[] | null = null,
   ): Promise<void> {
     if (!info) return;
-    if (isForeignEgress(state.egressId, info.egressId, info.status, state.wantLive, state.abandonedEgressIds)) {
+    const portrait = Boolean(state.portraitEgressId) && info.egressId === state.portraitEgressId;
+    if (
+      isForeignEgress(
+        state.egressId,
+        info.egressId,
+        info.status,
+        state.wantLive,
+        state.abandonedEgressIds,
+        [state.portraitEgressId],
+      )
+    ) {
       return;
     }
-    const producing = egressIsProducing(info, { alreadyLive: state.live });
+    const dests = destsForAspect(state.destinations, portrait ? "portrait" : "landscape");
+    const producing = egressIsProducing(info, { alreadyLive: !portrait && state.live });
     const dropped = applyStreamResults(
-      state.destinations,
+      dests,
       info.streams,
       isActiveHealth(info.status),
       Date.now(),
       producing && isActiveHealth(info.status),
     );
     if (isActiveHealth(info.status)) {
-      if (
-        heartbeatLost(state, Date.now(), heartbeatStaleMs(this.env.CASTHOP_HEARTBEAT_MS)) ||
-        this.compositorGone(state, identities, info.egressId)
-      ) {
+      const stale = heartbeatStaleMs(this.env.CASTHOP_HEARTBEAT_MS);
+      const beatLost = portrait
+        ? this.portraitBeatLost(state, Date.now(), stale)
+        : heartbeatLost(state, Date.now(), stale);
+      if (beatLost || this.compositorGone(state, identities, info.egressId)) {
+        if (portrait) {
+          await this.restartPortraitEgress(state, "Compositor left");
+          return;
+        }
         await this.restartDeadEgress(state, info.egressId, "Compositor left");
         return;
       }
       if (!producing) {
-        if (state.live) {
+        if (!portrait && state.live) {
           await this.restartDeadEgress(state, info.egressId, "Egress output stopped");
+          return;
+        }
+        if (portrait && state.portraitEgressId === info.egressId) {
+          await this.putState(state);
+          await this.scheduleWatch(Date.now() + nextWatchMs(false));
           return;
         }
         state.egressId = info.egressId;
         await this.putState(state);
         await this.scheduleWatch(Date.now() + nextWatchMs(false));
+        return;
+      }
+      if (portrait) {
+        state.portraitEgressId = info.egressId;
+        this.clearPortraitRecovery(state);
+        if (!state.live) {
+          state.live = true;
+          state.liveFailed = false;
+          state.liveStartedAt = state.liveStartedAt ?? Date.now();
+          state.liveStartingAt = undefined;
+          state.liveError = null;
+        }
+        await this.putState(state);
+        if (dropped) await this.retryFailedStreams(state, info, "portrait");
+        await this.scheduleWatch(Date.now() + WATCH_MS);
         return;
       }
       state.live = true;
@@ -802,27 +1040,37 @@ export class StudioDurableObject {
       state.egressRetryAt = null;
       state.egressRecoveringSince = null;
       await this.putState(state);
-      if (dropped) await this.retryFailedStreams(state, info);
+      if (dropped) await this.retryFailedStreams(state, info, "landscape");
       await this.scheduleWatch(Date.now() + WATCH_MS);
       return;
     }
     if (!state.wantLive) {
       state.live = false;
-      state.egressId = null;
+      if (portrait) state.portraitEgressId = null;
+      else state.egressId = null;
       await this.putState(state);
       return;
     }
     const detail = publicError(info.error) ?? (event === "egress_ended" ? "Egress ended" : "Egress failed");
+    if (portrait) {
+      await this.restartPortraitEgress(state, detail);
+      return;
+    }
     await this.markRetry(state, detail);
   }
 
-  private async retryFailedStreams(state: StudioState, info: NonNullable<ReturnType<typeof parseEgressInfo>>): Promise<void> {
-    if (!state.egressId) return;
+  private async retryFailedStreams(
+    state: StudioState,
+    info: NonNullable<ReturnType<typeof parseEgressInfo>>,
+    aspect: "landscape" | "portrait" = "landscape",
+  ): Promise<void> {
+    const egressId = aspect === "portrait" ? state.portraitEgressId : state.egressId;
+    if (!egressId) return;
     const now = Date.now();
-    const urls = failedStreamUrls(state.destinations, info.streams, now);
+    const urls = failedStreamUrls(destsForAspect(state.destinations, aspect), info.streams, now);
     if (!urls.length) return;
     try {
-      await updateStream(this.env, state.egressId, urls, urls);
+      await updateStream(this.env, egressId, urls, urls);
       const fresh = (await this.getState()) ?? state;
       if (!fresh.wantLive) return;
       for (const d of fresh.destinations) {
@@ -849,6 +1097,10 @@ export class StudioDurableObject {
         state.live = false;
         state.egressHeartbeatAt = null;
       }
+      if (state.portraitEgressId === egressId) {
+        state.portraitEgressId = null;
+        state.portraitHeartbeatAt = null;
+      }
       await this.putState(state);
       try {
         await stopEgress(this.env, egressId, STOP_ABANDON_MS);
@@ -867,7 +1119,7 @@ export class StudioDurableObject {
   private async restartDeadEgress(state: StudioState, egressId: string | null, error: string): Promise<Response> {
     beginRecovery(state);
     state.live = false;
-    setDestStatuses(state.destinations, "retrying", error);
+    setDestStatuses(state.destinations, "retrying", error, "landscape");
     await this.abandonEgress(state, egressId);
     const latest = (await this.getState()) ?? state;
     if (!latest.wantLive || latest.liveFailed) return json(publicState(latest, { includeUrls: true }));
@@ -878,20 +1130,24 @@ export class StudioDurableObject {
       return this.markFailed(latest, error);
     }
     latest.liveError = error;
-    setDestStatuses(latest.destinations, "retrying", error);
+    setDestStatuses(latest.destinations, "retrying", error, "landscape");
     await this.putState(latest);
     return this.startLive(latest, true);
   }
 
   private async markFailed(state: StudioState, error: string): Promise<Response> {
+    if (state.portraitEgressId) await this.abandonEgress(state, state.portraitEgressId);
     state.wantLive = true;
     state.live = false;
     state.liveFailed = true;
     state.liveStartingAt = undefined;
     state.egressId = null;
+    state.portraitEgressId = null;
     state.liveError = error;
     state.egressRetryAt = null;
     state.egressHeartbeatAt = null;
+    state.portraitHeartbeatAt = null;
+    this.clearPortraitRecovery(state);
     setDestStatuses(state.destinations, "failed", error);
     await this.putState(state);
     await this.clearWatch();
@@ -904,14 +1160,19 @@ export class StudioDurableObject {
       return this.markFailed(state, error);
     }
     const delay = nextBackoffMs(state.egressRetryCount, this.env.CASTHOP_BACKOFF_MS);
+    if (state.portraitEgressId) await this.abandonEgress(state, state.portraitEgressId);
     state.wantLive = true;
     state.live = false;
     state.liveFailed = false;
     state.liveStartingAt = undefined;
     state.egressId = null;
+    state.portraitEgressId = null;
     state.liveError = error;
     state.egressRetryCount += 1;
     state.egressRetryAt = Date.now() + delay;
+    state.egressHeartbeatAt = null;
+    state.portraitHeartbeatAt = null;
+    this.clearPortraitRecovery(state);
     setDestStatuses(state.destinations, "retrying", error);
     await this.putState(state);
     await this.scheduleWatch(state.egressRetryAt);
@@ -967,12 +1228,195 @@ export class StudioDurableObject {
     return identities;
   }
 
+  private async syncLiveDestinations(state: StudioState, prevLand: string[], prevPort: string[]): Promise<void> {
+    const nextLand = enabledUrls(state.destinations, "landscape");
+    const nextPort = enabledUrls(state.destinations, "portrait");
+    const addLand = nextLand.filter((u) => !prevLand.includes(u));
+    const removeLand = prevLand.filter((u) => !nextLand.includes(u));
+    const addPort = nextPort.filter((u) => !prevPort.includes(u));
+    const removePort = prevPort.filter((u) => !nextPort.includes(u));
+    if (state.egressId && (addLand.length || removeLand.length)) {
+      await updateStream(this.env, state.egressId, addLand, removeLand);
+    }
+    const fresh = (await this.getState()) ?? state;
+    if (!fresh.wantLive) return;
+    if (addLand.length) {
+      setDestStatuses(
+        fresh.destinations.filter((d) => destAspectOf(d) === "landscape" && addLand.includes(d.url)),
+        "connecting",
+      );
+    }
+    if (!nextPort.length) {
+      if (fresh.portraitEgressId) {
+        const id = fresh.portraitEgressId;
+        fresh.portraitEgressId = null;
+        fresh.portraitHeartbeatAt = null;
+        this.clearPortraitRecovery(fresh);
+        setDestStatuses(fresh.destinations, "idle", null, "portrait");
+        await this.putState(fresh);
+        try {
+          await stopEgress(this.env, id, STOP_ABANDON_MS);
+        } catch (err) {
+          console.warn("stop portrait egress", err);
+        }
+      } else {
+        await this.putState(fresh);
+      }
+      return;
+    }
+    if (!fresh.portraitEgressId) {
+      this.clearPortraitRecovery(fresh);
+      await this.putState(fresh);
+      await this.ensurePortraitEgress(fresh);
+      return;
+    }
+    if (addPort.length || removePort.length) {
+      await updateStream(this.env, fresh.portraitEgressId, addPort, removePort);
+      const after = (await this.getState()) ?? fresh;
+      if (!after.wantLive) return;
+      if (addPort.length) {
+        setDestStatuses(
+          after.destinations.filter((d) => destAspectOf(d) === "portrait" && addPort.includes(d.url)),
+          "connecting",
+        );
+      }
+      await this.putState(after);
+      return;
+    }
+    await this.putState(fresh);
+  }
+
+  private async ensurePortraitEgress(state: StudioState): Promise<void> {
+    const urls = enabledUrls(state.destinations, "portrait");
+    if (!urls.length || !state.wantLive) return;
+    if (state.portraitEgressId || this.portraitLaunching) return;
+    if (state.portraitRetryAt && Date.now() < state.portraitRetryAt) return;
+    const budget = recoveryBudgetMs(this.env.CASTHOP_RECOVERY_MS);
+    const portDests = destsForAspect(state.destinations, "portrait").filter((d) => d.enabled && d.url);
+    if (portDests.length && portDests.every((d) => d.status === "failed")) {
+      if (portraitRecoveryTimedOut(state, Date.now(), budget)) return;
+    } else if (portraitRecoveryTimedOut(state, Date.now(), budget)) {
+      await this.markPortraitFailed(state, "Could not start 9:16");
+      return;
+    }
+    if (!this.env.EGRESS_TEMPLATE_URL) {
+      setDestStatuses(state.destinations, "failed", "9:16 needs a custom Egress template", "portrait");
+      await this.putState(state);
+      return;
+    }
+    this.portraitLaunching = true;
+    setDestStatuses(state.destinations, "connecting", null, "portrait");
+    await this.putState(state);
+    try {
+      const { egressId } = await startRoomComposite({
+        env: this.env,
+        room: state.id,
+        layout: PORTRAIT_LAYOUT,
+        urls,
+        timeoutMs: startEgressTimeoutMs(remainingPortraitRecoveryMs(state, Date.now(), budget)),
+      });
+      const latest = (await this.getState()) ?? state;
+      if (!latest.wantLive || latest.portraitEgressId) {
+        try {
+          await stopEgress(this.env, egressId);
+        } catch {
+          /* host already ended or another compositor owns 9:16 */
+        }
+        return;
+      }
+      latest.portraitEgressId = egressId;
+      latest.portraitHeartbeatAt = Date.now();
+      latest.portraitRetryAt = null;
+      setDestStatuses(latest.destinations, "connecting", null, "portrait");
+      await this.putState(latest);
+    } catch (err) {
+      console.warn("portrait egress start failed", err);
+      const latest = (await this.getState()) ?? state;
+      if (!latest.wantLive) return;
+      await this.markPortraitRetry(
+        latest,
+        publicError(err instanceof Error ? err.message : "Could not start 9:16") ?? "Could not start 9:16",
+      );
+    } finally {
+      this.portraitLaunching = false;
+    }
+  }
+
+  private async restartPortraitEgress(state: StudioState, error: string): Promise<void> {
+    beginPortraitRecovery(state);
+    const budget = recoveryBudgetMs(this.env.CASTHOP_RECOVERY_MS);
+    if (portraitRecoveryTimedOut(state, Date.now(), budget)) {
+      await this.markPortraitFailed(state, error);
+      return;
+    }
+    const id = state.portraitEgressId;
+    setDestStatuses(state.destinations, "retrying", error, "portrait");
+    if (id) await this.abandonEgress(state, id);
+    const latest = (await this.getState()) ?? state;
+    if (!latest.wantLive || latest.liveFailed) return;
+    latest.portraitEgressId = null;
+    latest.portraitHeartbeatAt = null;
+    latest.portraitRecoveringSince = state.portraitRecoveringSince ?? latest.portraitRecoveringSince;
+    await this.putState(latest);
+    if (enabledUrls(latest.destinations, "portrait").length) await this.ensurePortraitEgress(latest);
+  }
+
+  private async markPortraitFailed(state: StudioState, error: string): Promise<void> {
+    if (state.portraitEgressId) await this.abandonEgress(state, state.portraitEgressId);
+    const latest = (await this.getState()) ?? state;
+    latest.portraitEgressId = null;
+    latest.portraitHeartbeatAt = null;
+    latest.portraitRetryAt = null;
+    setDestStatuses(latest.destinations, "failed", error, "portrait");
+    await this.putState(latest);
+  }
+
+  private async markPortraitRetry(state: StudioState, error: string): Promise<void> {
+    beginPortraitRecovery(state);
+    const budget = recoveryBudgetMs(this.env.CASTHOP_RECOVERY_MS);
+    if (portraitRecoveryTimedOut(state, Date.now(), budget)) {
+      await this.markPortraitFailed(state, error);
+      return;
+    }
+    const delay = nextBackoffMs(state.portraitRetryCount ?? 0, this.env.CASTHOP_BACKOFF_MS);
+    state.portraitRetryCount = (state.portraitRetryCount ?? 0) + 1;
+    state.portraitRetryAt = Date.now() + delay;
+    setDestStatuses(state.destinations, "retrying", error, "portrait");
+    await this.putState(state);
+    await this.scheduleWatch(Date.now() + WATCH_MS);
+  }
+
+  private clearPortraitRecovery(state: StudioState): void {
+    state.portraitRetryCount = 0;
+    state.portraitRetryAt = null;
+    state.portraitRecoveringSince = null;
+  }
+
+  private portraitBeatLost(state: StudioState, now: number, staleMs: number): boolean {
+    if (!state.portraitEgressId) return false;
+    const at = state.portraitHeartbeatAt;
+    if (!at) {
+      const started = state.liveStartingAt ?? state.liveStartedAt ?? 0;
+      const grace = compositorGraceMs(this.env.CASTHOP_COMPOSITOR_GRACE_MS);
+      return started > 0 && now - started >= grace;
+    }
+    if (now - at < staleMs) return false;
+    const starting = destsForAspect(state.destinations, "portrait").some(
+      (d) => d.enabled && Boolean(d.url) && (d.status === "connecting" || d.status === "retrying"),
+    );
+    if (starting) return now - at >= compositorGraceMs(this.env.CASTHOP_COMPOSITOR_GRACE_MS);
+    return true;
+  }
+
   private async stopRoomEgress(state: StudioState): Promise<void> {
     const ids = new Set<string>();
     if (state.egressId) ids.add(state.egressId);
+    if (state.portraitEgressId) ids.add(state.portraitEgressId);
     try {
       for (const item of parseEgressList(await listEgressRaw(this.env, state.id))) {
-        if (isActiveHealth(item.status) || item.egressId === state.egressId) ids.add(item.egressId);
+        if (isActiveHealth(item.status) || item.egressId === state.egressId || item.egressId === state.portraitEgressId) {
+          ids.add(item.egressId);
+        }
       }
     } catch (err) {
       console.warn("list egress on stop", err);
@@ -1002,6 +1446,14 @@ export class StudioDurableObject {
     } catch {
       /* tests stub storage without alarms */
     }
+  }
+
+  private async isoAuthor(
+    state: StudioState,
+    body: Record<string, unknown>,
+    isHost: boolean,
+  ): Promise<{ identity: string; name: string } | null> {
+    return this.chatAuthor(state, body, isHost);
   }
 
   private async chatAuthor(

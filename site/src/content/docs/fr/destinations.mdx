@@ -5,7 +5,7 @@ group: Exploiter
 order: 5
 ---
 
-Une destination est une URL RTMP. Casthop envoie le même composite à toutes les destinations à la fois, avec un seul transcodage dans Egress.
+Une destination est une URL RTMP. Chaque destination choisit **16:9** (le programme) ou **9:16** (un second composite empilé). Les destinations du même format partagent un transcodage Egress.
 
 ## Substituts locaux
 
@@ -33,6 +33,7 @@ Si Egress ou un flux tombe, le studio réessaie avec backoff. Ça s’appuie sur
 |---|---|
 | `data/recordings/` | MP4 Egress du composite. |
 | `data/rtmp/` | fMP4 MediaMTX depuis le relais RTMP local. |
+| `RECORDINGS` (R2) | Pistes WebM par personne si Enregistrements séparés est activé. L’hôte les télécharge dans le panneau Enregistrements. |
 
 Inspectez un enregistrement avec l’outil Rust :
 

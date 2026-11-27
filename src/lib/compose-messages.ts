@@ -10,6 +10,7 @@ export type ComposeWorkerIn =
       backend: ComposeBackend;
       width: number;
       height: number;
+      mode: LayoutMode;
       writable?: WritableStream<VideoFrame>;
     }
   | { type: "add"; id: string; readable: ReadableStream<VideoFrame> }

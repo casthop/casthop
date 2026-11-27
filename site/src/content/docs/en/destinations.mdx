@@ -5,7 +5,7 @@ group: Operate
 order: 5
 ---
 
-A destination is an RTMP URL. Casthop sends the same composite to every destination at once, using one transcode in Egress.
+A destination is an RTMP URL. Each destination picks **16:9** (the program) or **9:16** (a second stacked composite). Destinations that share an aspect share one Egress encode.
 
 ## Local stand-ins
 
@@ -23,7 +23,9 @@ For production, replace these with real YouTube, LinkedIn and X ingest URLs. Cas
 
 ## Status, Live, and recovery
 
-Each destination row shows its own RTMP status (`connecting`, `live`, `retrying`, `failed`). The studio Live pill stays on Starting until Egress is producing: stream bytes or duration, or a short settle after RTMP `started_at`. It does not flip to Live just because the compositor process exists.
+Each destination row shows its own RTMP status (`connecting`, `live`, `retrying`, `failed`). The Destinations panel also shows 16:9 and 9:16 output status separately. The studio Live pill stays on Starting until Egress is producing: stream bytes or duration, or a short settle after RTMP `started_at`. It does not flip to Live just because the compositor process exists.
+
+Mark a destination 9:16 for TikTok, YouTube Shorts, or Instagram Reels ingest. The 16:9 layout (solo / side / screen) is unchanged. Vertical uses its own stacked-camera layout with a captions band. Guests still publish once.
 
 If Egress or a stream drops, the studio retries with backoff. This relies on signed LiveKit webhooks, see [Self-hosting](/docs/self-hosting).
 
@@ -33,6 +35,7 @@ If Egress or a stream drops, the studio retries with backoff. This relies on sig
 |---|---|
 | `data/recordings/` | Egress MP4 of the composite. |
 | `data/rtmp/` | MediaMTX fMP4 from the local RTMP edge. |
+| `RECORDINGS` (R2) | Per-person WebM tracks when Separate recordings is on. Hosts download them from the studio Recordings panel. |
 
 Inspect a recording with the Rust helper:
 
@@ -44,6 +47,8 @@ cargo run -p casthop-post -- hls data/recordings/<file>.mp4 /tmp/replay-hls
 `hls` remuxes a VOD playlist (fMP4, 4s targets) for the R2 replay viewer. `POST /api/studios/:id/replays` as the owner to archive it. Private replays stay on the studio list; public ones are `/watch/:id`. While the studio is live, the compositor writes a short HLS window of the program; Clip (C) copies the last 30 or 60 seconds into a downloadable clip with the same private/public rules.
 
 To check that a recording is not silent, run `bash scripts/check-silent-audio.sh data/recordings/<file>.mp4`.
+
+Turn on **Separate recordings** in the Go live dialog before you go live. Each person on stage records in their own browser and uploads 2-second chunks to R2 while the show runs, so a dropped tab only loses the last slice. After you end live, open the Recordings rail to download each track. The mixed Egress MP4 stays on the compositor volume; ISO files are WebM (or MP4 on Safari).
 
 ## Chat
 

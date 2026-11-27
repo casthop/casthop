@@ -5,7 +5,7 @@ group: Betrieb
 order: 5
 ---
 
-Ein Ziel ist eine RTMP-URL. Casthop schickt dasselbe Composite an alle Ziele gleichzeitig, mit einem Transcode in Egress.
+Ein Ziel ist eine RTMP-URL. Jedes Ziel wählt **16:9** (das Programm) oder **9:16** (ein zweites, gestapeltes Composite). Ziele mit demselben Format teilen sich einen Egress-Transcode.
 
 ## Lokale Platzhalter
 
@@ -33,6 +33,7 @@ Fällt Egress oder ein Stream aus, versucht das Studio es mit Backoff erneut. Da
 |---|---|
 | `data/recordings/` | Egress-MP4 des Composites. |
 | `data/rtmp/` | MediaMTX-fMP4 vom lokalen RTMP-Edge. |
+| `RECORDINGS` (R2) | WebM-Spuren pro Person, wenn Getrennte Aufnahmen an ist. Der Host lädt sie im Panel Aufnahmen herunter. |
 
 Eine Aufnahme mit dem Rust-Helper inspizieren:
 

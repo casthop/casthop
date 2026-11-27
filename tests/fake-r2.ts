@@ -95,6 +95,7 @@ export class FakeR2 implements R2Bucket {
   private readonly objects = new Map<string, Stored>();
   listCalls = 0;
   headCalls = 0;
+  failNextPut = false;
 
   async head(key: string): Promise<R2Object | null> {
     this.headCalls += 1;
@@ -110,6 +111,10 @@ export class FakeR2 implements R2Bucket {
   }
 
   async put(key: string, value: PutValue, options?: R2PutOptions): Promise<R2Object> {
+    if (this.failNextPut) {
+      this.failNextPut = false;
+      throw new Error("r2 put failed");
+    }
     const bytes = await toBytes(value);
     const stored: Stored = {
       bytes,

@@ -5,7 +5,7 @@ group: Operar
 order: 5
 ---
 
-Un destino es una URL RTMP. Casthop envía la misma composición a todos los destinos a la vez, con una transcodificación en Egress.
+Un destino es una URL RTMP. Cada destino elige **16:9** (el programa) o **9:16** (una segunda composición apilada). Los destinos del mismo formato comparten una transcodificación en Egress.
 
 ## Sustitutos locales
 
@@ -33,6 +33,7 @@ Si cae Egress o un flujo, el estudio reintenta con backoff. Eso depende de webho
 |---|---|
 | `data/recordings/` | MP4 de Egress de la composición. |
 | `data/rtmp/` | fMP4 de MediaMTX en el borde RTMP local. |
+| `RECORDINGS` (R2) | Pistas WebM por persona cuando Grabaciones por persona está activo. El anfitrión las descarga en el panel Grabaciones. |
 
 Inspecciona una grabación con el helper de Rust:
 

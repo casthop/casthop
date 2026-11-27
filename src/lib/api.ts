@@ -4,13 +4,14 @@ import type {
   PublicDestination,
   PublicReplay,
   PublicStudio,
+  RecordingList,
   ReplayVisibility,
   StudioMember,
   StudioRecord,
   ViewerRole,
 } from "../../worker/types";
 
-export type { PublicClip, PublicReplay, PublicStudio, PublicDestination, ReplayVisibility, StudioMember, StudioRecord, ViewerRole };
+export type { PublicClip, PublicReplay, PublicStudio, PublicDestination, RecordingList, ReplayVisibility, StudioMember, StudioRecord, ViewerRole };
 
 export type StudioView = PublicStudio & { viewerRole: ViewerRole };
 
@@ -144,6 +145,21 @@ export function setLive(id: string, live: boolean) {
     method: "POST",
     body: JSON.stringify({ live }),
   });
+}
+
+export function setSeparateRecordings(id: string, separateRecordings: boolean) {
+  return api<PublicStudio>(`/api/studios/${id}/iso-pref`, {
+    method: "POST",
+    body: JSON.stringify({ separateRecordings }),
+  });
+}
+
+export function listRecordings(id: string) {
+  return api<RecordingList>(`/api/studios/${id}/recordings`);
+}
+
+export function isoDownloadPath(studioId: string, trackId: string): string {
+  return `/api/studios/${studioId}/recordings/iso/${trackId}`;
 }
 
 export function sendChat(

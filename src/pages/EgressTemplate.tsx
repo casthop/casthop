@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Room, RoomEvent, Track } from "livekit-client";
-import { pickComposeBackend } from "../lib/compositor";
+import { pickComposeBackend, VERT_H, VERT_W } from "../lib/compositor";
 import { startProgramCompose, type ProgramCompose } from "../lib/program-compose";
 import { getStudio, sendEgressBeat } from "../lib/api";
 import { startLiveProgramBuffer } from "../lib/live-program-buffer";
@@ -23,9 +23,17 @@ export function EgressTemplate() {
     const q = new URLSearchParams(location.search);
     const url = q.get("url");
     const token = q.get("token");
-    const initialLayout = (q.get("layout") || "grid") as LayoutMode;
-    const layout: LayoutMode =
-      initialLayout === "solo" || initialLayout === "side" || initialLayout === "screen" ? initialLayout : "grid";
+    const initialLayout = (q.get("layout") || "grid").toLowerCase();
+    const portrait = initialLayout === "portrait" || initialLayout === "vertical" || initialLayout === "9:16";
+    const layout: LayoutMode = portrait
+      ? "portrait"
+      : initialLayout === "solo" || initialLayout === "side" || initialLayout === "screen"
+        ? initialLayout
+        : "grid";
+    const outW = portrait ? VERT_W : 1280;
+    const outH = portrait ? VERT_H : 720;
+    canvas.width = outW;
+    canvas.height = outH;
     const backend = pickComposeBackend();
     const room = new Room({ adaptiveStream: false, dynacast: false });
     const audios: HTMLMediaElement[] = [];
@@ -86,6 +94,8 @@ export function EgressTemplate() {
         mode: layout,
         title: "Casthop",
         subtitle: "live",
+        width: outW,
+        height: outH,
       });
       if (cancelled) {
         compose.stop();
@@ -110,7 +120,11 @@ export function EgressTemplate() {
     const pullMeta = () => {
       if (!studioId) return;
       void getStudio(studioId).then((s) => {
-        const next: LayoutMode = s.layout === "solo" || s.layout === "side" || s.layout === "screen" ? s.layout : "grid";
+        const next: LayoutMode = portrait
+          ? "portrait"
+          : s.layout === "solo" || s.layout === "side" || s.layout === "screen"
+            ? s.layout
+            : "grid";
         compose?.setMeta(
           next,
           s.bannerTitle || s.title || "Casthop",

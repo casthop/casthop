@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { app, StudioDurableObject } from "../worker/index.ts";
 import { GUEST_TOKEN_TTL_SEC, HOST_TOKEN_TTL_SEC } from "../worker/livekit.ts";
-import { DEV_API_KEY, DEV_API_SECRET, HOST_IDENTITY, SESSION_COOKIE } from "../worker/security.ts";
+import { DEV_API_KEY, DEV_API_SECRET, GUEST_MINT_PER_SOURCE, HOST_IDENTITY, SESSION_COOKIE } from "../worker/security.ts";
 import type { Env, PublicClip, PublicReplay, PublicStudio, StudioRecord } from "../worker/types.ts";
 import { insertClip } from "../worker/db.ts";
 import { clipObjectKey } from "../worker/clips.ts";
@@ -1075,6 +1075,25 @@ test("H2: default LiveKit keys are refused off loopback", async () => {
   assert.equal(res.status, 503);
   const body = await json<{ error: string }>(res);
   assert.match(body.error, /devkey/);
+});
+
+test("guest join budget is shared out per network, not taken by one requester", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "ada@example.com");
+  const { id } = await createStudio(env, cookie);
+  const mint = (ip: string) =>
+    app.request(
+      `https://casthop.test/api/studios/${id}/token`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Forwarded-For": ip },
+        body: JSON.stringify({ name: "Guest", role: "guest" }),
+      },
+      env,
+    );
+  for (let i = 0; i < GUEST_MINT_PER_SOURCE; i++) assert.equal((await mint("2001:db8:7:7::1")).status, 200);
+  assert.equal((await mint("2001:db8:7:7::abcd")).status, 429, "same /64, same share");
+  assert.equal((await mint("203.0.113.9")).status, 200);
 });
 
 test("a new studio never gets the operator's real RTMP ingest URLs", async () => {

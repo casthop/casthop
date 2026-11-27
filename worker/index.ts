@@ -7,8 +7,11 @@ import {
   asIdentity,
   asName,
   clearCookie,
+  crossOriginCookieWrite,
   devKeyGuardError,
   hostIdentityFor,
+  INVITE_ACCOUNT_MAX,
+  INVITE_EMAIL_MAX,
   ipBucket,
   isHostIdentity,
   isSecureRequest,
@@ -17,6 +20,7 @@ import {
   publicOrigin,
   randomId,
   requestIp,
+  SIGNIN_WINDOW_MS,
   TOKEN_IP_MAX,
   TOKEN_IP_WINDOW_MS,
 } from "./security";
@@ -41,6 +45,7 @@ import {
   accountByEmail,
   accountById,
   allowRate,
+  refundRate,
   deleteCohost,
   deleteInvite,
   ensureDb,
@@ -168,6 +173,7 @@ async function studioPublicState(env: Env, id: string): Promise<PublicStudio | n
 app.use("/api/*", async (c, next) => {
   const err = devKeyGuardError(c.env);
   if (err) return c.json({ error: err }, 503);
+  if (crossOriginCookieWrite(c.req.raw, c.env)) return c.json({ error: "bad origin" }, 403);
   await ensureDb(c.env.DB);
   await next();
   const cookie = c.get("sessionCookie");
@@ -1036,6 +1042,18 @@ app.post("/api/studios/:id/cohosts", async (c) => {
   if (existingAccount && (await memberFor(c.env.DB, id, existingAccount.id))) return invited;
   const pending = await invitesForStudio(c.env.DB, id);
   if (pending.some((p) => p.email === email)) return invited;
+  // Cap invite mail like sign-in. Reserve both slots with allowRate (atomic upsert)
+  // before send so a parallel burst cannot sneak past the cap. Give a slot back if
+  // the other key is full or the mailer fails, so those do not spend the budget.
+  const acctKey = `invite:acct:${sess.account.id}`;
+  const emailKey = `invite:email:${email}`;
+  if (!(await allowRate(c.env.DB, acctKey, INVITE_ACCOUNT_MAX, SIGNIN_WINDOW_MS))) {
+    return c.json({ error: "too many invites" }, 429);
+  }
+  if (!(await allowRate(c.env.DB, emailKey, INVITE_EMAIL_MAX, SIGNIN_WINDOW_MS))) {
+    await refundRate(c.env.DB, acctKey);
+    return c.json({ error: "too many invites" }, 429);
+  }
   await insertInvite(c.env.DB, randomId(10), id, email, Date.now());
   try {
     await mailerFor(c.env).send({
@@ -1045,6 +1063,8 @@ app.post("/api/studios/:id/cohosts", async (c) => {
     });
   } catch (err) {
     await deleteInvite(c.env.DB, id, email);
+    await refundRate(c.env.DB, acctKey);
+    await refundRate(c.env.DB, emailKey);
     if (err instanceof MailSendError) return c.json({ error: "could not send invite" }, 502);
     throw err;
   }

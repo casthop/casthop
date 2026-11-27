@@ -31,7 +31,7 @@ export async function signInWithDevMagicLink(
   expect(res).toBeOK();
   const body: unknown = await res.json();
   if (!isMagicLinkBody(body) || !body.devLogin) {
-    throw new Error("magic link did not return a local login path");
+    throw new Error("magic link did not return a local login path; set CASTHOP_DEV_LOGIN=1 in .dev.vars");
   }
   await app.open(body.devLogin);
   await screen.getByRole("button", "Sign in").click();

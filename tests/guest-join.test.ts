@@ -133,3 +133,8 @@ test("a full studio frees guests who never showed up in the room", async () => {
   for (const id of present) assert.ok(after.includes(id), `${id} is in the room and keeps its slot`);
   assert.equal(after.length, present.length + 1);
 });
+
+test("joins without a source (no trusted client address) are not capped per network", async () => {
+  const room = await newRoom();
+  for (let i = 0; i < GUESTS_PER_SOURCE + 1; i++) assert.equal((await join(room, "")).status, 200);
+});

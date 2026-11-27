@@ -673,7 +673,9 @@ app.post("/api/studios/:id/token", async (c) => {
   }
 
   const name = asName(body.name, "Guest");
-  const joined = await doAction(c.env, id, "join", { identity, name, role: "guest", source: ipBucket(ip) });
+  // "local" means no trusted client address; a shared bucket would cap the whole studio.
+  const source = ip === "local" ? "" : ipBucket(ip);
+  const joined = await doAction(c.env, id, "join", { identity, name, role: "guest", source });
   if (!joined.ok) return new Response(joined.body, { status: joined.status, headers: joined.headers });
   const joinedBody = (await joined.json()) as { onStage?: boolean };
   const canPublish = Boolean(joinedBody.onStage);

@@ -86,10 +86,10 @@ type Incoming =
   | { type: "chat"; text?: string; name?: string; identity?: string; hostKey?: string; guestSecret?: string }
   | { type: "ping" };
 
-// Long egress calls, or a write right after the read with no await between.
 const PLATFORM_FLUSH_MS = 1000;
 
-const UNLOCKED_ACTIONS =new Set([
+// Long egress calls, or a write right after the read with no await between.
+const UNLOCKED_ACTIONS = new Set([
   "start-live",
   "stop-live",
   "live",

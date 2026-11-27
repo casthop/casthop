@@ -180,6 +180,8 @@ export type Env = {
   YOUTUBE_API_KEY?: string;
   YOUTUBE_LIVE_CHAT_ID?: string;
   YOUTUBE_VIDEO_ID?: string;
+  /** Studio id(s), comma-separated, that use the YouTube chat settings above. Unset: no studio does. */
+  YOUTUBE_CHAT_STUDIO_ID?: string;
   /** Public channel names/ids, not secrets. Unset hides the platform. */
   TWITCH_CHANNEL?: string;
   KICK_CHATROOM_ID?: string;

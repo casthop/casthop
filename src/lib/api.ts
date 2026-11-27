@@ -81,7 +81,8 @@ export function sendEgressBeat(id: string, token: string, egressId: string) {
   });
 }
 
-export function getConfig() {
+/** `studioId` asks whether that studio shows YouTube chat. */
+export function getConfig(studioId?: string) {
   return api<{
     livekitUrl: string;
     maxOnStage: number;
@@ -89,7 +90,7 @@ export function getConfig() {
     signin: "external" | "default";
     signedIn: boolean;
     destinationChat: { youtube: boolean };
-  }>("/api/config");
+  }>(studioId ? `/api/config?studio=${encodeURIComponent(studioId)}` : "/api/config");
 }
 
 export function getHealth() {

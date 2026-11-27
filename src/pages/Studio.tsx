@@ -253,10 +253,10 @@ export function Studio() {
 
   useEffect(() => {
     if (shot) return;
-    void getConfig()
+    void getConfig(id)
       .then((cfg) => setYoutubeChat(cfg.destinationChat.youtube))
       .catch(() => setYoutubeChat(false));
-  }, [shot]);
+  }, [id, shot]);
 
   const isoOnStage = Boolean(studio?.participants.some((p) => p.identity === identityRef.current && p.onStage));
   const isoActive = Boolean(

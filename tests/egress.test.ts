@@ -35,9 +35,9 @@ import {
 } from "../worker/egress.ts";
 import { destAspectOf, type Destination, type Env, type PublicStudio, type StudioState } from "../worker/types.ts";
 
-const YT = "rtmp://ingest.example.com/live/super-secret-youtube-key";
-const LI = "rtmp://ingest.example.com/live/super-secret-linkedin-key";
-const X = "rtmp://ingest.example.com/live/super-secret-x-key";
+const YT = "rtmp://127.0.0.1:1935/live/super-secret-youtube-key";
+const LI = "rtmp://127.0.0.1:1935/live/super-secret-linkedin-key";
+const X = "rtmp://127.0.0.1:1935/live/super-secret-x-key";
 
 let egressStarts = 0;
 let egressStops = 0;

@@ -84,7 +84,7 @@ if (!magic.ok) {
 }
 const { devLogin } = await magic.json();
 if (!devLogin) {
-  console.error("magic link did not return a local login path");
+  console.error("magic link did not return a local login path; set CASTHOP_DEV_LOGIN=1 in .dev.vars");
   process.exit(1);
 }
 const login = await fetch(`${app}${devLogin}`, { method: "POST", redirect: "manual" });

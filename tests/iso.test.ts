@@ -703,7 +703,15 @@ test("a second upload to a chunk index in flight cannot store uncounted bytes", 
   const put = (body: string) =>
     app.request(
       `https://casthop.test/api/studios/${id}/iso/${track.id}/chunks/0`,
-      { method: "PUT", headers: { "Content-Type": "application/octet-stream", Cookie: cookie }, body: new TextEncoder().encode(body) },
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "Content-Length": String(new TextEncoder().encode(body).length),
+          Cookie: cookie,
+        },
+        body: new TextEncoder().encode(body),
+      },
       env,
     );
   let release!: () => void;
@@ -744,7 +752,15 @@ test("a reservation left by a dead request is taken over after the TTL", async (
   const put = (body: string) =>
     app.request(
       `https://casthop.test/api/studios/${id}/iso/${track.id}/chunks/0`,
-      { method: "PUT", headers: { "Content-Type": "application/octet-stream", Cookie: cookie }, body: new TextEncoder().encode(body) },
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "Content-Length": String(new TextEncoder().encode(body).length),
+          Cookie: cookie,
+        },
+        body: new TextEncoder().encode(body),
+      },
       env,
     );
   // The first put never settles, as if its request was evicted after reserving.
@@ -788,7 +804,15 @@ test("a hung R2 put aborts the reservation without waiting for the put to settle
   const put = (body: string) =>
     app.request(
       `https://casthop.test/api/studios/${id}/iso/${track.id}/chunks/0`,
-      { method: "PUT", headers: { "Content-Type": "application/octet-stream", Cookie: cookie }, body: new TextEncoder().encode(body) },
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "Content-Length": String(new TextEncoder().encode(body).length),
+          Cookie: cookie,
+        },
+        body: new TextEncoder().encode(body),
+      },
       env,
     );
 

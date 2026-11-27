@@ -3,6 +3,7 @@ import { PlatformHub, platformsConfigured, type PlatformMessage } from "./chat-p
 import { defaultDestinations, destAspectOf, MAX_ON_STAGE, type Env, type IsoTrack, type LayoutId, type StudioState } from "./types";
 import {
   ISO_CHUNK_MAX_BYTES,
+  ISO_PENDING_MS,
   isoChunkFits,
   deleteIsoTrackObjects,
   isoKindOk,
@@ -398,13 +399,28 @@ export class StudioDurableObject {
       if (!isoChunkFits(state.isoTracks ?? [], track, bytes)) {
         return json({ error: "recording too large" }, 413);
       }
-      // Without commit this only validates; the Worker commits after the R2 put succeeds.
-      if (body.commit === true) {
-        track.bytes += bytes;
-        track.chunks = index + 1;
+      // Validate reserves the index for one upload. Only that upload commits (after its R2
+      // put) or aborts, so a second put to the same key cannot store bytes nobody counted.
+      const held = track.pending;
+      if (body.commit === true || body.abort === true) {
+        const nonce = typeof body.nonce === "string" ? body.nonce : "";
+        if (!held || held.index !== index || held.nonce !== nonce || held.bytes !== bytes) {
+          return json({ error: "chunk out of order" }, 409);
+        }
+        track.pending = undefined;
+        if (body.commit === true) {
+          track.bytes += bytes;
+          track.chunks = index + 1;
+        }
         await this.putState(state);
+        return json({ track });
       }
-      return json({ track });
+      if (held && held.index === index && Date.now() - held.at < ISO_PENDING_MS) {
+        return json({ error: "chunk in flight" }, 429);
+      }
+      track.pending = { index, bytes, nonce: randomId(16), at: Date.now() };
+      await this.putState(state);
+      return json({ track, nonce: track.pending.nonce });
     }
 
     if (action === "iso-complete") {

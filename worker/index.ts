@@ -910,12 +910,14 @@ app.put("/api/studios/:id/iso/:trackId/chunks/:index", async (c) => {
   // Validate, write to R2, then count: a failed put never leaves a phantom chunk.
   const check = await doAction(c.env, id, "iso-chunk", chunk);
   if (!check.ok) return new Response(check.body, { status: check.status, headers: check.headers });
+  const { nonce } = (await check.json()) as { nonce?: string };
   try {
     await (await storeFor(c.env, id)).RECORDINGS.put(isoChunkKey(id, trackId, index), buf);
   } catch {
+    await doAction(c.env, id, "iso-chunk", { ...chunk, nonce, abort: true });
     return c.json({ error: "upload failed" }, 502);
   }
-  const res = await doAction(c.env, id, "iso-chunk", { ...chunk, commit: true });
+  const res = await doAction(c.env, id, "iso-chunk", { ...chunk, nonce, commit: true });
   return new Response(res.body, { status: res.status, headers: res.headers });
 });
 

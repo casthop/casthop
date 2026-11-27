@@ -626,6 +626,63 @@ test("failed R2 put is not counted on the track", async () => {
   assert.equal(after.tracks[0]?.bytes, 4);
 });
 
+test("a second upload to a chunk index in flight cannot store uncounted bytes", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "owner@example.com");
+  const id = await createStudio(env, cookie);
+  await app.request(
+    `https://casthop.test/api/studios/${id}/iso-pref`,
+    { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ separateRecordings: true }) },
+    env,
+  );
+  await app.request(
+    `https://casthop.test/api/studios/${id}/token`,
+    { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ name: "Host", role: "host" }) },
+    env,
+  );
+  const live = await json<PublicStudio>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ live: true }) },
+      env,
+    ),
+  );
+  const { track } = await json<{ track: IsoTrack }>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/iso`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: cookie },
+        body: JSON.stringify({ kind: "camera", mimeType: "video/webm", sessionId: live.isoSessionId, startedAt: Date.now() }),
+      },
+      env,
+    ),
+  );
+  const put = (body: string) =>
+    app.request(
+      `https://casthop.test/api/studios/${id}/iso/${track.id}/chunks/0`,
+      { method: "PUT", headers: { "Content-Type": "application/octet-stream", Cookie: cookie }, body: new TextEncoder().encode(body) },
+      env,
+    );
+  let release!: () => void;
+  env._r2.holdNextPut = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const small = put("A");
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const big = await put("BBBBBBBBBBBBBBBB");
+  assert.equal(big.status, 429, "the index is reserved for the upload already in flight");
+  release();
+  assert.equal((await small).status, 200);
+
+  const list = await json<RecordingList>(
+    await app.request(`https://casthop.test/api/studios/${id}/recordings`, { headers: { Cookie: cookie } }, env),
+  );
+  const stored = await env._r2.get(isoChunkKey(id, track.id, 0));
+  assert.equal(list.tracks[0]?.bytes, 1);
+  assert.equal(stored?.size, list.tracks[0]?.bytes, "stored bytes match counted bytes");
+});
+
 test("isoChunkFits enforces per-track and per-session byte caps", () => {
   const row = (id: string, bytes: number): IsoTrack => ({
     id,

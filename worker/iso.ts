@@ -8,6 +8,8 @@ export const ISO_SESSION_MAX_BYTES = 10 * 1024 * 1024 * 1024;
 export const ISO_CHUNK_WINDOW_MS = 60_000;
 /** Camera + screen at a 2 s timeslice is 60 PUTs/min; extra headroom is for retries. */
 export const ISO_CHUNK_MAX = 180;
+/** How long a chunk reservation holds. Well above an 8 MiB R2 put, well under the recorder's retry window. */
+export const ISO_PENDING_MS = 20_000;
 /** Camera + screen, plus a remount, per person per live. */
 export const ISO_TRACKS_PER_IDENTITY = 4;
 /** Per live session, and the max listed history after dropping the oldest. */

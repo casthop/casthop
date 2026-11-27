@@ -49,3 +49,4 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 - Stream keys and full destination URLs are withheld from guests and public GET / WebSocket state.
 - Published LiveKit `devkey` is refused unless LiveKit is loopback.
+- Two uploads to the same ISO chunk can no longer store bytes the per-track and per-session caps never counted. The first upload reserves the chunk; a second one gets a retryable 429 until it lands.

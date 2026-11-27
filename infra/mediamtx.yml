@@ -4,9 +4,14 @@ rtmp: yes
 rtmpAddress: 127.0.0.1:1935
 hls: yes
 hlsAddress: 127.0.0.1:8888
+# MediaMTX allows every origin by default, so any web page open in the developer's
+# browser could read the live program and the recordings. Nothing here needs a
+# browser origin: ffprobe, curl and Egress send none.
+hlsAllowOrigins: []
 webrtc: no
 playback: yes
 playbackAddress: 127.0.0.1:9996
+playbackAllowOrigins: []
 rtsp: no
 srt: no
 moq: no

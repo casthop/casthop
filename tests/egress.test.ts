@@ -64,10 +64,11 @@ function fakeCtx(): DurableObjectState {
   const store = new Map<string, unknown>();
   let alarm: number | null = null;
   return {
+    // Durable Object storage hands out copies, so a stale snapshot stays stale.
     storage: {
-      get: async (key: string) => store.get(key),
+      get: async (key: string) => structuredClone(store.get(key)),
       put: async (key: string, value: unknown) => {
-        store.set(key, value);
+        store.set(key, structuredClone(value));
       },
       setAlarm: async (at: number) => {
         alarm = at;
@@ -1131,6 +1132,120 @@ test("empty LiveKit room stops stale egress after grace", async () => {
   assert.equal(state.livePhase, "idle");
   assert.equal(state.liveError, "Studio empty");
   assert.ok(egressStops > stops);
+});
+
+// Runs `during` while a watch pass waits on ListEgress, then lets the pass finish.
+async function duringHeldWatch(env: Env, id: string, during: () => Promise<void>): Promise<void> {
+  let release!: () => void;
+  listEgressHold = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const sawList = new Promise<void>((resolve) => {
+    listEgressStarted = resolve;
+  });
+  holdNextListEgress = true;
+  const stub = env.STUDIO.get(env.STUDIO.idFromName(id));
+  const pass = stub.fetch(new Request(`https://studio/${id}?action=watch`, { method: "POST", body: "{}" }));
+  try {
+    await sawList;
+    await during();
+    release();
+    assert.equal((await pass).status, 200);
+  } finally {
+    listEgressHold = null;
+    listEgressStarted = null;
+    holdNextListEgress = false;
+  }
+}
+
+async function goLiveActive(env: Env, id: string, cookie: string): Promise<PublicStudio> {
+  listedParticipants = [{ identity: "host" }, { identity: "EG_compositor" }];
+  listedEgress = { items: [] };
+  const started = await json<PublicStudio>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
+      env,
+    ),
+  );
+  assert.ok(started.egressId);
+  listedEgress = {
+    items: [
+      {
+        egressId: started.egressId,
+        roomName: id,
+        status: "EGRESS_ACTIVE",
+        streamResults: [{ url: YT, status: "ACTIVE", duration: "5000000000" }],
+      },
+    ],
+  };
+  return started;
+}
+
+test("a watch pass does not undo a destination change made during ListEgress", async () => {
+  const env = makeEnv();
+  const { id, cookie } = await createStudio(env);
+  const started = await goLiveActive(env, id, cookie);
+  await duringHeldWatch(env, id, async () => {
+    const next = started.destinations.map((d) => (d.id === "linkedin" ? { ...d, enabled: false } : d));
+    const res = await app.request(
+      `https://casthop.test/api/studios/${id}/destinations`,
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ destinations: next }) },
+      env,
+    );
+    assert.equal(res.status, 200, await res.clone().text());
+  });
+  const snap = await json<PublicStudio>(
+    await app.request(`https://casthop.test/api/studios/${id}`, { headers: liveHeaders(cookie) }, env),
+  );
+  assert.equal(snap.destinations.find((d) => d.id === "linkedin")?.enabled, false);
+});
+
+test("a watch pass does not take a guest back on stage after the host took them off", async () => {
+  const env = makeEnv();
+  const { id, cookie } = await createStudio(env);
+  const guest = await json<{ identity: string }>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/token`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Ada", role: "guest" }) },
+      env,
+    ),
+  );
+  const stage = (on: boolean) =>
+    app.request(
+      `https://casthop.test/api/studios/${id}/stage`,
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ identity: guest.identity, on }) },
+      env,
+    );
+  assert.equal((await stage(true)).status, 200);
+  await goLiveActive(env, id, cookie);
+  await duringHeldWatch(env, id, async () => {
+    assert.equal((await stage(false)).status, 200);
+  });
+  const snap = await json<PublicStudio>(await app.request(`https://casthop.test/api/studios/${id}`, {}, env));
+  assert.equal(snap.participants.find((p) => p.identity === guest.identity)?.onStage, false);
+});
+
+test("a watch pass does not restart a stream the host stopped during ListEgress", async () => {
+  const env = makeEnv();
+  const { id, cookie } = await createStudio(env);
+  await goLiveActive(env, id, cookie);
+  const starts = egressStarts;
+  await duringHeldWatch(env, id, async () => {
+    const stop = await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: false }) },
+      env,
+    );
+    assert.equal(stop.status, 200, await stop.clone().text());
+  });
+  const stub = env.STUDIO.get(env.STUDIO.idFromName(id));
+  const next = await json<PublicStudio>(
+    await stub.fetch(new Request(`https://studio/${id}?action=watch`, { method: "POST", body: "{}" })),
+  );
+  assert.equal(next.live, false);
+  assert.equal(next.livePhase, "idle");
+  assert.equal(egressStarts, starts);
 });
 
 test("toggling a destination while live calls UpdateStream", async () => {

@@ -9,6 +9,7 @@ import {
   clearCookie,
   devKeyGuardError,
   hostIdentityFor,
+  ipBucket,
   isHostIdentity,
   isSecureRequest,
   OAUTH_COOKIE,
@@ -618,7 +619,7 @@ app.post("/api/studios/:id/token", async (c) => {
   // Guest join + host refresh. JWT is WebCrypto HMAC; workers-rs did not beat it (MEASUREMENTS.md).
   const id = c.req.param("id");
   const ip = requestIp(c);
-  if (!(await allowRate(c.env.DB, `token:ip:${ip}`, TOKEN_IP_MAX, TOKEN_IP_WINDOW_MS))) {
+  if (!(await allowRate(c.env.DB, `token:ip:${ipBucket(ip)}`, TOKEN_IP_MAX, TOKEN_IP_WINDOW_MS))) {
     return c.json({ error: "too many joins" }, 429);
   }
   const body = (await c.req.json().catch(() => ({}))) as {

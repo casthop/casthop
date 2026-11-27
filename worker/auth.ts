@@ -10,6 +10,7 @@ import {
   SIGNIN_WINDOW_MS,
   SIGNIN_IP_MAX,
   SIGNIN_EMAIL_MAX,
+  SIGNIN_TO_MAX,
   SESSION_PREV_GRACE_MS,
   allowDevLogin,
   asEmail,
@@ -18,6 +19,7 @@ import {
   cookieValue,
   hostIdentityFor,
   hostKeyFor,
+  ipBucket,
   isLoopbackHost,
   isLoopbackUrl,
   isSecureRequest,
@@ -192,10 +194,15 @@ function showDevLogin(c: AppCtx, ip: string): boolean {
 
 export async function issueMagicLink(c: AppCtx, email: string): Promise<{ ok: true; devLogin?: string }> {
   const ip = requestIp(c);
-  if (!(await allowRate(c.env.DB, `signin:ip:${ip}`, SIGNIN_IP_MAX, SIGNIN_WINDOW_MS))) {
+  // One IPv6 host holds a whole /64; key limits on the network, not each address in it.
+  const client = ipBucket(ip);
+  if (!(await allowRate(c.env.DB, `signin:ip:${client}`, SIGNIN_IP_MAX, SIGNIN_WINDOW_MS))) {
     return Promise.reject(Object.assign(new Error("too many attempts"), { status: 429 }));
   }
-  if (!(await allowRate(c.env.DB, `signin:email:${email}:${ip}`, SIGNIN_EMAIL_MAX, SIGNIN_WINDOW_MS))) {
+  if (!(await allowRate(c.env.DB, `signin:email:${email}:${client}`, SIGNIN_EMAIL_MAX, SIGNIN_WINDOW_MS))) {
+    return { ok: true };
+  }
+  if (!(await allowRate(c.env.DB, `signin:to:${email}`, SIGNIN_TO_MAX, SIGNIN_WINDOW_MS))) {
     return { ok: true };
   }
   const token = randomId(32);
@@ -258,7 +265,7 @@ export async function consumeMagicToken(c: AppCtx, token: string): Promise<Accou
 
 export async function startGithub(c: AppCtx): Promise<{ url: string; cookie: string } | null> {
   if (!githubConfigured(c.env)) return null;
-  const ip = requestIp(c);
+  const ip = ipBucket(requestIp(c));
   if (!(await allowRate(c.env.DB, `signin:ip:${ip}`, SIGNIN_IP_MAX, SIGNIN_WINDOW_MS))) {
     throw Object.assign(new Error("too many attempts"), { status: 429 });
   }

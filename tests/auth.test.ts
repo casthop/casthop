@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { app, StudioDurableObject } from "../worker/index.ts";
 import { GUEST_TOKEN_TTL_SEC, HOST_TOKEN_TTL_SEC } from "../worker/livekit.ts";
-import { DEV_API_KEY, DEV_API_SECRET, HOST_IDENTITY, SESSION_COOKIE } from "../worker/security.ts";
+import { DEV_API_KEY, DEV_API_SECRET, HOST_IDENTITY, SESSION_COOKIE, SIGNIN_EMAIL_MAX, SIGNIN_TO_MAX } from "../worker/security.ts";
 import type { Env, PublicClip, PublicReplay, PublicStudio, StudioRecord } from "../worker/types.ts";
 import { insertClip } from "../worker/db.ts";
 import { clipObjectKey } from "../worker/clips.ts";
@@ -1318,6 +1318,33 @@ test("email sign-in limit is per email and IP, so another client can still get a
   }
   const sent = logs.filter((line) => line.includes("casthop mail") && line.includes("victim@example.com"));
   assert.equal(sent.length, 4);
+});
+
+test("sign-in mail limits treat one IPv6 /64 as one client and cap each inbox overall", async () => {
+  const env = makeEnv();
+  const logs: string[] = [];
+  const origLog = console.log;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map(String).join(" "));
+  };
+  const ask = (ip: string, email: string) =>
+    app.request(
+      "https://casthop.test/api/auth/magic-link",
+      { method: "POST", headers: { "Content-Type": "application/json", "cf-connecting-ip": ip }, body: JSON.stringify({ email }) },
+      env,
+    );
+  const mailsTo = (email: string) => logs.filter((line) => line.includes("casthop mail") && line.includes(email)).length;
+  try {
+    for (let i = 1; i <= 4; i++) await ask(`2001:db8:aa:1::${i}`, "inbox@example.com");
+    assert.equal(mailsTo("inbox@example.com"), SIGNIN_EMAIL_MAX, "four addresses in one /64 are one client");
+    assert.equal((await ask("2001:db8:aa:2::1", "inbox@example.com")).status, 200);
+    assert.equal(mailsTo("inbox@example.com"), SIGNIN_EMAIL_MAX + 1, "another /64 still gets a link");
+
+    for (let net = 10; net < 20; net++) await ask(`2001:db8:bb:${net}::1`, "flooded@example.com");
+    assert.equal(mailsTo("flooded@example.com"), SIGNIN_TO_MAX, "many networks share one ceiling per inbox");
+  } finally {
+    console.log = origLog;
+  }
 });
 
 test("parallel sign-in rate limit does not 500", async () => {

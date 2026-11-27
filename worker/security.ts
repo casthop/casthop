@@ -16,6 +16,8 @@ export const TOKEN_IP_MAX = 60;
 export const SIGNIN_WINDOW_MS = 15 * 60 * 1000;
 export const SIGNIN_IP_MAX = 5;
 export const SIGNIN_EMAIL_MAX = 3;
+/** Sign-in mail to one address from every client together, so many networks cannot flood one inbox. */
+export const SIGNIN_TO_MAX = 6;
 export const CHAT_WINDOW_MS = 10_000;
 export const CHAT_MAX = 8;
 export const SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
@@ -345,6 +347,21 @@ export function clientIp(
     if (forwarded) return forwarded.slice(0, 64);
   }
   return "local";
+}
+
+/** Rate-limit key for a client address. One IPv6 host usually holds a whole /64, so group by it. */
+export function ipBucket(ip: string): string {
+  const addr = ip.toLowerCase().replace(/%.*$/, "");
+  if (!addr.includes(":")) return addr;
+  const mapped = addr.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (mapped) return mapped[1]!;
+  const [head = "", tail = ""] = addr.split("::");
+  const front = head ? head.split(":") : [];
+  const back = tail ? tail.split(":") : [];
+  const groups = addr.includes("::") ? [...front, ...Array<string>(Math.max(0, 8 - front.length - back.length)).fill("0"), ...back] : front;
+  const prefix = groups.slice(0, 4).map((g) => parseInt(g || "0", 16));
+  if (prefix.length < 4 || prefix.some((n) => !Number.isInteger(n) || n < 0 || n > 0xffff)) return addr;
+  return `${prefix.map((n) => n.toString(16)).join(":")}::/64`;
 }
 
 export function requestIp(c: { req: { raw: Request }; env: Pick<Env, "CASTHOP_TRUST_FORWARDED"> }): string {

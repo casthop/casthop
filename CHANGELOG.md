@@ -49,3 +49,4 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 - Stream keys and full destination URLs are withheld from guests and public GET / WebSocket state.
 - Published LiveKit `devkey` is refused unless LiveKit is loopback.
+- Sign-in and token rate limits count an IPv6 /64 as one client instead of each address in it, and one address gets at most 6 sign-in mails every 15 minutes from all clients together.

@@ -85,6 +85,21 @@ type Incoming =
   | { type: "chat"; text?: string; name?: string; identity?: string; hostKey?: string; guestSecret?: string }
   | { type: "ping" };
 
+// Long egress calls, or a write right after the read with no await between.
+const UNLOCKED_ACTIONS = new Set([
+  "start-live",
+  "stop-live",
+  "live",
+  "webhook",
+  "watch",
+  "layout",
+  "destinations",
+  "auth",
+  "host-snapshot",
+  "iso-list",
+  "iso-get",
+]);
+
 export class StudioDurableObject {
   private launching = false;
   private portraitLaunching = false;
@@ -93,6 +108,7 @@ export class StudioDurableObject {
   private chatHits = new Map<string, { n: number; t: number }>();
   private mintHits = { n: 0, t: 0 };
   private youtubeToken: YoutubeTokenCache | null = null;
+  private writeChain: Promise<void> = Promise.resolve();
 
   constructor(ctx: DurableObjectState, env: Env) {
     this.ctx = ctx;
@@ -148,16 +164,36 @@ export class StudioDurableObject {
       return json(publicState(state, { includeUrls: true }));
     }
 
-    const state = await this.getState();
-    if (!state) return json({ error: "Studio not found" }, 404);
+    const probe = await this.getState();
+    if (!probe) return json({ error: "Studio not found" }, 404);
 
     const body = request.method === "GET" ? {} : ((await request.json().catch(() => ({}))) as Record<string, unknown>);
     const hostKey = typeof body.hostKey === "string" ? body.hostKey : "";
-    const isHost = hostKey ? (await sha256hex(hostKey)) === state.hostKeyHash : false;
+    const isHost = hostKey ? (await sha256hex(hostKey)) === probe.hostKeyHash : false;
 
     if (request.method === "GET" && !action) {
-      return json(publicState(state, { includeUrls: false }));
+      return json(publicState(probe, { includeUrls: false }));
     }
+
+    // `probe` is stale after the awaits above. Handlers re-read state themselves.
+    // Egress handlers run for seconds and re-read after each await, so they stay off the lock.
+    if (UNLOCKED_ACTIONS.has(action)) return this.handle(action, body, isHost);
+    return this.serialize(() => this.handle(action, body, isHost));
+  }
+
+  // One write at a time: a handler reads, awaits (auth, hashing) and writes without another one slipping in.
+  private serialize<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.writeChain.then(task);
+    this.writeChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private async handle(action: string, body: Record<string, unknown>, isHost: boolean): Promise<Response> {
+    const state = await this.getState();
+    if (!state) return json({ error: "Studio not found" }, 404);
 
     if (action === "auth") {
       if (!isHost) return json({ error: "host key required" }, 403);
@@ -470,13 +506,11 @@ export class StudioDurableObject {
         return json(publicState(state, { includeUrls: true }));
       }
       const chatId = typeof body.chatId === "string" ? body.chatId.slice(0, 80) : "";
-      // Re-read: `state` predates the awaits above, so a comment saved since then would be missing.
-      const latest = (await this.getState()) ?? state;
-      const msg = latest.chat.find((m) => m.id === chatId);
+      const msg = state.chat.find((m) => m.id === chatId);
       if (!msg) return json({ error: "comment not found" }, 404);
-      latest.pinnedChat = { id: msg.id, name: msg.name, text: msg.text, source: msg.source };
-      await this.putState(latest);
-      return json(publicState(latest, { includeUrls: true }));
+      state.pinnedChat = { id: msg.id, name: msg.name, text: msg.text, source: msg.source };
+      await this.putState(state);
+      return json(publicState(state, { includeUrls: true }));
     }
 
     if (action === "chat") {
@@ -485,9 +519,7 @@ export class StudioDurableObject {
       if (!this.allowChat(person.identity)) return json({ error: "slow down" }, 429);
       const trimmed = typeof body.text === "string" ? body.text.trim().slice(0, 400) : "";
       if (!trimmed) return json({ error: "empty" }, 400);
-      // Re-read so a write that landed during the awaits above is not overwritten (losing the comment).
-      const latest = (await this.getState()) ?? state;
-      latest.chat.push({
+      state.chat.push({
         id: crypto.randomUUID(),
         from: person.identity,
         name: person.name,
@@ -495,9 +527,9 @@ export class StudioDurableObject {
         at: Date.now(),
         source: "studio",
       });
-      latest.chat = latest.chat.slice(-100);
-      await this.putState(latest);
-      return json(publicState(latest, { includeUrls: false }));
+      state.chat = state.chat.slice(-100);
+      await this.putState(state);
+      return json(publicState(state, { includeUrls: false }));
     }
 
     return json({ error: "unknown action" }, 400);
@@ -522,25 +554,27 @@ export class StudioDurableObject {
       return;
     }
     if (parsed.type === "chat") {
-      const state = await this.getState();
-      if (!state) return;
-      const hostKey = typeof parsed.hostKey === "string" ? parsed.hostKey : "";
-      const isHost = hostKey ? (await sha256hex(hostKey)) === state.hostKeyHash : false;
-      const person = await this.chatAuthor(state, parsed as unknown as Record<string, unknown>, isHost);
-      if (!person) return;
-      if (!this.allowChat(person.identity)) return;
-      const text = typeof parsed.text === "string" ? parsed.text.trim().slice(0, 400) : "";
-      if (!text) return;
-      state.chat.push({
-        id: crypto.randomUUID(),
-        from: person.identity,
-        name: person.name,
-        text,
-        at: Date.now(),
-        source: "studio",
+      await this.serialize(async () => {
+        const state = await this.getState();
+        if (!state) return;
+        const hostKey = typeof parsed.hostKey === "string" ? parsed.hostKey : "";
+        const isHost = hostKey ? (await sha256hex(hostKey)) === state.hostKeyHash : false;
+        const person = await this.chatAuthor(state, parsed as unknown as Record<string, unknown>, isHost);
+        if (!person) return;
+        if (!this.allowChat(person.identity)) return;
+        const text = typeof parsed.text === "string" ? parsed.text.trim().slice(0, 400) : "";
+        if (!text) return;
+        state.chat.push({
+          id: crypto.randomUUID(),
+          from: person.identity,
+          name: person.name,
+          text,
+          at: Date.now(),
+          source: "studio",
+        });
+        state.chat = state.chat.slice(-100);
+        await this.putState(state);
       });
-      state.chat = state.chat.slice(-100);
-      await this.putState(state);
     }
   }
 

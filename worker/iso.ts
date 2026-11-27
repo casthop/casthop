@@ -8,10 +8,10 @@ export const ISO_SESSION_MAX_BYTES = 10 * 1024 * 1024 * 1024;
 export const ISO_CHUNK_WINDOW_MS = 60_000;
 /** Camera + screen at a 2 s timeslice is 60 PUTs/min; extra headroom is for retries. */
 export const ISO_CHUNK_MAX = 180;
-/** Hard cap on one chunk's R2 put. The reservation is aborted when it fires. */
+/** Hard cap on one chunk's R2 put. The reservation is aborted when it fires; the put is not cancelled. */
 export const ISO_PUT_TIMEOUT_MS = 15_000;
 
-/** A reservation older than this is taken over; well past the put timeout, for a request that died. */
+/** Takeover bound for a request that died before abort. Longer than the put timeout so a late write cannot land after a retry takes the index. */
 export const ISO_RESERVATION_TTL_MS = 60_000;
 
 /** Rejects if `work` takes longer than `ms`; the caller then aborts its reservation. */

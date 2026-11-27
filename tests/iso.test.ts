@@ -10,6 +10,7 @@ import {
   isoChunkFits,
   isoChunkKey,
   isoMimeOk,
+  ISO_PUT_TIMEOUT_MS,
   ISO_RESERVATION_TTL_MS,
   withTimeout,
   ISO_SESSION_MAX_BYTES,
@@ -736,9 +737,57 @@ test("a reservation left by a dead request is taken over after the TTL", async (
 });
 
 test("withTimeout rejects a stalled put and passes a fast one", async () => {
+  assert.ok(ISO_RESERVATION_TTL_MS > ISO_PUT_TIMEOUT_MS);
   const stalled = new Promise<string>(() => {});
   await assert.rejects(withTimeout(stalled, 10), /timed out/);
   assert.equal(await withTimeout(Promise.resolve("ok"), 1000), "ok");
+});
+
+test("a hung R2 put aborts the reservation without waiting for the put to settle", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "owner@example.com");
+  const id = await createStudio(env, cookie);
+  const post = (path: string, body: unknown) =>
+    app.request(
+      `https://casthop.test/api/studios/${id}/${path}`,
+      { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify(body) },
+      env,
+    );
+  await post("iso-pref", { separateRecordings: true });
+  await post("token", { name: "Host", role: "host" });
+  const live = await json<PublicStudio>(await post("live", { live: true }));
+  const { track } = await json<{ track: IsoTrack }>(
+    await post("iso", { kind: "camera", mimeType: "video/webm", sessionId: live.isoSessionId, startedAt: Date.now() }),
+  );
+  const put = (body: string) =>
+    app.request(
+      `https://casthop.test/api/studios/${id}/iso/${track.id}/chunks/0`,
+      { method: "PUT", headers: { "Content-Type": "application/octet-stream", Cookie: cookie }, body: new TextEncoder().encode(body) },
+      env,
+    );
+
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = ((handler: TimerHandler, ms?: number, ...args: unknown[]) =>
+    realSetTimeout(handler as (...a: unknown[]) => void, ms === ISO_PUT_TIMEOUT_MS ? 20 : (ms ?? 0), ...args)) as typeof setTimeout;
+  env._r2.holdNextPut = new Promise<void>(() => {});
+  try {
+    const hung = put("A");
+    const settled = await Promise.race([
+      hung.then((res) => ({ kind: "res" as const, res })),
+      new Promise<{ kind: "stuck" }>((resolve) => realSetTimeout(() => resolve({ kind: "stuck" }), 1000)),
+    ]);
+    if (settled.kind !== "res") throw new Error("must not wait for a put that never settles");
+    assert.equal(settled.res.status, 502);
+    await putChunk(env, id, track.id, 0, "BB", cookie);
+    const list = await json<RecordingList>(
+      await app.request(`https://casthop.test/api/studios/${id}/recordings`, { headers: { Cookie: cookie } }, env),
+    );
+    const stored = await env._r2.get(isoChunkKey(id, track.id, 0));
+    assert.equal(list.tracks[0]?.bytes, 2);
+    assert.equal(stored?.size, 2, "retry bytes match counted bytes");
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
 });
 
 test("isoChunkFits enforces per-track and per-session byte caps", () => {

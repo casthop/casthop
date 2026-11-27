@@ -924,14 +924,13 @@ app.put("/api/studios/:id/iso/:trackId/chunks/:index", async (c) => {
   const check = await doAction(c.env, id, "iso-chunk", chunk);
   if (!check.ok) return new Response(check.body, { status: check.status, headers: check.headers });
   const { nonce } = (await check.json()) as { nonce?: string };
-  let put: Promise<unknown> | undefined;
   try {
     const store = await storeFor(c.env, id);
-    put = store.RECORDINGS.put(isoChunkKey(id, trackId, index), buf);
-    await withTimeout(put, ISO_PUT_TIMEOUT_MS);
+    await withTimeout(store.RECORDINGS.put(isoChunkKey(id, trackId, index), buf), ISO_PUT_TIMEOUT_MS);
   } catch {
-    // The put is not cancelled. Hold the reservation until it settles so a retry is not overwritten.
-    await put?.catch(() => undefined);
+    // Don't wait for a hung put. Abort now so the request can return; the reservation TTL
+    // (longer than the put timeout) covers a request that dies before abort, so a late write
+    // cannot land after a retry takes the index.
     await doAction(c.env, id, "iso-chunk", { ...chunk, nonce, abort: true });
     return c.json({ error: "upload failed" }, 502);
   }

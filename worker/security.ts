@@ -241,9 +241,20 @@ export function sanitizeDestinations(
   return out;
 }
 
+/** Sockets one studio keeps open. Every state write is sent to each of them. */
+export const MAX_STUDIO_SOCKETS = 256;
+
+// Control characters are invisible but JSON-escape to six bytes each, and chat rides in every broadcast.
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/g;
+
 export function asName(value: unknown, fallback = "Guest"): string {
   if (typeof value !== "string") return fallback;
-  return value.trim().slice(0, 40) || fallback;
+  return value.replace(CONTROL_CHARS, "").trim().slice(0, 40) || fallback;
+}
+
+export function asChatText(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value.replace(CONTROL_CHARS, " ").trim().slice(0, 400);
 }
 
 export function asIdentity(value: unknown): string {

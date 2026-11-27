@@ -14,6 +14,7 @@ import {
 import { storeFor } from "./tenant";
 import {
   ABSENT_GUEST_GRACE_MS,
+  asChatText,
   asIdentity,
   asName,
   randomId,
@@ -27,6 +28,7 @@ import {
   isHostIdentity,
   isLoopbackUrl,
   MAX_PARTICIPANTS,
+  MAX_STUDIO_SOCKETS,
   publicState,
   sanitizeDestinations,
   TOKEN_MINT_MAX,
@@ -132,10 +134,13 @@ export class StudioDurableObject {
     const url = new URL(request.url);
 
     if (request.headers.get("Upgrade") === "websocket") {
+      // Check before accepting: an accepted socket is kept and gets every state write.
+      const state = await this.getState();
+      if (!state) return json({ error: "Studio not found" }, 404);
+      if (this.ctx.getWebSockets().length >= MAX_STUDIO_SOCKETS) return json({ error: "too many connections" }, 503);
       const pair = new WebSocketPair();
       this.ctx.acceptWebSocket(pair[1]);
-      const state = await this.getState();
-      if (state) pair[1].send(JSON.stringify({ type: "state", state: publicState(state, { includeUrls: false }) }));
+      pair[1].send(JSON.stringify({ type: "state", state: publicState(state, { includeUrls: false }) }));
       return new Response(null, { status: 101, webSocket: pair[0] });
     }
 
@@ -520,7 +525,7 @@ export class StudioDurableObject {
       const person = await this.chatAuthor(state, body, isHost);
       if (!person) return json({ error: "chat auth required" }, 403);
       if (!this.allowChat(person.identity)) return json({ error: "slow down" }, 429);
-      const trimmed = typeof body.text === "string" ? body.text.trim().slice(0, 400) : "";
+      const trimmed = asChatText(body.text);
       if (!trimmed) return json({ error: "empty" }, 400);
       state.chat.push({
         id: crypto.randomUUID(),
@@ -566,7 +571,7 @@ export class StudioDurableObject {
         const person = await this.chatAuthor(state, parsed as unknown as Record<string, unknown>, isHost);
         if (!person) return;
         if (!this.allowChat(person.identity)) return;
-        const text = typeof parsed.text === "string" ? parsed.text.trim().slice(0, 400) : "";
+        const text = asChatText(parsed.text);
         if (!text) return;
         state.chat.push({
           id: crypto.randomUUID(),

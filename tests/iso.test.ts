@@ -10,6 +10,7 @@ import {
   isoChunkFits,
   isoChunkKey,
   isoMimeOk,
+  ISO_RESERVATION_TTL_MS,
   withTimeout,
   ISO_SESSION_MAX_BYTES,
   ISO_TRACK_MAX_BYTES,
@@ -694,6 +695,43 @@ test("a second upload to a chunk index in flight cannot store uncounted bytes", 
   const stored = await env._r2.get(isoChunkKey(id, track.id, 0));
   assert.equal(list.tracks[0]?.bytes, 1);
   assert.equal(stored?.size, list.tracks[0]?.bytes, "stored bytes match counted bytes");
+});
+
+test("a reservation left by a dead request is taken over after the TTL", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "owner@example.com");
+  const id = await createStudio(env, cookie);
+  const post = (path: string, body: unknown) =>
+    app.request(
+      `https://casthop.test/api/studios/${id}/${path}`,
+      { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify(body) },
+      env,
+    );
+  await post("iso-pref", { separateRecordings: true });
+  await post("token", { name: "Host", role: "host" });
+  const live = await json<PublicStudio>(await post("live", { live: true }));
+  const { track } = await json<{ track: IsoTrack }>(
+    await post("iso", { kind: "camera", mimeType: "video/webm", sessionId: live.isoSessionId, startedAt: Date.now() }),
+  );
+  const put = (body: string) =>
+    app.request(
+      `https://casthop.test/api/studios/${id}/iso/${track.id}/chunks/0`,
+      { method: "PUT", headers: { "Content-Type": "application/octet-stream", Cookie: cookie }, body: new TextEncoder().encode(body) },
+      env,
+    );
+  // The first put never settles, as if its request was evicted after reserving.
+  env._r2.holdNextPut = new Promise<void>(() => {});
+  void put("A");
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal((await put("BB")).status, 429, "still reserved inside the TTL");
+
+  const realNow = Date.now;
+  Date.now = () => realNow() + ISO_RESERVATION_TTL_MS + 1;
+  try {
+    assert.equal((await put("BB")).status, 200, "a stale reservation is taken over");
+  } finally {
+    Date.now = realNow;
+  }
 });
 
 test("withTimeout rejects a stalled put and passes a fast one", async () => {

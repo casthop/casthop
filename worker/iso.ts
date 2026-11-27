@@ -11,6 +11,9 @@ export const ISO_CHUNK_MAX = 180;
 /** Hard cap on one chunk's R2 put. The reservation is aborted when it fires. */
 export const ISO_PUT_TIMEOUT_MS = 15_000;
 
+/** A reservation older than this is taken over; well past the put timeout, for a request that died. */
+export const ISO_RESERVATION_TTL_MS = 60_000;
+
 /** Rejects if `work` takes longer than `ms`; the caller then aborts its reservation. */
 export async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;

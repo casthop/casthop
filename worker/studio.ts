@@ -3,6 +3,7 @@ import { PlatformHub, platformsConfigured, type PlatformMessage } from "./chat-p
 import { defaultDestinations, destAspectOf, MAX_ON_STAGE, type Env, type IsoTrack, type LayoutId, type StudioState } from "./types";
 import {
   ISO_CHUNK_MAX_BYTES,
+  ISO_RESERVATION_TTL_MS,
   isoChunkFits,
   deleteIsoTrackObjects,
   isoKindOk,
@@ -396,7 +397,7 @@ export class StudioDurableObject {
         await this.putState(state);
         return json({ track });
       }
-      if (held && held.index === index) {
+      if (held && held.index === index && Date.now() - held.at < ISO_RESERVATION_TTL_MS) {
         return json({ error: "chunk in flight" }, 429);
       }
       track.pending = { index, bytes, nonce: randomId(16), at: Date.now() };

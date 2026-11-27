@@ -922,10 +922,14 @@ app.put("/api/studios/:id/iso/:trackId/chunks/:index", async (c) => {
   const check = await doAction(c.env, id, "iso-chunk", chunk);
   if (!check.ok) return new Response(check.body, { status: check.status, headers: check.headers });
   const { nonce } = (await check.json()) as { nonce?: string };
+  let put: Promise<unknown> | undefined;
   try {
     const store = await storeFor(c.env, id);
-    await withTimeout(store.RECORDINGS.put(isoChunkKey(id, trackId, index), buf), ISO_PUT_TIMEOUT_MS);
+    put = store.RECORDINGS.put(isoChunkKey(id, trackId, index), buf);
+    await withTimeout(put, ISO_PUT_TIMEOUT_MS);
   } catch {
+    // The put is not cancelled. Hold the reservation until it settles so a retry is not overwritten.
+    await put?.catch(() => undefined);
     await doAction(c.env, id, "iso-chunk", { ...chunk, nonce, abort: true });
     return c.json({ error: "upload failed" }, 502);
   }

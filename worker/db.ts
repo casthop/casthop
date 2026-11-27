@@ -133,6 +133,7 @@ export const Q = {
   deleteInvite: "DELETE FROM studio_invites WHERE studio_id = ? AND email = ?",
   bumpRate:
     "INSERT INTO rate_limits (key, count, window_start) VALUES (?, 1, ?) ON CONFLICT(key) DO UPDATE SET count = CASE WHEN ? - window_start > ? THEN 1 ELSE count + 1 END, window_start = CASE WHEN ? - window_start > ? THEN ? ELSE window_start END RETURNING count",
+  refundRate: "UPDATE rate_limits SET count = MAX(0, count - 1) WHERE key = ?",
   insertReplay:
     "INSERT INTO replays (id, studio_id, title, visibility, duration_ms, created_at, bytes, files) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
   replayById: "SELECT id, studio_id, title, visibility, duration_ms, created_at, bytes, files FROM replays WHERE id = ?",
@@ -450,6 +451,10 @@ export async function deleteInvite(db: D1Database, studioId: string, email: stri
 export async function allowRate(db: D1Database, key: string, max: number, windowMs: number, now = Date.now()): Promise<boolean> {
   const row = await first<{ count: number }>(db, Q.bumpRate, key, now, now, windowMs, now, windowMs, now);
   return (row?.count ?? 0) <= max;
+}
+
+export async function refundRate(db: D1Database, key: string): Promise<void> {
+  await run(db, Q.refundRate, key);
 }
 
 export async function insertReplay(db: D1Database, row: ReplayRecord): Promise<void> {

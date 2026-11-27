@@ -22,6 +22,9 @@ export const ABSENT_GUEST_GRACE_MS = 60_000;
 export const SIGNIN_WINDOW_MS = 15 * 60 * 1000;
 export const SIGNIN_IP_MAX = 5;
 export const SIGNIN_EMAIL_MAX = 3;
+/** Co-host invites per inviting account, and per recipient across all studios, per SIGNIN_WINDOW_MS. */
+export const INVITE_ACCOUNT_MAX = 10;
+export const INVITE_EMAIL_MAX = 2;
 export const CHAT_WINDOW_MS = 10_000;
 export const CHAT_MAX = 8;
 export const SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;

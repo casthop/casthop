@@ -366,7 +366,7 @@ test("host can enable ISO, each person uploads chunks, host downloads concat", a
     },
     env,
   );
-  assert.equal(skip.status, 400);
+  assert.equal(skip.status, 409);
 
   env._r2.failNextPut = true;
   const lostPut = await app.request(
@@ -382,7 +382,16 @@ test("host can enable ISO, each person uploads chunks, host downloads concat", a
 
   await putChunk(env, id, hostTrack.track.id, 0, "AAAA", cookie);
   await putChunk(env, id, hostTrack.track.id, 1, "BBBB", cookie);
-  await putChunk(env, id, hostTrack.track.id, 1, "BBBB", cookie);
+  const rewrite = await app.request(
+    `https://casthop.test/api/studios/${id}/iso/${hostTrack.track.id}/chunks/1`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/octet-stream", Cookie: cookie },
+      body: new TextEncoder().encode("BBBB"),
+    },
+    env,
+  );
+  assert.equal(rewrite.status, 409);
 
   const stealLate = await app.request(
     `https://casthop.test/api/studios/${id}/iso/${hostTrack.track.id}/chunks/2`,

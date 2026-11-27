@@ -125,6 +125,13 @@ class ChunkUploader {
         this.index += 1;
         this.fail = 0;
       } catch (err) {
+        // A retry hitting 409 means the earlier put landed and was counted.
+        if (this.fail > 0 && err instanceof IsoHttpError && err.status === 409 && err.message === "chunk out of order") {
+          this.queue.shift();
+          this.index += 1;
+          this.fail = 0;
+          continue;
+        }
         this.fail += 1;
         if (!isoUploadRetryable(err) || this.fail >= ISO_UPLOAD_MAX_FAILS) {
           this.queue.length = 0;

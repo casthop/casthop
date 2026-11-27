@@ -350,13 +350,13 @@ export class StudioDurableObject {
       const track = (state.isoTracks ?? []).find((row) => row.id === trackId);
       if (!track || track.identity !== person.identity) return json({ error: "track not found" }, 404);
       if (track.complete) return json({ error: "track complete" }, 409);
-      if (index > track.chunks) return json({ error: "chunk required" }, 400);
-      const isNew = index === track.chunks;
-      if (isNew && !isoChunkFits(state.isoTracks ?? [], track, bytes)) {
+      // Only the next index: rewriting an earlier chunk would dodge the byte caps.
+      if (index !== track.chunks) return json({ error: "chunk out of order" }, 409);
+      if (!isoChunkFits(state.isoTracks ?? [], track, bytes)) {
         return json({ error: "recording too large" }, 413);
       }
       // Without commit this only validates; the Worker commits after the R2 put succeeds.
-      if (body.commit === true && isNew) {
+      if (body.commit === true) {
         track.bytes += bytes;
         track.chunks = index + 1;
         await this.putState(state);

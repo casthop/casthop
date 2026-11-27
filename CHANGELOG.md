@@ -60,6 +60,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 - Stream keys and full destination URLs are withheld from guests and public GET / WebSocket state.
 - Published LiveKit `devkey` is refused unless LiveKit is loopback.
 - YouTube chat ingest runs only for the studio(s) in the new `YOUTUBE_CHAT_STUDIO_ID`. The YouTube credentials and chat id are deployment-wide, and every account's live studio used to poll them and show that chat. If you use YouTube chat, set this to your studio id.
+- Local development is now the explicit `CASTHOP_DEV=1` (in `.dev.vars.example`), not "the LiveKit key is the published one". It turns on the terminal sign-in links and is refused unless LiveKit and `PUBLIC_ORIGIN` are on loopback. **Existing local setups:** add `CASTHOP_DEV=1` to `.dev.vars`, or sign-in mail fails with "no mail sender configured".
 - The local MediaMTX HLS (:8888) and playback (:9996) servers allow no browser origin. MediaMTX allows every origin by default, so any page open in the developer's browser could read the live program and the recordings.
 - CI rebuilds the committed `.wasm` files from the Rust source in `rust:1.100.0` and fails if the bytes differ, so the binaries every participant's browser runs match the reviewed source.
 - The app encodes studio, replay, clip, track and account ids in API paths, and refuses `.` and `..` ids. A crafted link (for example an egress template token whose room is `../auth/logout?x=`) could make the page call other API routes with the visitor's cookie.

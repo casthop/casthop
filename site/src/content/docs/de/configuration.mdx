@@ -55,6 +55,7 @@ Neue Studios übernehmen diese nur, wenn sie auf `127.0.0.1` zeigen. Trag hier k
 | `PUBLIC_ORIGIN` | Die öffentliche Adresse deiner Seite, genutzt in Anmelde-E-Mails, Co-Host-Einladungen und dem GitHub-Callback. | Auf einem echten Server immer, zum Beispiel `https://studio.example.com`. Ohne sie scheitert die Anmeldung außerhalb von `127.0.0.1`. | nicht gesetzt |
 | `HOST_KEY_SECRET` | Eigenes Geheimnis für Host-Keys in der App. Fällt auf `LIVEKIT_API_SECRET` zurück. | Auf einem echten Server immer, damit ein späterer Wechsel der LiveKit-Schlüssel keine Studios aussperrt. | nicht gesetzt |
 | `CASTHOP_TRUST_FORWARDED` | `1` vertraut der Client-Adresse aus `X-Forwarded-For` und `CF-Connecting-IP`. Anmeldung und Gäste-Limits nutzen diese Adresse. | Nur hinter deinem eigenen Reverse-Proxy (nginx, Caddy). Auf Cloudflare nicht nötig. Nie für `bun run dev`. | nicht gesetzt |
+| `CASTHOP_DEV` | `1` bedeutet lokale Entwicklung: Anmeldelinks erscheinen im Terminal statt per Mail. Wird abgelehnt, wenn LiveKit und `PUBLIC_ORIGIN` nicht auf `127.0.0.1` laufen. | In `.dev.vars.example` gesetzt. Nie auf einem deployten Worker. | `1` lokal |
 | `CASTHOP_DEV_LOGIN` | `1` liefert den Anmeldelink in der Browser-Antwort, nicht nur im Terminal. Funktioniert nur auf `127.0.0.1`. | Für E2E-Tests, `bun run measure` und `/internal/probe`. Nie auf einem Server. | nicht gesetzt |
 | `CASTHOP_ALLOW_DEV_KEYS` | `1` erlaubt die öffentlichen Testschlüssel mit einem LiveKit, das nicht auf `127.0.0.1` läuft. | Nur für Tests. | nicht gesetzt |
 

@@ -51,6 +51,7 @@ function makeEnv(overrides: Partial<Env> = {}): TestEnv {
     PUBLIC_LIVEKIT_URL: "ws://127.0.0.1:7880",
     EGRESS_TEMPLATE_URL: "http://127.0.0.1:5173/egress-template",
     CASTHOP_ALLOW_DEV_KEYS: "1",
+    CASTHOP_DEV: "1",
     CASTHOP_TRUST_FORWARDED: "1",
     PUBLIC_ORIGIN: ORIGIN,
     ASSETS: { fetch: async () => new Response("ok") },

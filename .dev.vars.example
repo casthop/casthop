@@ -1,6 +1,9 @@
 # Worker secrets and vars for wrangler / bun run dev. Copy to .dev.vars (gitignored).
 # These local values are documented defaults, not production secrets.
 
+# Local development: sign-in mail is printed in the Worker log instead of sent.
+# The Worker refuses this unless LiveKit and PUBLIC_ORIGIN are loopback. Never deploy it.
+CASTHOP_DEV=1
 # LiveKit API key. Published local default; loopback-only.
 LIVEKIT_API_KEY=devkey
 # LiveKit API secret. Keep in Worker secrets. Never send to the browser.

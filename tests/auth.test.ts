@@ -4,7 +4,7 @@ import { app, StudioDurableObject } from "../worker/index.ts";
 import { GUEST_TOKEN_TTL_SEC, HOST_TOKEN_TTL_SEC } from "../worker/livekit.ts";
 import { DEV_API_KEY, DEV_API_SECRET, GUEST_MINT_PER_SOURCE, HOST_IDENTITY, SESSION_COOKIE } from "../worker/security.ts";
 import type { Env, PublicClip, PublicReplay, PublicStudio, StudioRecord } from "../worker/types.ts";
-import { DEFAULT_MAX_STUDIOS, insertClip, maxStudiosPerAccount } from "../worker/db.ts";
+import { DEFAULT_MAX_STUDIOS, insertClip, maxStudiosPerAccount, ownedStudioCount } from "../worker/db.ts";
 import { clipObjectKey } from "../worker/clips.ts";
 import { HLS_INDEX } from "../worker/replays.ts";
 import { FakeD1 } from "./fake-d1.ts";
@@ -1101,6 +1101,34 @@ test("one account can own only a bounded number of studios", async () => {
   assert.equal(maxStudiosPerAccount(undefined), DEFAULT_MAX_STUDIOS);
   assert.equal(maxStudiosPerAccount("0"), DEFAULT_MAX_STUDIOS);
   assert.equal(maxStudiosPerAccount("50"), 50);
+});
+
+test("parallel studio creates cannot pass the per-account cap", async () => {
+  const env = makeEnv({ CASTHOP_MAX_STUDIOS: "3" });
+  const cookie = await signIn(env, "parallel-studios@example.com");
+  const responses = await Promise.all(
+    Array.from({ length: 8 }, (_, i) =>
+      app.request(
+        "https://casthop.test/api/studios",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Cookie: cookie },
+          body: JSON.stringify({ title: `Parallel ${i}` }),
+        },
+        env,
+      ),
+    ),
+  );
+  const ok = responses.filter((r) => r.status === 200);
+  const limited = responses.filter((r) => r.status === 429);
+  assert.equal(ok.length, 3);
+  assert.equal(limited.length, 5);
+  for (const res of limited) {
+    assert.equal((await json<{ error: string }>(res)).error, "studio limit reached");
+  }
+  const accountId = String(env._db.rows("accounts")[0]?.id);
+  assert.equal(await ownedStudioCount(env.DB, accountId), 3);
+  assert.equal(env._db.rows("studios").length, 3);
 });
 
 test("H2: default LiveKit keys are refused off loopback", async () => {

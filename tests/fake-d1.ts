@@ -225,6 +225,13 @@ export class FakeD1 implements D1Database {
       this.rows("studio_members").push({ studio_id, account_id, role, created_at });
       return { results: [], changes: 1 };
     }
+    if (q === norm(Q.insertOwnerIfUnderCap)) {
+      const [studio_id, account_id, created_at, countAccountId, max] = binds;
+      const n = this.rows("studio_members").filter((r) => r.account_id === countAccountId && r.role === "owner").length;
+      if (n >= Number(max)) return { results: [], changes: 0 };
+      this.rows("studio_members").push({ studio_id, account_id, role: "owner", created_at });
+      return { results: [], changes: 1 };
+    }
     if (q === norm(Q.memberByStudioAccount)) {
       return {
         results: this.rows("studio_members")

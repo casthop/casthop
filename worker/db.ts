@@ -123,6 +123,9 @@ export const Q = {
   listStudios: `SELECT s.id, s.title, s.owner_id, s.created_at, m.role FROM studios s INNER JOIN studio_members m ON m.studio_id = s.id WHERE m.account_id = ? ORDER BY s.created_at DESC LIMIT ${LIST_STUDIOS_MAX}`,
   countOwnedStudios: "SELECT COUNT(*) AS n FROM studio_members WHERE account_id = ? AND role = 'owner'",
   insertMember: "INSERT INTO studio_members (studio_id, account_id, role, created_at) VALUES (?, ?, ?, ?)",
+  // One statement so parallel POSTs cannot all pass the owner cap.
+  insertOwnerIfUnderCap:
+    "INSERT INTO studio_members (studio_id, account_id, role, created_at) SELECT ?, ?, 'owner', ? WHERE (SELECT COUNT(*) FROM studio_members WHERE account_id = ? AND role = 'owner') < ?",
   memberByStudioAccount: "SELECT studio_id, account_id, role, created_at FROM studio_members WHERE studio_id = ? AND account_id = ?",
   membersByStudio:
     "SELECT m.account_id, m.role, a.email, a.name FROM studio_members m INNER JOIN accounts a ON a.id = m.account_id WHERE m.studio_id = ?",
@@ -421,6 +424,18 @@ export async function listStudiosFor(db: D1Database, accountId: string): Promise
 
 export async function insertMember(db: D1Database, studioId: string, accountId: string, role: MemberRole, createdAt: number): Promise<void> {
   await run(db, Q.insertMember, studioId, accountId, role, createdAt);
+}
+
+/** Owner row only when this account is still under the cap. False when no row was added. */
+export async function insertOwnerIfUnderCap(
+  db: D1Database,
+  studioId: string,
+  accountId: string,
+  createdAt: number,
+  maxStudios: number,
+): Promise<boolean> {
+  const res = await db.prepare(Q.insertOwnerIfUnderCap).bind(studioId, accountId, createdAt, accountId, maxStudios).run();
+  return (res.meta.changes ?? 0) > 0;
 }
 
 export async function memberFor(db: D1Database, studioId: string, accountId: string): Promise<{ role: MemberRole } | null> {

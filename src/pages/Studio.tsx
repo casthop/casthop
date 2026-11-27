@@ -107,6 +107,8 @@ function destGlyph(kind: string): string {
 
 function pinWho(pin: { name: string; source: string }): string {
   if (pin.source === "youtube") return `${pin.name} · YouTube`;
+  if (pin.source === "twitch") return `${pin.name} · Twitch`;
+  if (pin.source === "kick") return `${pin.name} · Kick`;
   if (pin.source === "linkedin") return `${pin.name} · LinkedIn`;
   if (pin.source === "x") return `${pin.name} · X`;
   return pin.name;
@@ -1940,6 +1942,8 @@ function panelTitle(panel: PanelId, t: Translate): string {
 function chatSourceLabel(source: string): string {
   if (source === "studio") return "IN";
   if (source === "youtube") return "YT";
+  if (source === "twitch") return "TW";
+  if (source === "kick") return "KI";
   if (source === "linkedin") return "in";
   if (source === "x") return "X";
   return source.slice(0, 2).toUpperCase();

@@ -1,4 +1,5 @@
 import { DEST_CHAT_BACKOFF_MS, destChatProviders, type YoutubeTokenCache } from "./chat-ingest";
+import { PlatformHub, platformsConfigured, type PlatformMessage } from "./chat-platforms";
 import { defaultDestinations, destAspectOf, MAX_ON_STAGE, type Env, type IsoTrack, type LayoutId, type StudioState } from "./types";
 import {
   ISO_CHUNK_MAX_BYTES,
@@ -108,6 +109,7 @@ export class StudioDurableObject {
   private chatHits = new Map<string, { n: number; t: number }>();
   private mintHits = { n: 0, t: 0 };
   private youtubeToken: YoutubeTokenCache | null = null;
+  private platformHub: PlatformHub | null = null;
   private writeChain: Promise<void> = Promise.resolve();
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -803,6 +805,7 @@ export class StudioDurableObject {
     latest.portraitHeartbeatAt = null;
     this.clearPortraitRecovery(latest);
     latest.destChat = undefined;
+    this.platformHub?.close();
     setDestStatuses(latest.destinations, reason === "stopped" ? "stopped" : "idle", null);
     if (reason === "stopped") {
       for (const d of latest.destinations) {
@@ -836,7 +839,35 @@ export class StudioDurableObject {
   private async watchAndChat(state: StudioState): Promise<void> {
     await this.watch(state);
     const latest = await this.getState();
-    if (latest) await this.pollDestChat(latest);
+    if (!latest) return;
+    await this.pollDestChat(latest);
+    await this.tickPlatforms(latest.wantLive);
+  }
+
+  // Twitch and Kick hold sockets. Each reconnects on its own backoff; the alarm only revives due ones.
+  private async tickPlatforms(wantLive: boolean): Promise<void> {
+    const configured = platformsConfigured(this.env);
+    if (!configured.twitch && !configured.kick) return;
+    if (!wantLive) {
+      this.platformHub?.close();
+      return;
+    }
+    this.platformHub ??= new PlatformHub(this.env, (msgs) => void this.addPlatformMessages(msgs));
+    const retryAt = await this.platformHub.tick(Date.now());
+    if (retryAt !== null) await this.scheduleWatch(retryAt);
+  }
+
+  // Socket frames take the same write lock as every other chat write (#65).
+  private addPlatformMessages(msgs: PlatformMessage[]): Promise<void> {
+    return this.serialize(async () => {
+      const state = await this.getState();
+      if (!state?.wantLive) return;
+      const seen = new Set(state.chat.map((m) => m.id));
+      const fresh = msgs.filter((m) => !seen.has(m.id));
+      if (!fresh.length) return;
+      state.chat = [...state.chat, ...fresh].slice(-100);
+      await this.putState(state);
+    }).catch((err) => console.warn("platform chat write", err));
   }
 
   private async pollDestChat(state: StudioState): Promise<void> {

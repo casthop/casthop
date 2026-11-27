@@ -35,8 +35,6 @@ import {
   accountByGithub,
   accountById,
   allowRate,
-  countRate,
-  rateHasRoom,
   consumeMagic,
   deleteOauth,
   deleteSession,
@@ -48,6 +46,7 @@ import {
   magicByHash,
   memberFor,
   oauthByState,
+  refundRate,
   rotateSession,
   sessionByTokenHash,
   updateAccountGithub,
@@ -199,25 +198,29 @@ export async function issueMagicLink(c: AppCtx, email: string): Promise<{ ok: tr
   if (!(await allowRate(c.env.DB, `signin:email:${email}:${client}`, SIGNIN_EMAIL_MAX, SIGNIN_WINDOW_MS))) {
     return { ok: true };
   }
-  // Only sent mail counts toward the inbox cap, so throttled requests cannot lock a user out.
-  if (!(await rateHasRoom(c.env.DB, `signin:to:${email}`, SIGNIN_TO_MAX, SIGNIN_WINDOW_MS))) {
+  // Take the inbox slot before send so parallel clients cannot race past the cap.
+  if (!(await allowRate(c.env.DB, `signin:to:${email}`, SIGNIN_TO_MAX, SIGNIN_WINDOW_MS))) {
     return { ok: true };
   }
-  const token = randomId(32);
-  const tokenHash = await sha256hex(token);
-  const now = Date.now();
-  await insertMagic(c.env.DB, tokenHash, email, now + MAGIC_TTL_MS, now);
-  const origin = publicOrigin(c.env, c.req.url);
-  if (!origin) throw Object.assign(new Error("PUBLIC_ORIGIN required"), { status: 503 });
-  const loginPath = `/api/auth/callback?token=${encodeURIComponent(token)}`;
-  const loginUrl = `${origin}${loginPath}`;
-  await mailerFor(c.env).send({
-    to: email,
-    subject: "Sign in to Casthop",
-    text: `Open this link and click Sign in. It expires in 15 minutes.\n\n${loginUrl}\n`,
-  });
-  await countRate(c.env.DB, `signin:to:${email}`, SIGNIN_WINDOW_MS);
-  return showDevLogin(c, ip) ? { ok: true, devLogin: loginPath } : { ok: true };
+  try {
+    const token = randomId(32);
+    const tokenHash = await sha256hex(token);
+    const now = Date.now();
+    await insertMagic(c.env.DB, tokenHash, email, now + MAGIC_TTL_MS, now);
+    const origin = publicOrigin(c.env, c.req.url);
+    if (!origin) throw Object.assign(new Error("PUBLIC_ORIGIN required"), { status: 503 });
+    const loginPath = `/api/auth/callback?token=${encodeURIComponent(token)}`;
+    const loginUrl = `${origin}${loginPath}`;
+    await mailerFor(c.env).send({
+      to: email,
+      subject: "Sign in to Casthop",
+      text: `Open this link and click Sign in. It expires in 15 minutes.\n\n${loginUrl}\n`,
+    });
+    return showDevLogin(c, ip) ? { ok: true, devLogin: loginPath } : { ok: true };
+  } catch (err) {
+    await refundRate(c.env.DB, `signin:to:${email}`, SIGNIN_WINDOW_MS);
+    throw err;
+  }
 }
 
 export async function magicLinkPending(c: AppCtx, token: string): Promise<boolean> {

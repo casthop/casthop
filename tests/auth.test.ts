@@ -1472,6 +1472,36 @@ test("sign-in mail limits treat one IPv6 /64 as one client and cap each inbox ov
   }
 });
 
+test("parallel sign-in from different networks cannot blow past the inbox cap", async () => {
+  const env = makeEnv();
+  const logs: string[] = [];
+  const origLog = console.log;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map(String).join(" "));
+  };
+  try {
+    const results = await Promise.all(
+      Array.from({ length: SIGNIN_TO_MAX + 10 }, (_, i) =>
+        app.request(
+          "https://casthop.test/api/auth/magic-link",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "cf-connecting-ip": `2001:db8:ff:${i + 1}::1` },
+            body: JSON.stringify({ email: "burst@example.com" }),
+          },
+          env,
+        ),
+      ),
+    );
+    assert.ok(results.every((r) => r.status === 200));
+  } finally {
+    console.log = origLog;
+  }
+  const sent = logs.filter((line) => line.includes("casthop mail") && line.includes("burst@example.com"));
+  assert.equal(sent.length, SIGNIN_TO_MAX);
+  assert.equal(env._db.rows("magic_links").filter((r) => r.email === "burst@example.com").length, SIGNIN_TO_MAX);
+});
+
 test("parallel sign-in rate limit does not 500", async () => {
   const env = makeEnv();
   const results = await Promise.all(
@@ -1880,6 +1910,8 @@ test("failed mail webhook returns an error instead of pretending the link was se
   assert.equal(res.status, 502);
   const body = await json<{ error: string }>(res);
   assert.match(body.error, /could not send/);
+  const row = env._db.rows("rate_limits").find((r) => r.key === "signin:to:hook@example.com");
+  assert.equal(row?.count ?? 0, 0, "failed send gives the inbox slot back");
 });
 
 test("co-host invite answers the same for any email and adds nobody until they accept", async () => {

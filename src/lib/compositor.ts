@@ -13,15 +13,18 @@ let cachedWasm: { key: string; comp: WasmCompositor } | null = null;
 let wgpuMod: typeof import("./gpu-compositor") | undefined;
 let wgpuTsMod: typeof import("./webgpu-ts") | undefined;
 export type ComposePin = { name: string; text: string };
+export type ComposeCaption = { name: string; text: string };
 
 let bannerTitle = "";
 let bannerSubtitle = "";
 let pinned: ComposePin | null = null;
+let captioned: ComposeCaption | null = null;
 let scratch: DrawCanvas | null = null;
 
 function overlayFn(ctx: DrawContext, width: number, height: number, portrait: boolean): void {
   drawBanner2d(ctx, bannerTitle, bannerSubtitle, width, height, portrait);
   if (pinned) drawPin2d(ctx, pinned, width, height, portrait);
+  if (captioned) drawCaption2d(ctx, captioned, width, height, portrait, pinned !== null);
 }
 
 function wasmCompositorFor(api: Awaited<ReturnType<typeof loadWasm>>, width: number, height: number): WasmCompositor {
@@ -62,6 +65,7 @@ export async function composeFrame(opts: {
   title: string;
   subtitle: string;
   pin?: ComposePin | null;
+  caption?: ComposeCaption | null;
   canvas: DrawCanvas;
   width?: number;
   height?: number;
@@ -75,6 +79,7 @@ export async function composeFrame(opts: {
   bannerTitle = title;
   bannerSubtitle = subtitle;
   pinned = opts.pin ?? null;
+  captioned = opts.caption ?? null;
   const overlay = (ctx: DrawContext) => overlayFn(ctx, width, height, portrait);
 
   if (opts.backend === "webgpu") {
@@ -160,6 +165,7 @@ export async function composeFrame(opts: {
   if (ctx) {
     ctx.putImageData(comp.imageData(), 0, 0);
     if (pinned) drawPin2d(ctx, pinned, width, height, portrait);
+    if (captioned) drawCaption2d(ctx, captioned, width, height, portrait, pinned !== null);
   }
   return { backend: "wasm-cpu", ms: performance.now() - t0 };
 }
@@ -260,6 +266,62 @@ function drawPin2d(ctx: DrawContext, pin: ComposePin, width: number, height: num
   ctx.font = `500 ${textPx}px 'Public Sans', sans-serif`;
   ctx.fillText(pin.text, x + 18, y + h * 0.72);
   ctx.restore();
+}
+
+let wrapped: { key: string; lines: string[] } = { key: "", lines: [] };
+
+// Wrapping only reruns when the text or width changes, not every frame.
+function captionLines(ctx: DrawContext, text: string, maxWidth: number, px: number): string[] {
+  const key = `${px}|${maxWidth}|${text}`;
+  if (wrapped.key === key) return wrapped.lines;
+  const lines: string[] = [];
+  let line = "";
+  for (const word of text.split(" ")) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && ctx.measureText(next).width > maxWidth) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = next;
+    }
+  }
+  if (line) lines.push(line);
+  // Keep the newest two lines of a long segment.
+  wrapped = { key, lines: lines.slice(-2) };
+  return wrapped.lines;
+}
+
+function drawCaption2d(
+  ctx: DrawContext,
+  caption: ComposeCaption,
+  width: number,
+  height: number,
+  portrait: boolean,
+  hasPin: boolean,
+): void {
+  const short = Math.min(width, height);
+  const px = Math.round(short * (portrait ? 0.034 : 0.04));
+  const lineH = Math.round(px * 1.3);
+  const pad = Math.round(px * 0.5);
+  const bannerH = Math.round(short * 0.11);
+  const bannerY = portrait ? height - bannerH - Math.round(short * 0.03) : height - bannerH - Math.round(short / 28);
+  const pinH = hasPin ? Math.round(short * 0.089) + 12 : 0;
+  ctx.font = `600 ${px}px 'Public Sans', sans-serif`;
+  const maxWidth = Math.round(width * (portrait ? 0.86 : 0.7));
+  const lines = captionLines(ctx, caption.text, maxWidth, px);
+  const boxW = Math.min(maxWidth, Math.max(...lines.map((l) => ctx.measureText(l).width))) + pad * 2;
+  const boxH = lines.length * lineH + pad;
+  const x = Math.round((width - boxW) / 2);
+  const y = bannerY - pinH - 16 - boxH;
+  ctx.fillStyle = "rgba(10,10,10,0.78)";
+  ctx.beginPath();
+  ctx.roundRect(x, y, boxW, boxH, 8);
+  ctx.fill();
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  lines.forEach((l, i) => ctx.fillText(l, width / 2, y + pad / 2 + lineH * (i + 0.5)));
+  ctx.textAlign = "start";
 }
 
 function fillBg(data: Uint8ClampedArray, w: number, h: number, r: number, g: number, b: number): void {

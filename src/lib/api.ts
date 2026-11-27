@@ -154,6 +154,29 @@ export function setSeparateRecordings(id: string, separateRecordings: boolean) {
   });
 }
 
+export function setCaptions(id: string, settings: { on?: boolean; burn?: boolean }) {
+  return api<PublicStudio>(`/api/studios/${id}/captions`, {
+    method: "POST",
+    body: JSON.stringify(settings),
+  });
+}
+
+export function captionsDownloadPath(studioId: string): string {
+  return `/api/studios/${studioId}/recordings/captions.vtt`;
+}
+
+/** Words only. The audio never leaves this browser. */
+export function sendCaption(
+  id: string,
+  auth: { identity: string; guestSecret?: string },
+  line: { text: string; durationMs: number; ageMs: number },
+) {
+  return api<{ ok: boolean; accepted: boolean }>(`/api/studios/${id}/captions/text`, {
+    method: "POST",
+    body: JSON.stringify({ ...line, identity: auth.identity, guestSecret: auth.guestSecret }),
+  });
+}
+
 export function listRecordings(id: string) {
   return api<RecordingList>(`/api/studios/${id}/recordings`);
 }

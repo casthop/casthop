@@ -601,6 +601,29 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
       expect: { owner: 404, cohost: 404, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
     },
     {
+      name: "POST captions settings",
+      path: `/api/studios/${id}/captions`,
+      init: { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ on: true, burn: false }) },
+      expect: { owner: 200, cohost: 200, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
+    },
+    {
+      name: "POST caption text",
+      path: `/api/studios/${id}/captions/text`,
+      init: {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identity: guestMint.identity, guestSecret: guestMint.guestSecret, text: "hello" }),
+      },
+      // The body carries a valid on-stage guest secret, so every caller is that guest. Expired is another studio.
+      expect: { owner: 200, cohost: 200, guest: 200, signedOut: 200, expired: 403, outsider: 200 },
+    },
+    {
+      name: "GET captions vtt",
+      path: `/api/studios/${id}/recordings/captions.vtt`,
+      init: {},
+      expect: { owner: 404, cohost: 404, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
+    },
+    {
       name: "POST egress-beat",
       path: `/api/studios/${id}/egress-beat`,
       init: { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },

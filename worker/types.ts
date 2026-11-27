@@ -65,6 +65,17 @@ export type PinnedChat = {
   source: ChatMessage["source"];
 };
 
+/** Live captions are off until the host turns them on. `burn` draws them on the program. */
+export type CaptionSettings = { on: boolean; burn: boolean };
+
+/** One transcribed segment. Times are epoch ms on the Worker clock. */
+export type CaptionCue = { from: string; name: string; text: string; start: number; end: number };
+
+/** Latest line, for the program overlay. */
+export type CaptionLine = { name: string; text: string; at: number };
+
+export type CaptionFile = { filename: string; cues: number };
+
 export type DestChatState = {
   liveChatId?: string;
   pageToken?: string;
@@ -90,6 +101,7 @@ export type IsoTrack = {
 
 export type RecordingList = {
   mixed: { filename: string; startedAt: number | null } | null;
+  captions: CaptionFile | null;
   tracks: IsoTrack[];
 };
 
@@ -137,6 +149,13 @@ export type StudioState = {
   kickedIdentities?: string[];
   chat: ChatMessage[];
   pinnedChat?: PinnedChat | null;
+  captions: CaptionSettings;
+  captionLine?: CaptionLine | null;
+  /** Epoch ms of 00:00 in the VTT. Set by the first caption write of a live. */
+  captionBase?: number | null;
+  /** Caption storage chunks written this live, and the cues in them. */
+  captionChunks?: number;
+  captionCues?: number;
   /** Internal YouTube poll cursor. Not public. */
   destChat?: { youtube?: DestChatState };
   createdAt: number;
@@ -264,6 +283,9 @@ export type PublicStudio = Omit<
   | "egressRecoveringSince"
   | "destChat"
   | "isoTracks"
+  | "captionBase"
+  | "captionChunks"
+  | "captionCues"
   | "portraitEgressId"
   | "portraitHeartbeatAt"
   | "portraitRetryCount"

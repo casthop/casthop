@@ -1,6 +1,21 @@
 import { DEST_CHAT_BACKOFF_MS, destChatProviders, type YoutubeTokenCache } from "./chat-ingest";
+import {
+  CAPTION_CHUNKS_MAX,
+  CAPTION_FLUSH_MS,
+  CAPTION_RATE_MAX,
+  CAPTION_SPAN_MAX_MS,
+  CAPTION_VTT_FILE,
+  CAPTION_WINDOW_MS,
+  CaptionBuffer,
+  captionStorageKey,
+  chunkCues,
+  cleanCaptionText,
+  defaultCaptions,
+  parseCaptionSettings,
+  writeVtt,
+} from "./captions";
 import { PlatformHub, platformsConfigured, type PlatformMessage } from "./chat-platforms";
-import { defaultDestinations, destAspectOf, MAX_ON_STAGE, type Env, type IsoTrack, type LayoutId, type StudioState } from "./types";
+import { defaultDestinations, destAspectOf, MAX_ON_STAGE, type CaptionCue, type Env, type IsoTrack, type LayoutId, type StudioState } from "./types";
 import {
   ISO_CHUNK_MAX_BYTES,
   isoChunkFits,
@@ -101,6 +116,9 @@ const UNLOCKED_ACTIONS = new Set([
   "host-snapshot",
   "iso-list",
   "iso-get",
+  // Caption intake only buffers; the flush takes the lock.
+  "caption",
+  "captions-get",
 ]);
 
 export class StudioDurableObject {
@@ -115,6 +133,9 @@ export class StudioDurableObject {
   private writeChain: Promise<void> = Promise.resolve();
   private platformBuffer: PlatformMessage[] = [];
   private platformFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private captionBuffer = new CaptionBuffer();
+  private captionFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private captionHits = new Map<string, { n: number; t: number }>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     this.ctx = ctx;
@@ -164,6 +185,7 @@ export class StudioDurableObject {
         participants: [],
         chat: [],
         pinnedChat: null,
+        captions: defaultCaptions(),
         createdAt: now,
       };
       await this.putState(state);
@@ -424,6 +446,7 @@ export class StudioDurableObject {
         mixed: state.recordingPath
           ? { filename: mixedFilename(state.recordingPath), startedAt: state.liveStartedAt }
           : null,
+        captions: state.captionCues ? { filename: CAPTION_VTT_FILE, cues: state.captionCues } : null,
         tracks: [...(state.isoTracks ?? [])],
       });
     }
@@ -519,6 +542,26 @@ export class StudioDurableObject {
       return json(publicState(state, { includeUrls: true }));
     }
 
+    if (action === "captions-pref") {
+      if (!isHost) return json({ error: "host key required" }, 403);
+      const next = parseCaptionSettings(body, state.captions);
+      if (!next) return json({ error: "on and burn must be booleans" }, 400);
+      state.captions = next;
+      if (!next.on) {
+        state.captionLine = null;
+        this.captionBuffer.clear();
+      }
+      await this.putState(state);
+      return json(publicState(state, { includeUrls: true }));
+    }
+
+    if (action === "caption") return this.takeCaption(state, body, isHost);
+
+    if (action === "captions-get") {
+      if (!isHost) return json({ error: "host key required" }, 403);
+      return this.captionFile(state);
+    }
+
     if (action === "chat") {
       const person = await this.chatAuthor(state, body, isHost);
       if (!person) return json({ error: "chat auth required" }, 403);
@@ -543,6 +586,7 @@ export class StudioDurableObject {
 
   async alarm(): Promise<void> {
     await this.flushPlatformMessages();
+    await this.flushCaptions();
     const state = await this.getState();
     if (!state) return;
     await this.watchAndChat(state);
@@ -644,6 +688,7 @@ export class StudioDurableObject {
     }
     state.liveStartingAt = Date.now();
     this.beginIsoSession(state);
+    if (!fromWatch) await this.resetCaptions(state);
     await this.putState(state);
 
     let listed: ReturnType<typeof parseEgressList> = [];
@@ -786,7 +831,10 @@ export class StudioDurableObject {
     }
   }
 
-  private async stopLive(state: StudioState, reason: string): Promise<Response> {
+  private async stopLive(stale: StudioState, reason: string): Promise<Response> {
+    // Write the last spoken lines first; the flush re-reads state, so ours must come after.
+    await this.flushCaptions();
+    const state = (await this.getState()) ?? stale;
     state.wantLive = false;
     state.liveStartingAt = undefined;
     state.egressRetryAt = null;
@@ -810,6 +858,7 @@ export class StudioDurableObject {
     latest.portraitHeartbeatAt = null;
     this.clearPortraitRecovery(latest);
     latest.destChat = undefined;
+    latest.captionLine = null;
     this.platformHub?.close();
     this.platformBuffer = [];
     setDestStatuses(latest.destinations, reason === "stopped" ? "stopped" : "idle", null);
@@ -887,6 +936,87 @@ export class StudioDurableObject {
       state.chat = [...state.chat, ...fresh].slice(-100);
       await this.putState(state);
     }).catch((err) => console.warn("platform chat write", err));
+  }
+
+  private async takeCaption(state: StudioState, body: Record<string, unknown>, isHost: boolean): Promise<Response> {
+    const person = await this.chatAuthor(state, body, isHost);
+    if (!person) return json({ error: "caption auth required" }, 403);
+    const me = state.participants.find((p) => p.identity === person.identity);
+    if (!isHost && !me?.onStage) return json({ error: "not on stage" }, 403);
+    if (!state.captions.on || !state.wantLive) return json({ ok: true, accepted: false });
+    if (!allowHit(this.captionHits, person.identity, CAPTION_RATE_MAX, CAPTION_WINDOW_MS)) {
+      return json({ error: "slow down" }, 429);
+    }
+    const text = cleanCaptionText(body.text);
+    if (!text) return json({ ok: true, accepted: false });
+    // The client sends spans, not clock times, so a wrong device clock cannot move a cue.
+    const span = clampMs(body.durationMs, 100, CAPTION_SPAN_MAX_MS);
+    const end = Date.now() - clampMs(body.ageMs, 0, CAPTION_SPAN_MAX_MS);
+    this.bufferCaption({ from: person.identity, name: person.name, text, start: end - span, end });
+    return json({ ok: true, accepted: true });
+  }
+
+  private bufferCaption(cue: CaptionCue): void {
+    this.captionBuffer.add(cue);
+    this.captionFlushTimer ??= setTimeout(() => void this.flushCaptions(), CAPTION_FLUSH_MS);
+  }
+
+  // One write per second at most, through the same lock as every other state write (#65).
+  private flushCaptions(): Promise<void> {
+    if (this.captionFlushTimer) clearTimeout(this.captionFlushTimer);
+    this.captionFlushTimer = null;
+    const cues = this.captionBuffer.take();
+    if (!cues.length) return Promise.resolve();
+    return this.serialize(async () => {
+      const state = await this.getState();
+      if (!state?.captions.on) return;
+      const chunks = chunkCues(cues);
+      let n = state.captionChunks ?? 0;
+      if (n + chunks.length > CAPTION_CHUNKS_MAX) return;
+      const entries: Record<string, CaptionCue[]> = {};
+      for (const chunk of chunks) entries[captionStorageKey(++n)] = chunk;
+      await this.ctx.storage.put(entries);
+      const last = cues[cues.length - 1];
+      state.captionChunks = n;
+      state.captionCues = (state.captionCues ?? 0) + cues.length;
+      state.captionBase ??= state.liveStartedAt ?? Math.min(...cues.map((c) => c.start));
+      if (last) state.captionLine = { name: last.name, text: last.text, at: last.end };
+      await this.putState(state);
+    }).catch((err) => console.warn("caption write", err));
+  }
+
+  private async readCaptions(state: StudioState): Promise<CaptionCue[]> {
+    const keys = Array.from({ length: state.captionChunks ?? 0 }, (_, i) => captionStorageKey(i + 1));
+    const cues: CaptionCue[] = [];
+    // Storage reads take at most 128 keys.
+    for (let i = 0; i < keys.length; i += 128) {
+      const batch = keys.slice(i, i + 128);
+      const rows = await this.ctx.storage.get<CaptionCue[]>(batch);
+      for (const key of batch) cues.push(...(rows.get(key) ?? []));
+    }
+    return cues;
+  }
+
+  private async captionFile(state: StudioState): Promise<Response> {
+    const cues = await this.readCaptions(state);
+    if (!cues.length) return json({ error: "no captions" }, 404);
+    const base = state.captionBase ?? Math.min(...cues.map((c) => c.start));
+    return new Response(writeVtt(cues, base), {
+      headers: {
+        "Content-Type": "text/vtt; charset=utf-8",
+        "Content-Disposition": 'attachment; filename="' + CAPTION_VTT_FILE + '"',
+      },
+    });
+  }
+
+  private async resetCaptions(state: StudioState): Promise<void> {
+    this.captionBuffer.clear();
+    const keys = Array.from({ length: state.captionChunks ?? 0 }, (_, i) => captionStorageKey(i + 1));
+    for (let i = 0; i < keys.length; i += 128) await this.ctx.storage.delete(keys.slice(i, i + 128));
+    state.captionChunks = 0;
+    state.captionCues = 0;
+    state.captionBase = null;
+    state.captionLine = null;
   }
 
   private async pollDestChat(state: StudioState): Promise<void> {
@@ -1608,6 +1738,23 @@ export class StudioDurableObject {
       }
     }
   }
+}
+
+function clampMs(raw: unknown, min: number, max: number): number {
+  const n = typeof raw === "number" && Number.isFinite(raw) ? raw : min;
+  return Math.min(max, Math.max(min, Math.round(n)));
+}
+
+function allowHit(hits: Map<string, { n: number; t: number }>, key: string, max: number, windowMs: number): boolean {
+  const now = Date.now();
+  const row = hits.get(key) ?? { n: 0, t: now };
+  if (now - row.t > windowMs) {
+    row.n = 0;
+    row.t = now;
+  }
+  row.n += 1;
+  hits.set(key, row);
+  return row.n <= max;
 }
 
 function json(data: unknown, status = 200): Response {

@@ -1,3 +1,4 @@
+import { defaultCaptions } from "./captions";
 import { destAspectOf, type DestAspect, type Destination, type DestStatus, type LivePhase, type StudioState } from "./types";
 
 export const WATCH_MS = 3_000;
@@ -690,6 +691,8 @@ export function normalizeStudio(state: StudioState): StudioState {
     portraitRecoveringSince: state.portraitRecoveringSince ?? null,
     emptySince: state.emptySince ?? null,
     pinnedChat: state.pinnedChat ?? null,
+    captions: state.captions ?? defaultCaptions(),
+    captionLine: state.captionLine ?? null,
     separateRecordings: state.separateRecordings ?? false,
     isoSessionId: state.isoSessionId ?? null,
     isoTracks: state.isoTracks ?? [],

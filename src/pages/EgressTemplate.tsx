@@ -4,6 +4,7 @@ import { pickComposeBackend, VERT_H, VERT_W } from "../lib/compositor";
 import { startProgramCompose, type ProgramCompose } from "../lib/program-compose";
 import { getStudio, sendEgressBeat } from "../lib/api";
 import { startLiveProgramBuffer } from "../lib/live-program-buffer";
+import { CaptionTracker } from "../lib/caption-overlay";
 import { HEARTBEAT_BEAT_MS } from "../../worker/egress";
 import type { LayoutMode } from "../lib/wasm";
 
@@ -117,6 +118,7 @@ export function EgressTemplate() {
       }
     })();
 
+    const captions = new CaptionTracker();
     const pullMeta = () => {
       if (!studioId) return;
       void getStudio(studioId).then((s) => {
@@ -130,6 +132,7 @@ export function EgressTemplate() {
           s.bannerTitle || s.title || "Casthop",
           s.bannerSubtitle || "live",
           s.pinnedChat ? { name: s.pinnedChat.name, text: s.pinnedChat.text } : null,
+          captions.view(s.captions, s.captionLine, Date.now()),
         );
       });
       if (token && egressId) void sendEgressBeat(studioId, token, egressId).catch(() => undefined);

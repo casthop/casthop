@@ -211,6 +211,18 @@ const de: Messages = {
   errClip: "Clip konnte nicht gespeichert werden",
   errIso: "Aufnahmen konnten nicht aktualisiert werden",
   errIsoUpload: "Deine Aufnahme konnte nicht hochgeladen werden",
+  captions: "Live-Untertitel",
+  captionsLead: "Sprache wird im Browser jeder Person zu Text. Es wird kein Audio gesendet.",
+  captionsOn: "Live-Untertitel einschalten",
+  captionsOff: "Live-Untertitel ausschalten",
+  captionsBurn: "Im Stream zeigen",
+  captionsBurnLead: "Aus: Untertitel bleiben außerhalb des Videos und werden für die Aufnahme gespeichert.",
+  captionsBurnOn: "Untertitel im Stream zeigen",
+  captionsBurnOff: "Untertitel im Stream ausblenden",
+  captionsFile: "Untertitel (VTT)",
+  captionsFileHint: "{n} Zeilen",
+  errCaptions: "Untertitel funktionieren auf diesem Gerät nicht",
+  errCaptionsSave: "Untertitel konnten nicht aktualisiert werden",
 };
 
 export default de;

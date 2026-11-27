@@ -211,6 +211,18 @@ const fr: Messages = {
   errClip: "Impossible d’enregistrer le clip",
   errIso: "Impossible de mettre à jour les enregistrements",
   errIsoUpload: "Impossible d’envoyer votre enregistrement",
+  captions: "Sous-titres en direct",
+  captionsLead: "La parole devient du texte dans le navigateur de chaque personne. Aucun audio n’est envoyé.",
+  captionsOn: "Activer les sous-titres en direct",
+  captionsOff: "Désactiver les sous-titres en direct",
+  captionsBurn: "Afficher dans le direct",
+  captionsBurnLead: "Désactivé : les sous-titres restent hors de la vidéo et sont gardés pour l’enregistrement.",
+  captionsBurnOn: "Afficher les sous-titres dans le direct",
+  captionsBurnOff: "Masquer les sous-titres du direct",
+  captionsFile: "Sous-titres (VTT)",
+  captionsFileHint: "{n} lignes",
+  errCaptions: "Les sous-titres ne fonctionnent pas sur cet appareil",
+  errCaptionsSave: "Impossible de mettre à jour les sous-titres",
 };
 
 export default fr;

@@ -211,6 +211,18 @@ const ja: Messages = {
   errClip: "クリップを保存できませんでした",
   errIso: "録画を更新できませんでした",
   errIsoUpload: "録画をアップロードできませんでした",
+  captions: "ライブ字幕",
+  captionsLead: "音声は各自のブラウザ内でテキストになります。音声はどこにも送信されません。",
+  captionsOn: "ライブ字幕をオン",
+  captionsOff: "ライブ字幕をオフ",
+  captionsBurn: "配信に表示",
+  captionsBurnLead: "オフの場合、字幕は映像に入れず、録画用に保存します。",
+  captionsBurnOn: "字幕を配信に表示",
+  captionsBurnOff: "字幕を配信に表示しない",
+  captionsFile: "字幕 (VTT)",
+  captionsFileHint: "{n} 行",
+  errCaptions: "この端末では字幕を使えません",
+  errCaptionsSave: "字幕を更新できませんでした",
 };
 
 export default ja;

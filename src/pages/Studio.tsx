@@ -24,9 +24,12 @@ import {
   setDestinations,
   setLayout,
   setBanner,
+  setCaptions,
   setLive,
   setSeparateRecordings,
   setStage,
+  sendCaption,
+  captionsDownloadPath,
   isoDownloadPath,
   listRecordings,
   type PublicStudio,
@@ -45,6 +48,7 @@ import { loadSession, saveSession } from "../lib/session";
 import { canConnectToStudio } from "../lib/studio-entry";
 import { SHOT_LIVE_MS, shotFromUrl, shotStudio } from "../lib/studio-shot";
 import { IsoRecorder } from "../lib/iso-recorder";
+import { CAPTION_SHOW_MS } from "../../worker/captions";
 import { isHostIdentity } from "../../worker/security";
 import { destAspectOf, type DestAspect, type IsoTrack, type LayoutId, type ParticipantInfo, type PublicDestination } from "../../worker/types";
 import { outputPhase } from "../../worker/egress";
@@ -230,6 +234,8 @@ export function Studio() {
   const [clipping, setClipping] = useState(false);
   const [clipNote, setClipNote] = useState("");
   const [now, setNow] = useState(Date.now());
+  const [shownCaption, setShownCaption] = useState<{ name: string; text: string } | null>(null);
+  const sendCaptionsRef = useRef(false);
   const identityRef = useRef<string>(shot ? "host" : "");
   const nameRef = useRef<string>(shot ? "Ana Souza" : "");
   const isHostRef = useRef(Boolean(shot));
@@ -296,6 +302,61 @@ export function Studio() {
       void rec?.stop();
     };
   }, [shot, id, isoActive, room, studio?.isoSessionId, t]);
+
+  // Words are sent only while live and with the mic on. The server also checks.
+  sendCaptionsRef.current =
+    micOn && (studio?.livePhase === "starting" || studio?.livePhase === "live" || studio?.livePhase === "retrying");
+  const captionsOn = Boolean(studio?.captions?.on);
+
+  // Off by default. Nothing below loads until the host turns captions on.
+  useEffect(() => {
+    if (shot || !captionsOn || !isoOnStage || !room) return;
+    let cancelled = false;
+    let retry = 0;
+    let captioner: { stop: () => void } | null = null;
+    const begin = async () => {
+      const mod = await import("../lib/captioner");
+      if (cancelled) return;
+      if (!mod.captionsSupported()) {
+        setError(t("errCaptions"));
+        return;
+      }
+      const track =
+        originalAudioRef.current ?? room.localParticipant.getTrackPublication(Track.Source.Microphone)?.track?.mediaStreamTrack ?? null;
+      if (!track) {
+        retry = window.setTimeout(() => void begin(), 1000);
+        return;
+      }
+      const started = await mod.startCaptioner(track, {
+        onSegment: (segment) => {
+          if (!sendCaptionsRef.current) return;
+          const auth = { identity: identityRef.current, guestSecret: loadSession(id)?.guestSecret };
+          void sendCaption(id, auth, segment).catch(() => undefined);
+        },
+        onUnsupported: () => setError(t("errCaptions")),
+      });
+      if (cancelled) started.stop();
+      else captioner = started;
+    };
+    void begin();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(retry);
+      captioner?.stop();
+    };
+  }, [shot, id, captionsOn, isoOnStage, room, t]);
+
+  const captionLine = studio?.captionLine ?? null;
+  const burnCaptions = Boolean(studio?.captions?.on && studio.captions.burn);
+  useEffect(() => {
+    if (!burnCaptions || !captionLine) {
+      setShownCaption(null);
+      return;
+    }
+    setShownCaption({ name: captionLine.name, text: captionLine.text });
+    const timer = window.setTimeout(() => setShownCaption(null), CAPTION_SHOW_MS);
+    return () => window.clearTimeout(timer);
+  }, [burnCaptions, captionLine?.at, captionLine?.text]);
 
   useEffect(() => {
     if (shot) return;
@@ -1123,6 +1184,11 @@ export function Studio() {
               <b>{studio.bannerTitle}</b>
               <span>{studio.bannerSubtitle}</span>
             </div>
+            {shownCaption ? (
+              <div className="capov" role="status" aria-label={t("captions")}>
+                {shownCaption.text}
+              </div>
+            ) : null}
             {studio.pinnedChat ? (
               <div className="pinov" role="status" aria-label={t("pinnedFrom", { name: studio.pinnedChat.name })}>
                 <span className="who">{pinWho(studio.pinnedChat)}</span>
@@ -1301,6 +1367,17 @@ export function Studio() {
               studioId={shot ? studio.id : id}
               studio={studio}
               canInvite={studio.viewerRole === "owner" && !shot}
+              onCaptions={async (patch) => {
+                if (shot) return;
+                try {
+                  setStudio((prev) => (prev ? { ...prev, captions: { ...prev.captions, ...patch } } : prev));
+                  const saved = await setCaptions(id, patch);
+                  setStudio((prev) => (prev ? { ...prev, captions: saved.captions } : prev));
+                } catch {
+                  setError(t("errCaptionsSave"));
+                  void getStudio(id).then((s) => setStudio((prev) => (prev ? { ...prev, captions: s.captions } : prev)));
+                }
+              }}
               onTitle={async (title) => {
                 try {
                   if (shot) {
@@ -1787,11 +1864,22 @@ function RecordingsPanel({ studioId }: { studioId: string }) {
   }, [studioId]);
 
   const tracks = [...(data?.tracks ?? [])].sort((a, b) => b.startedAt - a.startedAt);
-  const empty = !data?.mixed && tracks.length === 0;
+  const empty = !data?.mixed && !data?.captions && tracks.length === 0;
 
   return (
     <div className="panel-body stack rec-list">
       {empty ? <p className="empty-chat">{t("isoEmpty")}</p> : null}
+      {data?.captions ? (
+        <div className="rec-row">
+          <div className="t">
+            <b>{t("captionsFile")}</b>
+            <small>{t("captionsFileHint", { n: data.captions.cues })}</small>
+          </div>
+          <a className="btn ghost rec-dl" href={captionsDownloadPath(studioId)}>
+            {t("isoDownload")}
+          </a>
+        </div>
+      ) : null}
       {data?.mixed?.filename ? (
         <div className="rec-row">
           <div className="t">
@@ -1845,11 +1933,13 @@ function SettingsPanel({
   studio,
   canInvite,
   onTitle,
+  onCaptions,
 }: {
   studioId: string;
   studio: PublicStudio;
   canInvite: boolean;
   onTitle: (title: string) => Promise<void>;
+  onCaptions: (patch: { on?: boolean; burn?: boolean }) => Promise<void>;
 }) {
   const { t } = useI18n();
   const [title, setTitle] = useState(studio.title);
@@ -1896,6 +1986,34 @@ function SettingsPanel({
       <button className="btn primary" type="button" onClick={() => void onTitle(title)}>
         {t("save")}
       </button>
+      <div className="dest">
+        <div className="t">
+          <b>{t("captions")}</b>
+          <small>{t("captionsLead")}</small>
+        </div>
+        <button
+          type="button"
+          className={`sw${studio.captions.on ? " on" : ""}`}
+          aria-pressed={studio.captions.on}
+          aria-label={studio.captions.on ? t("captionsOff") : t("captionsOn")}
+          onClick={() => void onCaptions({ on: !studio.captions.on })}
+        />
+      </div>
+      {studio.captions.on ? (
+        <div className="dest">
+          <div className="t">
+            <b>{t("captionsBurn")}</b>
+            <small>{t("captionsBurnLead")}</small>
+          </div>
+          <button
+            type="button"
+            className={`sw${studio.captions.burn ? " on" : ""}`}
+            aria-pressed={studio.captions.burn}
+            aria-label={studio.captions.burn ? t("captionsBurnOff") : t("captionsBurnOn")}
+            onClick={() => void onCaptions({ burn: !studio.captions.burn })}
+          />
+        </div>
+      ) : null}
       {canInvite ? (
         <form className="cohost-form" onSubmit={onInvite}>
           <label>

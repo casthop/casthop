@@ -1,4 +1,4 @@
-import { composeFrame, pickComposeBackend, pickComposeThread, spawnComposeWorker, type ComposeBackend, type ComposePin } from "./compositor";
+import { composeFrame, pickComposeBackend, pickComposeThread, spawnComposeWorker, type ComposeBackend, type ComposeCaption, type ComposePin } from "./compositor";
 import type { ComposeWorkerIn, ComposeWorkerOut } from "./compose-messages";
 import { FRAME_SAMPLE_CAP, pushSample, supportsOffscreenCompose, supportsTrackGenerator, usedSamples } from "./compose-support";
 import { OUT_H, OUT_W, VERT_H, VERT_W } from "./draw-canvas";
@@ -18,7 +18,13 @@ export type ProgramCompose = {
   outputTrack: MediaStreamTrack | null;
   addSource: (id: string, source: MediaStreamTrack | HTMLVideoElement) => void;
   removeSource: (id: string) => void;
-  setMeta: (mode: LayoutMode, title: string, subtitle: string, pin?: ComposePin | null) => void;
+  setMeta: (
+    mode: LayoutMode,
+    title: string,
+    subtitle: string,
+    pin?: ComposePin | null,
+    caption?: ComposeCaption | null,
+  ) => void;
   snapshot: () => Promise<ComposeStats>;
   stop: () => void;
 };
@@ -129,8 +135,8 @@ async function startWorker(opts: {
       processors.delete(id);
       post(worker, { type: "remove", id });
     },
-    setMeta: (mode, title, subtitle, pin) => {
-      post(worker, { type: "meta", mode, title, subtitle, pin: pin ?? null });
+    setMeta: (mode, title, subtitle, pin, caption) => {
+      post(worker, { type: "meta", mode, title, subtitle, pin: pin ?? null, caption: caption ?? null });
     },
     snapshot: () =>
       new Promise((resolve, reject) => {
@@ -170,6 +176,7 @@ function startMain(opts: {
   let title = opts.title;
   let subtitle = opts.subtitle;
   let pin: ComposePin | null = null;
+  let caption: ComposeCaption | null = null;
   let backend = opts.backend;
   let raf = 0;
   let busy = false;
@@ -203,6 +210,7 @@ function startMain(opts: {
       title,
       subtitle,
       pin,
+      caption,
       canvas: opts.canvas,
       width: opts.width,
       height: opts.height,
@@ -251,11 +259,12 @@ function startMain(opts: {
         video.remove();
       }
     },
-    setMeta: (nextMode, nextTitle, nextSubtitle, nextPin) => {
+    setMeta: (nextMode, nextTitle, nextSubtitle, nextPin, nextCaption) => {
       mode = nextMode;
       title = nextTitle;
       subtitle = nextSubtitle;
       pin = nextPin ?? null;
+      caption = nextCaption ?? null;
     },
     snapshot: async () => ({
       thread: "main",

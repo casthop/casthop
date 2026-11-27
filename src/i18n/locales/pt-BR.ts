@@ -211,6 +211,18 @@ const ptBR: Messages = {
   errClip: "Não foi possível salvar o clipe",
   errIso: "Não foi possível atualizar as gravações",
   errIsoUpload: "Não foi possível enviar sua gravação",
+  captions: "Legendas ao vivo",
+  captionsLead: "A fala vira texto no navegador de cada pessoa. Nenhum áudio é enviado.",
+  captionsOn: "Ativar legendas ao vivo",
+  captionsOff: "Desativar legendas ao vivo",
+  captionsBurn: "Mostrar na transmissão",
+  captionsBurnLead: "Desligado: as legendas ficam fora do vídeo e são salvas junto da gravação.",
+  captionsBurnOn: "Mostrar legendas na transmissão",
+  captionsBurnOff: "Ocultar legendas da transmissão",
+  captionsFile: "Legendas (VTT)",
+  captionsFileHint: "{n} linhas",
+  errCaptions: "As legendas não funcionam neste dispositivo",
+  errCaptionsSave: "Não foi possível atualizar as legendas",
 };
 
 export default ptBR;

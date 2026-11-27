@@ -6,7 +6,7 @@ import type { Env } from "../worker/types.ts";
 import { putLiveHlsFile, clipObjectKey, liveObjectKey } from "../worker/clips.ts";
 import { isoChunkKey } from "../worker/iso.ts";
 import { replayObjectKey } from "../worker/replays.ts";
-import { parseKeyList, safeNextPath, serviceSignature } from "../worker/hosted.ts";
+import { EXTERNAL_TOKEN_MAX_TTL_SEC, parseKeyList, safeNextPath, serviceSignature } from "../worker/hosted.ts";
 import { asTenantId, scopeStore, storeFor, tenantKeyPrefix } from "../worker/tenant.ts";
 import { insertStudioRow } from "../worker/db.ts";
 import { FakeD1 } from "./fake-d1.ts";
@@ -51,6 +51,7 @@ function makeEnv(overrides: Partial<Env> = {}): TestEnv {
     PUBLIC_LIVEKIT_URL: "ws://127.0.0.1:7880",
     EGRESS_TEMPLATE_URL: "http://127.0.0.1:5173/egress-template",
     CASTHOP_ALLOW_DEV_KEYS: "1",
+    CASTHOP_DEV: "1",
     CASTHOP_TRUST_FORWARDED: "1",
     PUBLIC_ORIGIN: ORIGIN,
     ASSETS: { fetch: async () => new Response("ok") },
@@ -320,7 +321,8 @@ test("external token rejects bad input", async () => {
     ["alg HS512", await makeToken({}, { header: { alg: "HS512" } })],
     ["no kid", await makeToken({}, { header: { kid: undefined } })],
     ["expired", await makeToken({ exp: now - 1 })],
-    ["exp too far", await makeToken({ exp: now + 121 })],
+    // Margin over the limit: the Worker reads its clock later, maybe a second later.
+    ["exp too far", await makeToken({ exp: now + EXTERNAL_TOKEN_MAX_TTL_SEC + 30 })],
     ["wrong aud", await makeToken({ aud: "other" })],
     ["wrong iss", await makeToken({ iss: "https://evil.example" })],
     ["no sub", await makeToken({ sub: undefined })],

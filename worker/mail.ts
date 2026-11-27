@@ -1,5 +1,5 @@
 import type { Env } from "./types";
-import { allowDevLogin } from "./security";
+import { localDevMode } from "./security";
 
 export type MailSender = {
   send(opts: { to: string; subject: string; text: string }): Promise<void>;
@@ -35,11 +35,11 @@ export function mailerFor(env: Env): MailSender {
   }
   return {
     async send(opts) {
-      if (allowDevLogin(env)) {
+      if (localDevMode(env)) {
         console.log(`[casthop mail] to=${opts.to}\n${opts.subject}\n${opts.text}`);
         return;
       }
-      throw new MailSendError("no mail sender configured; set MAIL_WEBHOOK_URL");
+      throw new MailSendError("no mail sender configured; set MAIL_WEBHOOK_URL, or CASTHOP_DEV=1 for local development");
     },
   };
 }

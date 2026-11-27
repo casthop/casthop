@@ -74,6 +74,7 @@ function makeEnv(overrides: Partial<Env> = {}): Env {
     RTMP_X: X,
     EGRESS_TEMPLATE_URL: "http://127.0.0.1:5173/egress-template",
     CASTHOP_ALLOW_DEV_KEYS: "1",
+    CASTHOP_DEV: "1",
     CASTHOP_DEV_LOGIN: "1",
     CASTHOP_EMPTY_GRACE_MS: "60000",
     CASTHOP_TRUST_FORWARDED: "1",
@@ -314,8 +315,9 @@ test("live studio pulls YouTube comments and host can pin them", async () => {
   youtubePolls = 0;
   const env = makeEnv({ YOUTUBE_API_KEY: "test-key", YOUTUBE_LIVE_CHAT_ID: "LC_env" });
   const { id, cookie } = await createStudio(env);
+  env.YOUTUBE_CHAT_STUDIO_ID = id;
   const cfg = await json<{ destinationChat: { youtube: boolean } }>(
-    await app.request("https://casthop.test/api/config", {}, env),
+    await app.request(`https://casthop.test/api/config?studio=${id}`, {}, env),
   );
   assert.equal(cfg.destinationChat.youtube, true);
 
@@ -412,6 +414,7 @@ test("youtube poll does not overwrite a stop or studio chat", async () => {
   youtubePolls = 0;
   const env = makeEnv({ YOUTUBE_API_KEY: "test-key", YOUTUBE_LIVE_CHAT_ID: "LC_env" });
   const { id, cookie } = await createStudio(env);
+  env.YOUTUBE_CHAT_STUDIO_ID = id;
   const live = await app.request(
     `https://casthop.test/api/studios/${id}/live`,
     {
@@ -476,10 +479,31 @@ test("youtube poll does not overwrite a stop or studio chat", async () => {
   }
 });
 
+test("only the studio named in YOUTUBE_CHAT_STUDIO_ID uses the deployment's YouTube chat", async () => {
+  youtubePolls = 0;
+  const env = makeEnv({ YOUTUBE_API_KEY: "test-key", YOUTUBE_LIVE_CHAT_ID: "LC_env" });
+  const bound = await createStudio(env);
+  const other = await createStudio(env);
+  env.YOUTUBE_CHAT_STUDIO_ID = `${bound.id}, someone-else`;
+  const shows = async (studio: string) =>
+    (await json<{ destinationChat: { youtube: boolean } }>(await app.request(`https://casthop.test/api/config?studio=${studio}`, {}, env)))
+      .destinationChat.youtube;
+  assert.equal(await shows(bound.id), true);
+  assert.equal(await shows(other.id), false);
+
+  const after = await goLiveAndWatch(env, other.id, other.cookie);
+  assert.equal(youtubePolls, 0, "an unlisted studio does not poll the operator's chat");
+  assert.equal(after.chat.some((m) => m.source === "youtube"), false);
+
+  env.YOUTUBE_CHAT_STUDIO_ID = undefined;
+  assert.equal(await shows(bound.id), false, "unset means no studio");
+});
+
 test("a studio whose go-live failed stops polling YouTube until a host retries", async () => {
   youtubePolls = 0;
   const env = makeEnv({ YOUTUBE_API_KEY: "test-key", YOUTUBE_LIVE_CHAT_ID: "LC_env", CASTHOP_RECOVERY_MS: "0" });
   const { id, cookie } = await createStudio(env);
+  env.YOUTUBE_CHAT_STUDIO_ID = id;
   const stub = env.STUDIO.get(env.STUDIO.idFromName(id));
   const watch = () =>
     stub.fetch(`https://studio/${id}?action=watch`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });

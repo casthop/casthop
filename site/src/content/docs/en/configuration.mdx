@@ -55,6 +55,7 @@ New studios copy these only when they point at `127.0.0.1`. Do not put a real st
 | `PUBLIC_ORIGIN` | Your public site address, used in sign-in emails, co-host invites and the GitHub callback. | Always on a real server, for example `https://studio.example.com`. Without it, sign-in fails off `127.0.0.1`. | unset |
 | `HOST_KEY_SECRET` | Separate secret for host keys inside the app. Falls back to `LIVEKIT_API_SECRET`. | Always on a real server, so changing LiveKit keys later does not lock out studios. | unset |
 | `CASTHOP_TRUST_FORWARDED` | `1` trusts the client address from `X-Forwarded-For` and `CF-Connecting-IP`. Sign-in and guest limits use that address. | Only behind your own reverse proxy (nginx, Caddy). Not needed on Cloudflare. Never for `bun run dev`. | unset |
+| `CASTHOP_DEV` | `1` is local development: sign-in links are printed in the terminal instead of mailed. Refused unless LiveKit and `PUBLIC_ORIGIN` are on `127.0.0.1`. | Set in `.dev.vars.example`. Never on a deployed Worker. | `1` locally |
 | `CASTHOP_DEV_LOGIN` | `1` returns the sign-in link in the browser response, not only in the terminal. Works only on `127.0.0.1`. | For e2e tests, `bun run measure` and `/internal/probe`. Never on a server. | unset |
 | `CASTHOP_ALLOW_DEV_KEYS` | `1` allows the public test keys with a LiveKit that is not on `127.0.0.1`. | Tests only. | unset |
 
@@ -80,6 +81,7 @@ While you are live, comments from these sites show up in the studio chat. Hosts 
 | `YOUTUBE_LIVE_CHAT_ID` | Read this live chat directly. Use with the API key. | unset |
 | `YOUTUBE_VIDEO_ID` | Find the live chat from this video. Use with the API key. | unset |
 | `YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN` | Instead of an id, find your own active broadcast. | unset |
+| `YOUTUBE_CHAT_STUDIO_ID` | The studio id (or comma-separated ids) that shows this YouTube chat. Unset, no studio polls it. | unset |
 | `TWITCH_CHANNEL` | Twitch channel name to read. No login needed. | unset |
 | `KICK_CHATROOM_ID` | Kick chatroom number to read. | unset |
 

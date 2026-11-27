@@ -55,6 +55,7 @@ Les nouveaux studios ne les copient que si elles pointent vers `127.0.0.1`. N’
 | `PUBLIC_ORIGIN` | L’adresse publique de votre site, utilisée dans les e-mails de connexion, les invitations de co-hôte et le callback GitHub. | Toujours sur un vrai serveur, par exemple `https://studio.example.com`. Sans elle, la connexion échoue hors de `127.0.0.1`. | non défini |
 | `HOST_KEY_SECRET` | Secret distinct pour les clés d’hôte dans l’application. Se rabat sur `LIVEKIT_API_SECRET`. | Toujours sur un vrai serveur, pour que changer les clés LiveKit plus tard ne verrouille pas les studios. | non défini |
 | `CASTHOP_TRUST_FORWARDED` | `1` fait confiance à l’adresse client de `X-Forwarded-For` et `CF-Connecting-IP`. La connexion et les limites d’invités utilisent cette adresse. | Seulement derrière votre propre reverse proxy (nginx, Caddy). Inutile sur Cloudflare. Jamais pour `bun run dev`. | non défini |
+| `CASTHOP_DEV` | `1` signifie développement local : les liens de connexion s’affichent dans le terminal au lieu d’être envoyés par mail. Refusé si LiveKit et `PUBLIC_ORIGIN` ne sont pas sur `127.0.0.1`. | Défini dans `.dev.vars.example`. Jamais sur un Worker déployé. | `1` en local |
 | `CASTHOP_DEV_LOGIN` | `1` renvoie le lien de connexion dans la réponse au navigateur, et pas seulement dans le terminal. Ne marche que sur `127.0.0.1`. | Pour les tests e2e, `bun run measure` et `/internal/probe`. Jamais sur un serveur. | non défini |
 | `CASTHOP_ALLOW_DEV_KEYS` | `1` autorise les clés de test publiques avec un LiveKit qui n’est pas sur `127.0.0.1`. | Tests seulement. | non défini |
 
@@ -80,6 +81,7 @@ Pendant que vous êtes en direct, les commentaires de ces plateformes apparaisse
 | `YOUTUBE_LIVE_CHAT_ID` | Lit directement ce chat en direct. À utiliser avec la clé d’API. | non défini |
 | `YOUTUBE_VIDEO_ID` | Retrouve le chat en direct à partir de cette vidéo. À utiliser avec la clé d’API. | non défini |
 | `YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN` | À la place d’un identifiant, retrouve votre propre diffusion active. | non défini |
+| `YOUTUBE_CHAT_STUDIO_ID` | L’id du studio (ou plusieurs, séparés par des virgules) qui affiche ce chat YouTube. Sans valeur, aucun studio ne l’interroge. | non défini |
 | `TWITCH_CHANNEL` | Nom de la chaîne Twitch à lire. Aucune connexion nécessaire. | non défini |
 | `KICK_CHATROOM_ID` | Numéro du chatroom Kick à lire. | non défini |
 

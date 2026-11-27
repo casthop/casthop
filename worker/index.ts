@@ -9,6 +9,7 @@ import {
   clearCookie,
   crossOriginCookieWrite,
   devKeyGuardError,
+  devModeGuardError,
   hostIdentityFor,
   INVITE_ACCOUNT_MAX,
   INVITE_EMAIL_MAX,
@@ -170,7 +171,7 @@ async function studioPublicState(env: Env, id: string): Promise<PublicStudio | n
 }
 
 app.use("/api/*", async (c, next) => {
-  const err = devKeyGuardError(c.env);
+  const err = devKeyGuardError(c.env) ?? devModeGuardError(c.env);
   if (err) return c.json({ error: err }, 503);
   if (crossOriginCookieWrite(c.req.raw, c.env)) return c.json({ error: "bad origin" }, 403);
   await ensureDb(c.env.DB);
@@ -197,7 +198,7 @@ app.get("/api/config", async (c) => {
     github: githubConfigured(c.env),
     signin: signinExternal(c.env) ? "external" : "default",
     signedIn: Boolean(sess),
-    destinationChat: destChatConfigured(c.env),
+    destinationChat: destChatConfigured(c.env, c.req.query("studio") ?? ""),
   });
 });
 

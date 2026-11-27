@@ -55,6 +55,7 @@ Los estudios nuevos las copian solo cuando apuntan a `127.0.0.1`. No pongas aqu�
 | `PUBLIC_ORIGIN` | La dirección pública de tu sitio, usada en los correos de inicio de sesión, las invitaciones de coanfitrión y el callback de GitHub. | Siempre en un servidor real, por ejemplo `https://studio.example.com`. Sin ella, el inicio de sesión falla fuera de `127.0.0.1`. | sin definir |
 | `HOST_KEY_SECRET` | Secreto aparte para las host keys dentro de la app. Si falta, usa `LIVEKIT_API_SECRET`. | Siempre en un servidor real, para que cambiar las claves de LiveKit después no deje fuera a los estudios. | sin definir |
 | `CASTHOP_TRUST_FORWARDED` | `1` confía en la dirección del cliente de `X-Forwarded-For` y `CF-Connecting-IP`. El inicio de sesión y los límites de invitados usan esa dirección. | Solo detrás de tu propio reverse proxy (nginx, Caddy). No hace falta en Cloudflare. Nunca con `bun run dev`. | sin definir |
+| `CASTHOP_DEV` | `1` es desarrollo local: los enlaces de inicio de sesión salen en la terminal en vez de por correo. Se rechaza si LiveKit y `PUBLIC_ORIGIN` no están en `127.0.0.1`. | Viene en `.dev.vars.example`. Nunca en un Worker desplegado. | `1` en local |
 | `CASTHOP_DEV_LOGIN` | `1` devuelve el enlace de inicio de sesión en la respuesta al navegador, no solo en la terminal. Funciona solo en `127.0.0.1`. | Para pruebas e2e, `bun run measure` y `/internal/probe`. Nunca en un servidor. | sin definir |
 | `CASTHOP_ALLOW_DEV_KEYS` | `1` permite las claves de prueba públicas con un LiveKit que no está en `127.0.0.1`. | Solo para pruebas. | sin definir |
 
@@ -80,6 +81,7 @@ Mientras estás en vivo, los comentarios de estos sitios aparecen en el chat del
 | `YOUTUBE_LIVE_CHAT_ID` | Lee directamente este chat en vivo. Úsalo con la clave de API. | sin definir |
 | `YOUTUBE_VIDEO_ID` | Encuentra el chat en vivo a partir de este video. Úsalo con la clave de API. | sin definir |
 | `YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN` | En lugar de un id, encuentra tu propia transmisión activa. | sin definir |
+| `YOUTUBE_CHAT_STUDIO_ID` | El id del estudio (o varios separados por comas) que muestra este chat de YouTube. Sin valor, ningún estudio lo consulta. | sin definir |
 | `TWITCH_CHANNEL` | Nombre del canal de Twitch que se lee. No requiere iniciar sesión. | sin definir |
 | `KICK_CHATROOM_ID` | Número de la sala de chat de Kick que se lee. | sin definir |
 

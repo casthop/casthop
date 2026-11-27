@@ -178,6 +178,8 @@ export type Env = {
   RTMP_X: string;
   EGRESS_TEMPLATE_URL: string;
   CASTHOP_ALLOW_DEV_KEYS?: string;
+  /** "1" is local development: sign-in mail is logged, not sent. Refused off loopback. */
+  CASTHOP_DEV?: string;
   /** "1" puts the magic-link path in the sign-in response. Loopback dev server, tests and CI only. */
   CASTHOP_DEV_LOGIN?: string;
   CASTHOP_EMPTY_GRACE_MS?: string;
@@ -199,6 +201,8 @@ export type Env = {
   YOUTUBE_API_KEY?: string;
   YOUTUBE_LIVE_CHAT_ID?: string;
   YOUTUBE_VIDEO_ID?: string;
+  /** Studio id(s), comma-separated, that use the YouTube chat settings above. Unset: no studio does. */
+  YOUTUBE_CHAT_STUDIO_ID?: string;
   /** Public channel names/ids, not secrets. Unset hides the platform. */
   TWITCH_CHANNEL?: string;
   KICK_CHATROOM_ID?: string;

@@ -55,6 +55,7 @@ Egress は LiveKit のサービスです。非表示のスタジオページを�
 | `PUBLIC_ORIGIN` | サイトの公開アドレス。サインインメール、共同ホストの招待、GitHub のコールバックで使います。 | 本番のサーバーでは必ず。例: `https://studio.example.com`。未設定だと、`127.0.0.1` 以外ではサインインに失敗します。 | 未設定 |
 | `HOST_KEY_SECRET` | アプリ内のホストキー用の別のシークレット。未設定なら `LIVEKIT_API_SECRET` を使います。 | 本番のサーバーでは必ず。あとで LiveKit のキーを変えても、スタジオに入れなくなりません。 | 未設定 |
 | `CASTHOP_TRUST_FORWARDED` | `1` にすると、`X-Forwarded-For` と `CF-Connecting-IP` のクライアントアドレスを信頼します。サインインとゲストの上限は、このアドレスを使います。 | 自前のリバースプロキシ（nginx、Caddy）の背後でのみ。Cloudflare では不要です。`bun run dev` では使わないでください。 | 未設定 |
+| `CASTHOP_DEV` | `1` はローカル開発です。サインインリンクをメールで送らず、ターミナルに表示します。LiveKit と `PUBLIC_ORIGIN` が `127.0.0.1` でなければ拒否されます。 | `.dev.vars.example` で設定済み。デプロイした Worker では使いません。 | ローカルでは `1` |
 | `CASTHOP_DEV_LOGIN` | `1` にすると、サインインリンクをターミナルだけでなく、ブラウザへのレスポンスにも含めます。`127.0.0.1` でのみ動きます。 | e2e テスト、`bun run measure`、`/internal/probe` 用。サーバーでは使わないでください。 | 未設定 |
 | `CASTHOP_ALLOW_DEV_KEYS` | `1` にすると、`127.0.0.1` にない LiveKit でも公開テスト用キーを許可します。 | テスト専用。 | 未設定 |
 
@@ -80,6 +81,7 @@ Egress は LiveKit のサービスです。非表示のスタジオページを�
 | `YOUTUBE_LIVE_CHAT_ID` | このライブチャットを直接読みます。API キーと一緒に使います。 | 未設定 |
 | `YOUTUBE_VIDEO_ID` | この動画からライブチャットを探します。API キーと一緒に使います。 | 未設定 |
 | `YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN` | ID の代わりに、自分の進行中のライブ配信を探します。 | 未設定 |
+| `YOUTUBE_CHAT_STUDIO_ID` | この YouTube チャットを表示するスタジオの ID（カンマ区切りで複数可）。未設定なら、どのスタジオも取得しません。 | 未設定 |
 | `TWITCH_CHANNEL` | 読み取る Twitch のチャンネル名。ログインは不要です。 | 未設定 |
 | `KICK_CHATROOM_ID` | 読み取る Kick のチャットルーム番号。 | 未設定 |
 

@@ -1475,9 +1475,12 @@ export class StudioDurableObject {
 
   /** Stops active portrait compositors other than the one we track, so two never share an RTMP URL. */
   private async stopStrayPortraitEgress(state: StudioState): Promise<void> {
+    // Without the main egress id we cannot tell the 16:9 compositor from a stray, so stop nothing.
+    if (!state.egressId) return;
     try {
+      const keep = skipIds(state.abandonedEgressIds, state.egressId);
       for (const item of parseEgressList(await listEgressRaw(this.env, state.id))) {
-        if (!isActiveHealth(item.status) || item.egressId === state.egressId) continue;
+        if (!isActiveHealth(item.status) || keep.includes(item.egressId)) continue;
         const latest = (await this.getState()) ?? state;
         await this.abandonEgress(latest, item.egressId);
       }

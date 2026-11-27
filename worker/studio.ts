@@ -107,6 +107,7 @@ const UNLOCKED_ACTIONS = new Set([
 export class StudioDurableObject {
   private launching = false;
   private portraitLaunching = false;
+  private stopsInFlight = 0;
   ctx: DurableObjectState;
   env: Env;
   private chatHits = new Map<string, { n: number; t: number }>();
@@ -640,6 +641,8 @@ export class StudioDurableObject {
       await this.scheduleWatch(Date.now() + WATCH_MS);
       return json(publicState(state, { includeUrls: true }));
     }
+    // A stop still waiting on LiveKit would not see a compositor started now.
+    if (!fromWatch && this.stopsInFlight > 0) return json({ error: "still stopping" }, 409);
     const claimed = claimIsHeld(state.liveStartingAt) && !state.egressId;
     if (!fromWatch && (this.launching || claimed || (claimIsHeld(state.liveStartingAt) && !state.wantLive))) {
       return json({ error: "already starting" }, 409);
@@ -814,13 +817,29 @@ export class StudioDurableObject {
   }
 
   private async stopLive(state: StudioState, reason: string): Promise<Response> {
+    this.stopsInFlight += 1;
+    try {
+      return await this.runStopLive(state, reason);
+    } finally {
+      this.stopsInFlight -= 1;
+    }
+  }
+
+  private async runStopLive(state: StudioState, reason: string): Promise<Response> {
     state.wantLive = false;
     state.liveStartingAt = undefined;
     state.egressRetryAt = null;
     state.emptySince = null;
     await this.putState(state);
-    await this.stopRoomEgress(state);
-    const latest = (await this.getState()) ?? state;
+    const stopped = await this.stopRoomEgress(state);
+    // A compositor recorded after our ListEgress was not in the stop set. Stop it too
+    // before clearing its id, or it keeps streaming while the studio shows Not live.
+    const recorded = (await this.getState()) ?? state;
+    const missed = [recorded.egressId, recorded.portraitEgressId].filter(
+      (id): id is string => typeof id === "string" && !stopped.has(id),
+    );
+    for (const id of missed) await this.stopOneEgress(id);
+    const latest = missed.length ? ((await this.getState()) ?? recorded) : recorded;
     latest.wantLive = false;
     latest.live = false;
     latest.liveFailed = false;
@@ -1530,7 +1549,8 @@ export class StudioDurableObject {
     return true;
   }
 
-  private async stopRoomEgress(state: StudioState): Promise<void> {
+  /** Stops every compositor in the room it can find and returns the ids it stopped. */
+  private async stopRoomEgress(state: StudioState): Promise<Set<string>> {
     const ids = new Set<string>();
     if (state.egressId) ids.add(state.egressId);
     if (state.portraitEgressId) ids.add(state.portraitEgressId);
@@ -1543,12 +1563,15 @@ export class StudioDurableObject {
     } catch (err) {
       console.warn("list egress on stop", err);
     }
-    for (const id of ids) {
-      try {
-        await stopEgress(this.env, id);
-      } catch (err) {
-        console.warn("stop egress", err);
-      }
+    for (const id of ids) await this.stopOneEgress(id);
+    return ids;
+  }
+
+  private async stopOneEgress(id: string): Promise<void> {
+    try {
+      await stopEgress(this.env, id);
+    } catch (err) {
+      console.warn("stop egress", err);
     }
   }
 

@@ -78,15 +78,53 @@ export function hlsFilenamesInPlaylist(text: string): string[] {
   return names;
 }
 
+// The tags casthop, casthop-post (ffmpeg) and the live buffer write for one fMP4 media
+// playlist. hls.js reads lines and attributes more loosely than a URI scan, so anything
+// else is refused rather than parsed.
+const PLAYLIST_TAGS = [
+  /^#EXTM3U$/,
+  /^#EXT-X-VERSION:\d{1,2}$/,
+  /^#EXT-X-TARGETDURATION:\d{1,4}$/,
+  /^#EXT-X-MEDIA-SEQUENCE:\d{1,10}$/,
+  /^#EXT-X-PLAYLIST-TYPE:(?:VOD|EVENT)$/,
+  /^#EXT-X-INDEPENDENT-SEGMENTS$/,
+  /^#EXT-X-DISCONTINUITY$/,
+  /^#EXT-X-ENDLIST$/,
+  /^#EXTINF:\d+(?:\.\d+)?,$/,
+];
+const MAP_TAG = /^#EXT-X-MAP:URI="([^"]+)"$/;
+
+function isMediaFilename(name: string): boolean {
+  return isHlsFilename(name) && !name.endsWith(".m3u8");
+}
+
 export function playlistError(text: string): string | null {
   if (!text.startsWith("#EXTM3U")) return "playlist must start with #EXTM3U";
   if (text.length > MAX_PLAYLIST_BYTES) return "playlist too large";
-  const names = hlsFilenamesInPlaylist(text);
-  if (names.length === 0) return "playlist has no segments";
-  for (const name of names) {
-    if (!isHlsFilename(name)) return "playlist has an unsafe URI";
+  // hls.js also ends a line at a lone CR, U+2028 and U+2029.
+  if (/\r(?!\n)|[\u2028\u2029]/.test(text)) return "playlist has an unsafe line break";
+  let segments = 0;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (line.startsWith("#")) {
+      const map = MAP_TAG.exec(line);
+      if (map) {
+        if (!isMediaFilename(map[1] ?? "")) return "playlist has an unsafe URI";
+        continue;
+      }
+      if (!PLAYLIST_TAGS.some((re) => re.test(line))) return "playlist has an unsupported tag";
+      continue;
+    }
+    if (!isMediaFilename(line)) return "playlist has an unsafe URI";
+    segments += 1;
   }
-  return null;
+  return segments === 0 ? "playlist has no segments" : null;
+}
+
+/** Only index.m3u8 is a playlist: any other .m3u8 would be served without the check above. */
+export function playlistNameError(name: string): string | null {
+  return name.endsWith(".m3u8") && name !== HLS_INDEX ? "invalid filename" : null;
 }
 
 export function durationFromPlaylist(text: string): number | null {
@@ -200,7 +238,9 @@ export async function putReplayFiles(
     if (err) throw Object.assign(new Error(err), { status: 400 });
   }
   for (const file of files) {
-    if (!isHlsFilename(file.name)) throw Object.assign(new Error("invalid filename"), { status: 400 });
+    if (!isHlsFilename(file.name) || playlistNameError(file.name)) {
+      throw Object.assign(new Error("invalid filename"), { status: 400 });
+    }
     if (file.bytes.byteLength === 0 || file.bytes.byteLength > MAX_FILE_BYTES) {
       throw Object.assign(new Error("invalid file size"), { status: 400 });
     }

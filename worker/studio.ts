@@ -1478,10 +1478,13 @@ export class StudioDurableObject {
     // Without the main egress id we cannot tell the 16:9 compositor from a stray, so stop nothing.
     if (!state.egressId) return;
     try {
-      const keep = skipIds(state.abandonedEgressIds, state.egressId);
       for (const item of parseEgressList(await listEgressRaw(this.env, state.id))) {
-        if (!isActiveHealth(item.status) || keep.includes(item.egressId)) continue;
+        if (!isActiveHealth(item.status)) continue;
+        // A 16:9 restart can change egressId while we loop, so decide from fresh state.
         const latest = (await this.getState()) ?? state;
+        if (!latest.egressId) return;
+        if (item.egressId === latest.egressId || item.egressId === latest.portraitEgressId) continue;
+        if (skipIds(latest.abandonedEgressIds, latest.egressId).includes(item.egressId)) continue;
         await this.abandonEgress(latest, item.egressId);
       }
     } catch (err) {

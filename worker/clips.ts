@@ -293,7 +293,11 @@ export async function serveClipDownload(env: Env, clip: ClipRecord): Promise<Res
   void (async () => {
     for (const obj of objects) await obj.body.pipeTo(writable, { preventClose: true });
     await writable.close();
-  })().catch((err) => writable.abort(err));
+  })().catch(async (err) => {
+    // Release R2 streams that were never piped, then fail the download.
+    await Promise.allSettled(objects.map((o) => (o.bodyUsed ? undefined : o.body.cancel())));
+    await writable.abort(err);
+  });
   const first = names[0] ?? "clip.mp4";
   const ext = first.endsWith(".webm") ? "webm" : "mp4";
   const headers = new Headers();

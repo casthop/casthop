@@ -11,6 +11,8 @@ export const PLATFORM_BACKOFF_MAX_MS = 60_000;
 const KICK_API = "https://web.kick.com/api/v1/realtime";
 // Kick's realtime endpoints reject requests and upgrades without this Origin.
 const KICK_ORIGIN = "https://kick.com";
+// A stalled Kick call must not hold the shared tick that also retries Twitch and YouTube.
+const KICK_FETCH_MS = 10_000;
 const TWITCH_URL = "wss://irc-ws.chat.twitch.tv:443";
 const MAX_TEXT = 400;
 
@@ -137,6 +139,7 @@ async function kickPost(path: string, body: unknown): Promise<Record<string, unk
     method: "POST",
     headers: { Origin: KICK_ORIGIN, "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(KICK_FETCH_MS),
   });
   if (!res.ok) throw new Error(`kick ${path} ${res.status}`);
   const data = asObj(asObj(await res.json())?.data);

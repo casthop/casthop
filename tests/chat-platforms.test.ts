@@ -21,7 +21,7 @@ const kickFrame = (data: Record<string, unknown>) => {
   });
 };
 
-type Call = { url: string; body: unknown; origin: string | null };
+type Call = { url: string; body: unknown; origin: string | null; signal: AbortSignal | null };
 
 /** Mock Kick's two discovery POSTs. Restores fetch when done. */
 async function withKickApi(run: (calls: Call[]) => Promise<void>): Promise<void> {
@@ -29,7 +29,7 @@ async function withKickApi(run: (calls: Call[]) => Promise<void>): Promise<void>
   const calls: Call[] = [];
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
-    calls.push({ url, body: JSON.parse(String(init?.body)), origin: new Headers(init?.headers).get("Origin") });
+    calls.push({ url, body: JSON.parse(String(init?.body)), origin: new Headers(init?.headers).get("Origin"), signal: init?.signal ?? null });
     const data = url.endsWith("/auth/connection")
       ? { token: "test-token" }
       : { connections: [{ credentials: { url: KICK_URL }, provider: "centrifugo" }], mode: "websocket" };
@@ -120,6 +120,7 @@ test("kick: connect resolves the url and token, sets Origin, then connects and s
     assert.ok(calls[0]?.url.endsWith("/channels/55/chat/connection"));
     assert.ok(calls[1]?.url.endsWith("/auth/connection"));
     assert.ok(calls.every((c) => c.origin === "https://kick.com"));
+    assert.ok(calls.every((c) => c.signal !== null), "discovery calls carry a timeout signal");
     const clientId = (calls[1]?.body as { client_id: string }).client_id;
     assert.equal((calls[0]?.body as { client: { id: string } }).client.id, clientId);
     assert.deepEqual(opened, [{ url: KICK_URL, headers: { Origin: "https://kick.com" } }]);

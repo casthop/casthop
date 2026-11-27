@@ -211,6 +211,13 @@ export function allDestsFailed(destinations: readonly Destination[]): boolean {
   return rows.length > 0 && rows.every((d) => d.status === "failed");
 }
 
+/** True when this aspect's enabled outputs all failed and the other aspect has none still running. */
+export function everyOutputFailed(destinations: Destination[], aspect: DestAspect): boolean {
+  if (!allDestsFailed(destsForAspect(destinations, aspect))) return false;
+  const other = outputPhase(destinations, aspect === "landscape" ? "portrait" : "landscape");
+  return other !== "live" && other !== "connecting" && other !== "retrying";
+}
+
 /** Strip ingest URLs so guests never see a stream key in an error string. */
 export function publicError(raw: string | null | undefined): string | null {
   if (!raw) return null;

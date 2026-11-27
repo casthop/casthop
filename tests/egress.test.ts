@@ -2405,7 +2405,15 @@ test("a dead RTMP destination never turns the header Live, then the studio fails
     last = await json<PublicStudio>(res);
     assert.notEqual(last.livePhase, "live");
     assert.equal(last.live, false);
-    if (last.livePhase === "failed") break;
+    if (i === 0) {
+      // The first failed poll retries; it must not end the go-live.
+      assert.notEqual(last.livePhase, "failed");
+      assert.equal(last.destinations.find((d) => d.id === "dead")?.status, "retrying");
+    }
+    if (last.livePhase === "failed") {
+      assert.ok(i > 0, "failed only after retries");
+      break;
+    }
   }
   assert.equal(last.livePhase, "failed");
   assert.equal(last.destinations.find((d) => d.id === "dead")?.status, "failed");

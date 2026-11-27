@@ -23,6 +23,26 @@ function programStream(canvas: HTMLCanvasElement, audios: HTMLMediaElement[]): M
   return stream;
 }
 
+// Cluster (webm) ID bytes, and the "moof" box type (fmp4).
+const CLUSTER_ID = [0x1f, 0x43, 0xb6, 0x75];
+const MOOF = [0x6d, 0x6f, 0x6f, 0x66];
+
+function indexOfBytes(data: Uint8Array, needle: number[]): number {
+  for (let i = 0; i + needle.length <= data.length; i++) {
+    if (needle.every((byte, j) => data[i + j] === byte)) return i;
+  }
+  return -1;
+}
+
+/** Byte length of the container header at the start of the first chunk. */
+export function initLength(first: Uint8Array): number {
+  const cluster = indexOfBytes(first, CLUSTER_ID);
+  if (cluster >= 0) return cluster;
+  // The moof box starts 4 bytes (its size field) before its type.
+  const moof = indexOfBytes(first, MOOF);
+  return moof >= 4 ? moof - 4 : first.length;
+}
+
 export function playlistFor(segs: LiveSeg[], init: string): string {
   let target = 4;
   for (const seg of segs) {
@@ -89,9 +109,12 @@ export function startLiveProgramBuffer(opts: {
     if (stopped) return;
     // One continuous recording: its first chunk holds the container header.
     // Playlist and clips start with it; later chunks only play after it.
+    // The first chunk also carries ~4 s of media, so cut the header off it.
     if (!initBlob) {
-      initBlob = blob;
-      return;
+      const cut = initLength(new Uint8Array(await blob.arrayBuffer()));
+      initBlob = blob.slice(0, cut);
+      if (cut >= blob.size) return;
+      blob = blob.slice(cut);
     }
     const name = `seg${String(seq).padStart(3, "0")}.${ext}`;
     seq += 1;

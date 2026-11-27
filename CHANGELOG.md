@@ -53,6 +53,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 - Stream keys and full destination URLs are withheld from guests and public GET / WebSocket state.
 - Published LiveKit `devkey` is refused unless LiveKit is loopback.
 - Sign-in and token rate limits count an IPv6 /64 as one client instead of each address in it, and one address gets at most 6 sign-in mails every 15 minutes from all clients together.
+- Replay, clip and live playlists are checked against the tags casthop and ffmpeg write, and only `index.m3u8` may be a playlist. Lone CR line breaks, text after an `#EXTINF` duration, unquoted `URI=`, interstitials and nested playlists used to get past the check and make viewers' players fetch outside URLs.
 - The magic-link response includes the dev sign-in link only when `CASTHOP_DEV_LOGIN=1` is set. Under `bun run dev` the Host header and client IP the old check used are controlled by the client. CI sets the flag; set it in `.dev.vars` to run e2e or `bun run measure` locally.
 - One network can no longer take a studio's whole guest join budget or all 64 guest slots. Each network (an IPv4 address or an IPv6 /64) gets up to 10 new guests a minute and 16 slots, and a full studio frees guests who have not been in the room for a minute.
 - `bun run dev` listens on `127.0.0.1` only, not every interface. Miniflare's data explorer is off unless you set `X_LOCAL_EXPLORER=true`, and the dev server no longer serves files under `data/`.

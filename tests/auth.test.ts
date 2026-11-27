@@ -1868,6 +1868,33 @@ test("co-host invite mail is rate limited per inviting account and per recipient
   assert.equal((await invite(studios[0]!, "one-more@example.com")).status, 429, "one account, many inboxes");
 });
 
+test("co-host invites that send no mail do not use the rate budget", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "inviter2@example.com");
+  await signIn(env, "member@example.com");
+  const invite = (sid: string, email: string) =>
+    app.request(
+      `https://casthop.test/api/studios/${sid}/cohosts`,
+      { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ email }) },
+      env,
+    );
+  const studios: string[] = [];
+  for (let i = 0; i <= INVITE_EMAIL_MAX; i++) studios.push((await createStudio(env, cookie, `Studio ${i}`)).id);
+  assert.equal((await invite(studios[0]!, "same@example.com")).status, 200);
+  for (let i = 0; i < INVITE_ACCOUNT_MAX + INVITE_EMAIL_MAX; i++) {
+    assert.equal((await invite(studios[0]!, "same@example.com")).status, 409, "already invited");
+    assert.equal((await invite(studios[0]!, "inviter2@example.com")).status, 409, "already a member");
+  }
+  assert.equal((await invite(studios[0]!, "member@example.com")).status, 200, "existing account is added directly");
+  for (let i = 0; i < INVITE_ACCOUNT_MAX + INVITE_EMAIL_MAX; i++) {
+    assert.equal((await invite(studios[0]!, "member@example.com")).status, 409, "already a member");
+  }
+  for (let i = 1; i < INVITE_EMAIL_MAX; i++) {
+    assert.equal((await invite(studios[i]!, "same@example.com")).status, 200, "recipient budget still has room");
+  }
+  assert.equal((await invite(studios[INVITE_EMAIL_MAX]!, "same@example.com")).status, 429);
+});
+
 test("failed co-host invite mail does not leave a stuck pending invite", async () => {
   const env = makeEnv();
   const cookie = await signIn(env, "owner-invite@example.com");

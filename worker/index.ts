@@ -1023,14 +1023,6 @@ app.post("/api/studios/:id/cohosts", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { email?: string };
   const email = asEmail(body.email);
   if (!email) return c.json({ error: "valid email required" }, 400);
-  // Invites send mail from the operator's sender, so cap them like sign-in mail. The window is
-  // SIGNIN_WINDOW_MS because the stale rate_limits cleanup keys off it.
-  if (!(await allowRate(c.env.DB, `invite:acct:${sess.account.id}`, INVITE_ACCOUNT_MAX, SIGNIN_WINDOW_MS))) {
-    return c.json({ error: "too many invites" }, 429);
-  }
-  if (!(await allowRate(c.env.DB, `invite:email:${email}`, INVITE_EMAIL_MAX, SIGNIN_WINDOW_MS))) {
-    return c.json({ error: "too many invites" }, 429);
-  }
   if (sess.account.email === email) return c.json({ error: "already a member" }, 409);
   const existingAccount = await accountByEmail(c.env.DB, email);
   if (existingAccount) {
@@ -1043,6 +1035,14 @@ app.post("/api/studios/:id/cohosts", async (c) => {
   if (!origin) return c.json({ error: "PUBLIC_ORIGIN required" }, 503);
   const pending = await invitesForStudio(c.env.DB, id);
   if (pending.some((p) => p.email === email)) return c.json({ error: "already invited" }, 409);
+  // Only invites that send mail count. Cap them like sign-in mail; the window is
+  // SIGNIN_WINDOW_MS because the stale rate_limits cleanup keys off it.
+  if (!(await allowRate(c.env.DB, `invite:acct:${sess.account.id}`, INVITE_ACCOUNT_MAX, SIGNIN_WINDOW_MS))) {
+    return c.json({ error: "too many invites" }, 429);
+  }
+  if (!(await allowRate(c.env.DB, `invite:email:${email}`, INVITE_EMAIL_MAX, SIGNIN_WINDOW_MS))) {
+    return c.json({ error: "too many invites" }, 429);
+  }
   await insertInvite(c.env.DB, randomId(10), id, email, Date.now());
   try {
     await mailerFor(c.env).send({

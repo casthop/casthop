@@ -34,6 +34,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 - The studio list and sign-in look up memberships by account and invites by email through new indexes instead of reading every row in the deployment.
 - Clips are always cut from the 16:9 program. A 9:16 destination no longer writes the clip buffer, so clips stop coming out 720x1280.
 - Go live with a 9:16 destination no longer starts the portrait compositor several times in a few seconds. It now gets the same start grace as 16:9, only one portrait start or restart runs at a time, and a restart stops any leftover portrait compositor so two never publish to the same RTMP URL.
+- A watch during start grace no longer treats the 9:16 egress as already gone just because its id is not the 16:9 one. On a cold first go-live, before any compositor has joined, that used to stop the 9:16 compositor with "Compositor left".
 - Kick chat was broken after Kick left Pusher. It now uses Kick's public Centrifugo feed and reconnects with a fresh guest token when the old one expires.
 - Opening `/studio/:id` as a signed-in co-host invitee now shows the Accept prompt, as the invite email says. It used to show only the guest gate. After accepting, the studio opens as a co-host. Accepting from the guest join page still works.
 - The header no longer says Live when every destination has failed to connect. A failed stream no longer counts as output, even with a start time, so the header stays Starting while destinations retry and turns to Live failed once they all fail.

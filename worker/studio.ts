@@ -1360,12 +1360,14 @@ export class StudioDurableObject {
   private compositorGone(state: StudioState, identities: string[] | null, egressId = state.egressId): boolean {
     if (!identities || studioHasCompositor(identities)) return false;
     if (!state.live && !egressId) return false;
-    if (state.live) return true;
-    const ours = Boolean(egressId) && egressId === state.egressId;
-    const started = state.liveStartingAt ?? state.liveStartedAt ?? 0;
+    const portrait = Boolean(egressId) && egressId === state.portraitEgressId;
+    const ours = Boolean(egressId) && (egressId === state.egressId || portrait);
+    const started = (portrait ? state.portraitStartedAt : undefined) ?? state.liveStartingAt ?? state.liveStartedAt ?? 0;
     const grace = compositorGraceMs(this.env.CASTHOP_COMPOSITOR_GRACE_MS);
     const remaining = remainingRecoveryMs(state, Date.now(), recoveryBudgetMs(this.env.CASTHOP_RECOVERY_MS));
     const wait = remaining == null ? grace : Math.min(grace, remaining);
+    // After 16:9 is live, start grace still applies to a 9:16 egress that has not beaten yet.
+    if (state.live && !portrait) return true;
     if (ours && started && Date.now() - started < wait) return false;
     return true;
   }

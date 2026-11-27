@@ -2415,6 +2415,29 @@ test("a watch inside the start grace does not restart a 9:16 compositor that has
   assert.equal(egressStarts, starts);
 });
 
+test("a watch with no compositor yet does not stop a 9:16 egress still inside start grace", async () => {
+  listedParticipants = [{ identity: "host" }];
+  listedEgress = { items: [] };
+  const env = makeEnv({ CASTHOP_HEARTBEAT_MS: "5", CASTHOP_COMPOSITOR_GRACE_MS: "60000" });
+  const startsBefore = egressStarts;
+  const { id, stub, landscapeId } = await goLivePortrait(env);
+  assert.equal(egressStarts, startsBefore + 2);
+  const portraitId = landscapeId === `eg_${startsBefore + 1}` ? `eg_${startsBefore + 2}` : `eg_${startsBefore + 1}`;
+  listedEgress = {
+    items: [
+      { egressId: landscapeId, status: "EGRESS_STARTING" },
+      { egressId: portraitId, status: "EGRESS_STARTING" },
+    ],
+  };
+  const starts = egressStarts;
+  const stops = egressStops;
+  await new Promise((r) => setTimeout(r, 15));
+  await watchStudio(stub, id);
+  await watchStudio(stub, id);
+  assert.equal(egressStarts, starts, "must not restart the 9:16 compositor during start grace");
+  assert.equal(egressStops, stops, "must not stop the 9:16 compositor during start grace");
+});
+
 test("overlapping 9:16 restarts start one compositor and stop strays", async () => {
   listedParticipants = [{ identity: "host" }, { identity: "EG_abc" }];
   listedEgress = { items: [] };

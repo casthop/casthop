@@ -93,6 +93,9 @@ export const SCHEMA = [
   )`,
 ] as const;
 
+/** The studio list returns at most this many, newest first. */
+export const LIST_STUDIOS_MAX = 200;
+export const DEFAULT_MAX_STUDIOS = 20;
 export const LIST_REPLAYS_PER_STUDIO = 20;
 export const LIST_CLIPS_PER_STUDIO = 20;
 
@@ -120,9 +123,12 @@ export const Q = {
   deleteOauth: "DELETE FROM oauth_states WHERE state = ?",
   insertStudio: "INSERT INTO studios (id, title, created_at, owner_id, tenant_id) VALUES (?, ?, ?, ?, ?)",
   studioById: "SELECT id, title, created_at, owner_id FROM studios WHERE id = ?",
-  listStudios:
-    "SELECT s.id, s.title, s.owner_id, s.created_at, m.role FROM studios s INNER JOIN studio_members m ON m.studio_id = s.id WHERE m.account_id = ? ORDER BY s.created_at DESC",
+  listStudios: `SELECT s.id, s.title, s.owner_id, s.created_at, m.role FROM studios s INNER JOIN studio_members m ON m.studio_id = s.id WHERE m.account_id = ? ORDER BY s.created_at DESC LIMIT ${LIST_STUDIOS_MAX}`,
+  countOwnedStudios: "SELECT COUNT(*) AS n FROM studio_members WHERE account_id = ? AND role = 'owner'",
   insertMember: "INSERT INTO studio_members (studio_id, account_id, role, created_at) VALUES (?, ?, ?, ?)",
+  // One statement so parallel POSTs cannot all pass the owner cap.
+  insertOwnerIfUnderCap:
+    "INSERT INTO studio_members (studio_id, account_id, role, created_at) SELECT ?, ?, 'owner', ? WHERE (SELECT COUNT(*) FROM studio_members WHERE account_id = ? AND role = 'owner') < ?",
   memberByStudioAccount: "SELECT studio_id, account_id, role, created_at FROM studio_members WHERE studio_id = ? AND account_id = ?",
   membersByStudio:
     "SELECT m.account_id, m.role, a.email, a.name FROM studio_members m INNER JOIN accounts a ON a.id = m.account_id WHERE m.studio_id = ?",
@@ -380,6 +386,17 @@ export async function studioById(db: D1Database, id: string): Promise<{ id: stri
   return first(db, Q.studioById, id);
 }
 
+export async function ownedStudioCount(db: D1Database, accountId: string): Promise<number> {
+  const row = await first<{ n: number }>(db, Q.countOwnedStudios, accountId);
+  return row?.n ?? 0;
+}
+
+/** CASTHOP_MAX_STUDIOS, or the default when unset or not a positive whole number. */
+export function maxStudiosPerAccount(raw: string | undefined): number {
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_MAX_STUDIOS;
+}
+
 export async function listStudiosFor(db: D1Database, accountId: string): Promise<StudioRecord[]> {
   const rows = await all<{ id: string; title: string; owner_id: string; created_at: number; role: MemberRole }>(db, Q.listStudios, accountId);
   const replayRows = await all<ReplayRow>(db, Q.listReplaysForAccount, accountId);
@@ -411,6 +428,18 @@ export async function listStudiosFor(db: D1Database, accountId: string): Promise
 
 export async function insertMember(db: D1Database, studioId: string, accountId: string, role: MemberRole, createdAt: number): Promise<void> {
   await run(db, Q.insertMember, studioId, accountId, role, createdAt);
+}
+
+/** Owner row only when this account is still under the cap. False when no row was added. */
+export async function insertOwnerIfUnderCap(
+  db: D1Database,
+  studioId: string,
+  accountId: string,
+  createdAt: number,
+  maxStudios: number,
+): Promise<boolean> {
+  const res = await db.prepare(Q.insertOwnerIfUnderCap).bind(studioId, accountId, createdAt, accountId, maxStudios).run();
+  return (res.meta.changes ?? 0) > 0;
 }
 
 export async function memberFor(db: D1Database, studioId: string, accountId: string): Promise<{ role: MemberRole } | null> {

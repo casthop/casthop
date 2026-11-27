@@ -60,6 +60,7 @@ import {
   listReplaysForStudio,
   listClipsForStudio,
   listStudiosFor,
+  maxStudiosPerAccount,
   memberFor,
   membersOf,
   replayById,
@@ -313,7 +314,15 @@ app.post("/api/studios", async (c) => {
   if (signinExternal(c.env)) return c.json({ error: "signin_external" }, 403);
   const body = (await c.req.json().catch(() => ({}))) as { title?: string };
   const title = asName(body.title, "Weekly product update");
-  const created = await createStudio(c.env, { ownerId: sess.account.id, title });
+  // The owner insert is the cap, so parallel POSTs cannot all pass a separate count.
+  const created = await createStudio(c.env, {
+    ownerId: sess.account.id,
+    title,
+    maxStudios: maxStudiosPerAccount(c.env.CASTHOP_MAX_STUDIOS),
+  });
+  if (created && "limited" in created) {
+    return c.json({ error: "studio limit reached" }, 429);
+  }
   if (!created) {
     return c.json({ error: "failed to create studio" }, 500);
   }

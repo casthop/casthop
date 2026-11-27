@@ -1,4 +1,4 @@
-import { LIST_CLIPS_PER_STUDIO, LIST_REPLAYS_PER_STUDIO, Q, SCHEMA } from "../worker/db.ts";
+import { LIST_CLIPS_PER_STUDIO, LIST_REPLAYS_PER_STUDIO, LIST_STUDIOS_MAX, Q, SCHEMA } from "../worker/db.ts";
 
 type Row = Record<string, unknown>;
 
@@ -218,11 +218,18 @@ export class FakeD1 implements D1Database {
         results.push({ id: s.id, title: s.title, owner_id: s.owner_id, created_at: s.created_at, role: m.role });
       }
       results.sort((a, b) => Number(b.created_at) - Number(a.created_at));
-      return { results, changes: 0 };
+      return { results: results.slice(0, LIST_STUDIOS_MAX), changes: 0 };
     }
     if (q === norm(Q.insertMember)) {
       const [studio_id, account_id, role, created_at] = binds;
       this.rows("studio_members").push({ studio_id, account_id, role, created_at });
+      return { results: [], changes: 1 };
+    }
+    if (q === norm(Q.insertOwnerIfUnderCap)) {
+      const [studio_id, account_id, created_at, countAccountId, max] = binds;
+      const n = this.rows("studio_members").filter((r) => r.account_id === countAccountId && r.role === "owner").length;
+      if (n >= Number(max)) return { results: [], changes: 0 };
+      this.rows("studio_members").push({ studio_id, account_id, role: "owner", created_at });
       return { results: [], changes: 1 };
     }
     if (q === norm(Q.memberByStudioAccount)) {
@@ -320,6 +327,10 @@ export class FakeD1 implements D1Database {
         if (r.id === id) r.visibility = visibility;
       }
       return { results: [], changes: 1 };
+    }
+    if (q === norm(Q.countOwnedStudios)) {
+      const n = this.rows("studio_members").filter((r) => r.account_id === binds[0] && r.role === "owner").length;
+      return { results: [{ n }], changes: 0 };
     }
     if (q === norm(Q.countReplaysByStudio)) {
       const n = this.rows("replays").filter((r) => r.studio_id === binds[0]).length;

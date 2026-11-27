@@ -4,7 +4,7 @@ import { app, StudioDurableObject } from "../worker/index.ts";
 import { GUEST_STAGE_TOKEN_TTL_SEC, GUEST_TOKEN_TTL_SEC, HOST_TOKEN_TTL_SEC, signLivekitWebhook } from "../worker/livekit.ts";
 import { DEV_API_KEY, DEV_API_SECRET, GUEST_MINT_PER_SOURCE, HOST_IDENTITY, INVITE_ACCOUNT_MAX, INVITE_EMAIL_MAX, SESSION_COOKIE } from "../worker/security.ts";
 import type { Env, PublicClip, PublicReplay, PublicStudio, StudioRecord } from "../worker/types.ts";
-import { insertClip } from "../worker/db.ts";
+import { DEFAULT_MAX_STUDIOS, insertClip, maxStudiosPerAccount, ownedStudioCount } from "../worker/db.ts";
 import { clipObjectKey } from "../worker/clips.ts";
 import { HLS_INDEX } from "../worker/replays.ts";
 import { FakeD1 } from "./fake-d1.ts";
@@ -1087,6 +1087,51 @@ test("dev sign-in link needs CASTHOP_DEV_LOGIN even when Host and CF-Connecting-
   assert.equal(off.devLogin, undefined);
   const on = await json<{ ok: boolean; devLogin?: string }>(await send("1"));
   assert.ok(on.devLogin);
+});
+
+test("one account can own only a bounded number of studios", async () => {
+  const env = makeEnv({ CASTHOP_MAX_STUDIOS: "3" });
+  const cookie = await signIn(env, "many-studios@example.com");
+  for (let i = 0; i < 3; i++) await createStudio(env, cookie, `Studio ${i}`);
+  const extra = await app.request(
+    "https://casthop.test/api/studios",
+    { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ title: "One more" }) },
+    env,
+  );
+  assert.equal(extra.status, 429);
+  const other = await signIn(env, "other-owner@example.com");
+  await createStudio(env, other, "Theirs");
+  assert.equal(maxStudiosPerAccount(undefined), DEFAULT_MAX_STUDIOS);
+  assert.equal(maxStudiosPerAccount("0"), DEFAULT_MAX_STUDIOS);
+  assert.equal(maxStudiosPerAccount("50"), 50);
+});
+
+test("parallel studio creates cannot pass the per-account cap", async () => {
+  const env = makeEnv({ CASTHOP_MAX_STUDIOS: "3" });
+  const cookie = await signIn(env, "parallel-studios@example.com");
+  const responses = await Promise.all(
+    Array.from({ length: 8 }, (_, i) =>
+      app.request(
+        "https://casthop.test/api/studios",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Cookie: cookie },
+          body: JSON.stringify({ title: `Parallel ${i}` }),
+        },
+        env,
+      ),
+    ),
+  );
+  const ok = responses.filter((r) => r.status === 200);
+  const limited = responses.filter((r) => r.status === 429);
+  assert.equal(ok.length, 3);
+  assert.equal(limited.length, 5);
+  for (const res of limited) {
+    assert.equal((await json<{ error: string }>(res)).error, "studio limit reached");
+  }
+  const accountId = String(env._db.rows("accounts")[0]?.id);
+  assert.equal(await ownedStudioCount(env.DB, accountId), 3);
+  assert.equal(env._db.rows("studios").length, 3);
 });
 
 test("an on-stage guest token is short-lived, and a rejoin re-applies stage and removal", async () => {

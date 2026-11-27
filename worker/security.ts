@@ -40,16 +40,6 @@ export function isLoopbackHost(host: string): boolean {
   return /^127\.\d+\.\d+\.\d+$/.test(h);
 }
 
-export function isPrivateHost(host: string): boolean {
-  const h = normalizeHost(host);
-  if (/^(10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(h)) return true;
-  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(h)) return true;
-  if (h.includes(":") && (h.startsWith("fd") || h.startsWith("fc") || h.startsWith("fe8") || h.startsWith("fe9") || h.startsWith("fea") || h.startsWith("feb"))) {
-    return true;
-  }
-  return false;
-}
-
 export function isLoopbackUrl(raw: string | undefined): boolean {
   if (!raw) return false;
   try {
@@ -168,6 +158,59 @@ export function publicStateHasFullRtmpUrl(json: string, secretUrl: string): bool
 
 const KINDS = new Set(["youtube", "linkedin", "x", "custom"]);
 
+type HostClass = "public" | "loopback" | "internal";
+
+function ipv4Class(octets: number[]): HostClass {
+  const [a = 0, b = 0, c = 0] = octets;
+  if (a === 127) return "loopback";
+  if (a === 0 || a === 10 || a >= 224) return "internal";
+  if (a === 100 && b >= 64 && b <= 127) return "internal";
+  if (a === 169 && b === 254) return "internal";
+  if (a === 172 && b >= 16 && b <= 31) return "internal";
+  if (a === 192 && (b === 168 || (b === 0 && c === 0))) return "internal";
+  if (a === 198 && (b === 18 || b === 19)) return "internal";
+  return "public";
+}
+
+function ipv6Class(literal: string): HostClass {
+  const [head = "", tail = ""] = literal.split("::");
+  const front = head ? head.split(":") : [];
+  const back = tail ? tail.split(":") : [];
+  const fill = literal.includes("::") ? 8 - front.length - back.length : 0;
+  const words = [...front, ...Array<string>(Math.max(0, fill)).fill("0"), ...back].map((g) => parseInt(g || "0", 16));
+  if (words.length !== 8 || words.some((n) => !Number.isInteger(n))) return "internal";
+  const [w0 = 0, w1 = 0, w2 = 0, w3 = 0, w4 = 0, w5 = 0, w6 = 0, w7 = 0] = words;
+  const v4 = [w6 >> 8, w6 & 0xff, w7 >> 8, w7 & 0xff];
+  const zeroHigh = w0 === 0 && w1 === 0 && w2 === 0 && w3 === 0 && w4 === 0;
+  if (zeroHigh && w5 === 0 && w6 === 0 && w7 === 1) return "loopback";
+  // IPv4-mapped, IPv4-compatible and NAT64 addresses reach the embedded IPv4 address.
+  if (zeroHigh && (w5 === 0xffff || w5 === 0)) return ipv4Class(v4);
+  if (w0 === 0x64 && w1 === 0xff9b && w2 === 0 && w3 === 0 && w4 === 0 && w5 === 0) return ipv4Class(v4);
+  if ((w0 & 0xfe00) === 0xfc00 || (w0 & 0xffc0) === 0xfe80 || (w0 & 0xff00) === 0xff00) return "internal";
+  return "public";
+}
+
+const INTERNAL_SUFFIXES = [".local", ".internal", ".home.arpa", ".localdomain", ".lan"];
+
+/** Classify an RTMP host. Spellings other than the canonical one (167772161, 0x0a000001, 127.1) are "internal". */
+export function rtmpHostClass(host: string): HostClass {
+  const lower = host.toLowerCase();
+  let canonical: string;
+  try {
+    canonical = new URL(`http://${lower}`).hostname;
+  } catch {
+    return "internal";
+  }
+  if (canonical !== lower || !canonical) return "internal";
+  if (canonical.startsWith("[")) return ipv6Class(canonical.slice(1, -1));
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(canonical)) return ipv4Class(canonical.split(".").map(Number));
+  if (canonical === "localhost" || canonical.endsWith(".localhost")) return "loopback";
+  // A single label (redis, intranet) or a trailing dot resolves through local search domains.
+  if (!canonical.includes(".") || canonical.endsWith(".")) return "internal";
+  if (INTERNAL_SUFFIXES.some((s) => canonical.endsWith(s))) return "internal";
+  return "public";
+}
+
 export function parseRtmpUrl(raw: unknown, opts: { allowLoopback: boolean }): string | null {
   if (raw == null) return "";
   if (typeof raw !== "string") return null;
@@ -181,9 +224,11 @@ export function parseRtmpUrl(raw: unknown, opts: { allowLoopback: boolean }): st
     return null;
   }
   if (parsed.protocol !== "rtmp:" && parsed.protocol !== "rtmps:") return null;
-  const host = parsed.hostname;
-  if (isLoopbackHost(host) && !opts.allowLoopback) return null;
-  if (isPrivateHost(host)) return null;
+  // Hostnames are not resolved here, so a public name that points at an internal address
+  // still passes. This only refuses what the URL itself says.
+  const kind = rtmpHostClass(parsed.hostname);
+  if (kind === "internal") return null;
+  if (kind === "loopback" && !opts.allowLoopback) return null;
   return url;
 }
 

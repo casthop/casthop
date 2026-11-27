@@ -515,6 +515,61 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
       expect: { owner: 200, cohost: 200, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
     },
     {
+      name: "POST iso-pref",
+      path: `/api/studios/${id}/iso-pref`,
+      init: { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ separateRecordings: true }) },
+      expect: { owner: 200, cohost: 200, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
+    },
+    {
+      name: "POST iso start",
+      path: `/api/studios/${id}/iso`,
+      init: {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          identity: guestMint.identity,
+          guestSecret: guestMint.guestSecret,
+          kind: "camera",
+          mimeType: "video/webm",
+          sessionId: "none",
+          startedAt: 1,
+        }),
+      },
+      expect: { owner: 409, cohost: 409, guest: 409, signedOut: 409, expired: 403, outsider: 409 },
+    },
+    {
+      name: "PUT iso chunk",
+      path: `/api/studios/${id}/iso/missing/chunks/0`,
+      init: {
+        method: "PUT",
+        headers: { "Content-Type": "application/octet-stream", "X-Casthop-Identity": guestMint.identity, "X-Casthop-Guest-Secret": guestMint.guestSecret },
+        body: new Uint8Array([1, 2, 3]),
+      },
+      expect: { owner: 404, cohost: 404, guest: 404, signedOut: 404, expired: 403, outsider: 404 },
+    },
+    {
+      name: "POST iso complete",
+      path: `/api/studios/${id}/iso/missing/complete`,
+      init: {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identity: guestMint.identity, guestSecret: guestMint.guestSecret }),
+      },
+      expect: { owner: 404, cohost: 404, guest: 404, signedOut: 404, expired: 403, outsider: 404 },
+    },
+    {
+      name: "GET recordings",
+      path: `/api/studios/${id}/recordings`,
+      init: {},
+      expect: { owner: 200, cohost: 200, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
+    },
+    {
+      name: "GET iso download",
+      path: `/api/studios/${id}/recordings/iso/missing`,
+      init: {},
+      expect: { owner: 404, cohost: 404, guest: 403, signedOut: 403, expired: 403, outsider: 403 },
+    },
+    {
       name: "POST egress-beat",
       path: `/api/studios/${id}/egress-beat`,
       init: { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },

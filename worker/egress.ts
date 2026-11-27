@@ -690,6 +690,9 @@ export function normalizeStudio(state: StudioState): StudioState {
     portraitRecoveringSince: state.portraitRecoveringSince ?? null,
     emptySince: state.emptySince ?? null,
     pinnedChat: state.pinnedChat ?? null,
+    separateRecordings: state.separateRecordings ?? false,
+    isoSessionId: state.isoSessionId ?? null,
+    isoTracks: state.isoTracks ?? [],
     destinations: state.destinations.map((d) => ({
       ...d,
       aspect: destAspectOf(d),

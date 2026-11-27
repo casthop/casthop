@@ -22,6 +22,11 @@ describe("studio shell", { session: "host" }, () => {
     await expect(screen.getByRole("textbox", "Lower third")).toBeVisible();
     await expect(screen.getByRole("heading", "Destinations")).not.toBeVisible();
 
+    await screen.getByRole("button", "Recordings").click();
+    await expect(screen.getByRole("heading", "Recordings")).toBeVisible();
+    await expect(screen.getByText("No separate recordings yet", { exact: false })).toBeVisible();
+    await expect(screen.getByRole("heading", "Lower third")).not.toBeVisible();
+
     await screen.getByRole("button", "Settings").click();
     await expect(screen.getByRole("heading", "Settings")).toBeVisible();
     await expect(screen.getByLabel("Studio title")).toBeVisible();

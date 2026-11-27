@@ -150,6 +150,8 @@ export function publicState(state: StudioState, opts: { includeUrls: boolean }):
     chat: state.chat,
     pinnedChat: state.pinnedChat ?? null,
     createdAt: state.createdAt,
+    separateRecordings: Boolean(state.separateRecordings),
+    isoSessionId: state.isoSessionId ?? null,
   };
 }
 

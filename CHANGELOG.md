@@ -24,6 +24,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 - Astro marketing site and docs in `site/`.
 - `casthop-post` CLI to inspect / remux recordings.
 - Studio and marketing site in English, Português (pt-BR), Español, Français, Deutsch, and 日本語. Browser language on first visit, then a dropdown to switch. English is the fallback.
+- Separate recordings: each host and guest on stage keeps their own audio/video in the browser, uploaded in chunks during the show, listed next to the mixed MP4 for download.
 
 ### Fixed
 

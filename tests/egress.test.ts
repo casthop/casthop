@@ -652,6 +652,45 @@ test("stop during go-live list does not start egress", async () => {
   }
 });
 
+test("go live while a stop is still waiting on LiveKit is refused, then works after", async () => {
+  listedParticipants = [{ identity: "host" }];
+  listedEgress = { items: [] };
+  const env = makeEnv();
+  const { id, cookie } = await createStudio(env);
+  const live = (on: boolean) =>
+    app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: on }) },
+      env,
+    );
+  assert.equal((await live(true)).status, 200);
+  const starts = egressStarts;
+  let release!: () => void;
+  listEgressHold = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const sawList = new Promise<void>((resolve) => {
+    listEgressStarted = resolve;
+  });
+  holdNextListEgress = true;
+  const stop = live(false);
+  try {
+    await sawList;
+    const again = await live(true);
+    assert.equal(again.status, 409, await again.clone().text());
+    assert.equal(egressStarts, starts);
+    release();
+    assert.equal((await stop).status, 200);
+  } finally {
+    listEgressHold = null;
+    listEgressStarted = null;
+    holdNextListEgress = false;
+  }
+  const restarted = await live(true);
+  assert.equal(restarted.status, 200, await restarted.clone().text());
+  assert.equal(egressStarts, starts + 1);
+});
+
 test("list egress failure does not start a second compositor", async () => {
   listedParticipants = [{ identity: "host" }];
   listedEgress = { items: [] };

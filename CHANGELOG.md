@@ -31,6 +31,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 ### Fixed
 
+- Go live while End is still stopping the stream now gets "still stopping" instead of starting a compositor the stop never sees. End also stops any compositor the studio recorded while it was stopping, so nothing keeps streaming while the studio shows Not live.
 - 9:16 destinations need a custom Egress template; overlapping starts share one portrait compositor. An already-enabled 9:16 row still saves if the template is later unset.
 - 9:16 start and crash retries follow the same recovery budget as 16:9. A compositor that never beats is timed out.
 - Studio tiles attach camera video when the track arrives after the first render.

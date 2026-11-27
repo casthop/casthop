@@ -89,6 +89,32 @@ export function originAllowed(request: Request): boolean {
   }
 }
 
+const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/**
+ * A cookie-authenticated write from another origin. SameSite=Lax already stops other sites;
+ * this also stops a sibling origin on the same site (uploads.example.com, or http:// vs https://).
+ * Requests with neither Origin nor Sec-Fetch-Site are not from a browser and are left alone.
+ */
+export function crossOriginCookieWrite(request: Request, env: Pick<Env, "PUBLIC_ORIGIN">): boolean {
+  if (!UNSAFE_METHODS.has(request.method)) return false;
+  const cookies = request.headers.get("Cookie") ?? "";
+  if (!cookies.split(";").some((part) => part.trim().startsWith(`${SESSION_COOKIE}=`))) return false;
+  const origin = request.headers.get("Origin");
+  if (origin) {
+    const allowed = new Set<string>();
+    try {
+      allowed.add(new URL(request.url).origin);
+      if (env.PUBLIC_ORIGIN?.trim()) allowed.add(new URL(env.PUBLIC_ORIGIN.trim()).origin);
+    } catch {
+      return true;
+    }
+    return !allowed.has(origin);
+  }
+  const site = request.headers.get("Sec-Fetch-Site");
+  return site !== null && site !== "same-origin" && site !== "none";
+}
+
 export function claimIsHeld(startedAt: number | undefined, now = Date.now()): boolean {
   return typeof startedAt === "number" && now - startedAt < CLAIM_STALE_MS;
 }

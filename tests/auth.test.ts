@@ -1086,6 +1086,42 @@ test("dev sign-in link needs CASTHOP_DEV_LOGIN even when Host and CF-Connecting-
   assert.ok(on.devLogin);
 });
 
+test("cookie writes from another origin on the same site are refused", async () => {
+  const env = makeEnv();
+  const ownerCookie = await signIn(env, "csrf-owner@example.com");
+  const { id } = await createStudio(env, ownerCookie);
+  const invite = (headers: Record<string, string>) =>
+    app.request(
+      `https://casthop.test/api/studios/${id}/cohosts`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "text/plain", Cookie: ownerCookie, ...headers },
+        body: JSON.stringify({ email: "attacker@example.net" }),
+      },
+      env,
+    );
+  assert.equal((await invite({ Origin: "https://uploads.casthop.test", "Sec-Fetch-Site": "same-site" })).status, 403);
+  assert.equal((await invite({ Origin: "http://casthop.test" })).status, 403, "http sibling");
+  assert.equal((await invite({ "Sec-Fetch-Site": "same-site" })).status, 403, "no Origin, same-site fetch");
+  assert.equal((await invite({ "Sec-Fetch-Site": "cross-site" })).status, 403);
+  const listed = await json<{ pending: { email: string }[] }>(
+    await app.request(`https://casthop.test/api/studios/${id}/cohosts`, { headers: { Cookie: ownerCookie } }, env),
+  );
+  assert.equal(listed.pending.length, 0);
+
+  assert.equal((await invite({ Origin: "https://casthop.test", "Sec-Fetch-Site": "same-origin" })).status, 200);
+  const guest = await app.request(
+    `https://casthop.test/api/studios/${id}/token`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: "https://elsewhere.example", "Sec-Fetch-Site": "cross-site" },
+      body: JSON.stringify({ name: "Guest", role: "guest" }),
+    },
+    env,
+  );
+  assert.equal(guest.status, 200, "requests without the session cookie are not affected");
+});
+
 test("H2: default LiveKit keys are refused off loopback", async () => {
   const env = makeEnv({
     CASTHOP_ALLOW_DEV_KEYS: undefined,

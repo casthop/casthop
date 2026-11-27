@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { app, StudioDurableObject } from "../worker/index.ts";
 import { GUEST_STAGE_TOKEN_TTL_SEC, GUEST_TOKEN_TTL_SEC, HOST_TOKEN_TTL_SEC, signLivekitWebhook } from "../worker/livekit.ts";
-import { DEV_API_KEY, DEV_API_SECRET, GUEST_MINT_PER_SOURCE, HOST_IDENTITY, INVITE_ACCOUNT_MAX, INVITE_EMAIL_MAX, SESSION_COOKIE } from "../worker/security.ts";
+import { DEV_API_KEY, DEV_API_SECRET, GUEST_MINT_PER_SOURCE, HOST_IDENTITY, INVITE_ACCOUNT_MAX, INVITE_EMAIL_MAX, SESSION_COOKIE, SIGNIN_EMAIL_MAX, SIGNIN_TO_GAP_MS, SIGNIN_TO_MAX, STUDIO_WS_IP_HEADER } from "../worker/security.ts";
 import type { Env, PublicClip, PublicReplay, PublicStudio, StudioRecord } from "../worker/types.ts";
-import { insertClip } from "../worker/db.ts";
+import { DEFAULT_MAX_STUDIOS, insertClip, maxStudiosPerAccount, ownedStudioCount } from "../worker/db.ts";
 import { clipObjectKey } from "../worker/clips.ts";
 import { HLS_INDEX } from "../worker/replays.ts";
 import { FakeD1 } from "./fake-d1.ts";
@@ -1089,6 +1089,51 @@ test("dev sign-in link needs CASTHOP_DEV_LOGIN even when Host and CF-Connecting-
   assert.ok(on.devLogin);
 });
 
+test("one account can own only a bounded number of studios", async () => {
+  const env = makeEnv({ CASTHOP_MAX_STUDIOS: "3" });
+  const cookie = await signIn(env, "many-studios@example.com");
+  for (let i = 0; i < 3; i++) await createStudio(env, cookie, `Studio ${i}`);
+  const extra = await app.request(
+    "https://casthop.test/api/studios",
+    { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ title: "One more" }) },
+    env,
+  );
+  assert.equal(extra.status, 429);
+  const other = await signIn(env, "other-owner@example.com");
+  await createStudio(env, other, "Theirs");
+  assert.equal(maxStudiosPerAccount(undefined), DEFAULT_MAX_STUDIOS);
+  assert.equal(maxStudiosPerAccount("0"), DEFAULT_MAX_STUDIOS);
+  assert.equal(maxStudiosPerAccount("50"), 50);
+});
+
+test("parallel studio creates cannot pass the per-account cap", async () => {
+  const env = makeEnv({ CASTHOP_MAX_STUDIOS: "3" });
+  const cookie = await signIn(env, "parallel-studios@example.com");
+  const responses = await Promise.all(
+    Array.from({ length: 8 }, (_, i) =>
+      app.request(
+        "https://casthop.test/api/studios",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Cookie: cookie },
+          body: JSON.stringify({ title: `Parallel ${i}` }),
+        },
+        env,
+      ),
+    ),
+  );
+  const ok = responses.filter((r) => r.status === 200);
+  const limited = responses.filter((r) => r.status === 429);
+  assert.equal(ok.length, 3);
+  assert.equal(limited.length, 5);
+  for (const res of limited) {
+    assert.equal((await json<{ error: string }>(res)).error, "studio limit reached");
+  }
+  const accountId = String(env._db.rows("accounts")[0]?.id);
+  assert.equal(await ownedStudioCount(env.DB, accountId), 3);
+  assert.equal(env._db.rows("studios").length, 3);
+});
+
 test("an on-stage guest token is short-lived, and a rejoin re-applies stage and removal", async () => {
   const env = makeEnv();
   const ownerCookie = await signIn(env, "grants-owner@example.com");
@@ -1286,6 +1331,21 @@ test("the ws route forwards only the upgrade, never the client's query, to the s
   assert.equal(new URL(seen[0]!.url).search, "");
   assert.equal(seen[0]!.method, "GET");
   assert.equal(seen[0]!.headers.get("Upgrade"), "websocket");
+  assert.equal(seen[0]!.headers.get(STUDIO_WS_IP_HEADER), "local");
+
+  const spoof = await app.request(
+    `https://casthop.test/api/studios/${id}/ws`,
+    {
+      headers: {
+        Upgrade: "WebSocket",
+        [STUDIO_WS_IP_HEADER]: "spoofed",
+        "cf-connecting-ip": "2001:db8:1:2:3:4:5:6",
+      },
+    },
+    env,
+  );
+  assert.equal(spoof.status, 200);
+  assert.equal(seen[1]!.headers.get(STUDIO_WS_IP_HEADER), "2001:db8:1:2::/64");
 });
 
 test("the studio refuses actions that do not come as POST or PUT", async () => {
@@ -1556,6 +1616,103 @@ test("email sign-in limit is per email and IP, so another client can still get a
   }
   const sent = logs.filter((line) => line.includes("casthop mail") && line.includes("victim@example.com"));
   assert.equal(sent.length, 4);
+});
+
+test("sign-in mail limits treat one IPv6 /64 as one client and cap each inbox overall", async () => {
+  const env = makeEnv();
+  const logs: string[] = [];
+  const origLog = console.log;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map(String).join(" "));
+  };
+  const ask = (ip: string, email: string) =>
+    app.request(
+      "https://casthop.test/api/auth/magic-link",
+      { method: "POST", headers: { "Content-Type": "application/json", "cf-connecting-ip": ip }, body: JSON.stringify({ email }) },
+      env,
+    );
+  const mailsTo = (email: string) => logs.filter((line) => line.includes("casthop mail") && line.includes(email)).length;
+  try {
+    for (let i = 1; i <= 4; i++) await ask(`2001:db8:aa:1::${i}`, "inbox@example.com");
+    assert.equal(mailsTo("inbox@example.com"), SIGNIN_EMAIL_MAX, "four addresses in one /64 are one client");
+    assert.equal((await ask("2001:db8:aa:2::1", "inbox@example.com")).status, 200);
+    assert.equal(mailsTo("inbox@example.com"), SIGNIN_EMAIL_MAX + 1, "another /64 still gets a link");
+
+    for (let net = 10; net < 10 + SIGNIN_TO_MAX + 5; net++) await ask(`2001:db8:bb:${net}::1`, "flooded@example.com");
+    assert.equal(mailsTo("flooded@example.com"), SIGNIN_TO_MAX, "many networks share one ceiling per inbox");
+
+    for (let i = 0; i < 5; i++) await ask("2001:db8:cc:1::1", "spam@example.com");
+    const row = env._db.rows("rate_limits").find((r) => r.key === "signin:to:spam@example.com");
+    assert.equal(row?.count, SIGNIN_EMAIL_MAX, "throttled requests do not use the inbox budget");
+  } finally {
+    console.log = origLog;
+  }
+});
+
+test("parallel sign-in from different networks cannot blow past the inbox cap", async () => {
+  const env = makeEnv();
+  const logs: string[] = [];
+  const origLog = console.log;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map(String).join(" "));
+  };
+  try {
+    const results = await Promise.all(
+      Array.from({ length: SIGNIN_TO_MAX + 10 }, (_, i) =>
+        app.request(
+          "https://casthop.test/api/auth/magic-link",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "cf-connecting-ip": `2001:db8:ff:${i + 1}::1` },
+            body: JSON.stringify({ email: "burst@example.com" }),
+          },
+          env,
+        ),
+      ),
+    );
+    assert.ok(results.every((r) => r.status === 200));
+  } finally {
+    console.log = origLog;
+  }
+  const sent = logs.filter((line) => line.includes("casthop mail") && line.includes("burst@example.com"));
+  assert.equal(sent.length, SIGNIN_TO_MAX);
+  assert.equal(env._db.rows("magic_links").filter((r) => r.email === "burst@example.com").length, SIGNIN_TO_MAX);
+});
+
+test("inbox cap still allows one sign-in mail a minute later", async () => {
+  const env = makeEnv();
+  const logs: string[] = [];
+  const origLog = console.log;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map(String).join(" "));
+  };
+  const ask = (ip: string) =>
+    app.request(
+      "https://casthop.test/api/auth/magic-link",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "cf-connecting-ip": ip },
+        body: JSON.stringify({ email: "drip@example.com" }),
+      },
+      env,
+    );
+  const mails = () => logs.filter((line) => line.includes("casthop mail") && line.includes("drip@example.com")).length;
+  try {
+    for (let net = 1; net <= SIGNIN_TO_MAX; net++) await ask(`2001:db8:dd:${net}::1`);
+    assert.equal(mails(), SIGNIN_TO_MAX);
+    assert.equal((await ask(`2001:db8:dd:${SIGNIN_TO_MAX + 1}::1`)).status, 200);
+    assert.equal(mails(), SIGNIN_TO_MAX, "still blocked until a minute has passed");
+
+    const row = env._db.rows("rate_limits").find((r) => r.key === "signin:to:drip@example.com");
+    assert.ok(row);
+    row.last_at = Date.now() - SIGNIN_TO_GAP_MS - 1;
+    assert.equal((await ask(`2001:db8:dd:${SIGNIN_TO_MAX + 2}::1`)).status, 200);
+    assert.equal(mails(), SIGNIN_TO_MAX + 1, "one mail after a minute");
+    assert.equal((await ask(`2001:db8:dd:${SIGNIN_TO_MAX + 3}::1`)).status, 200);
+    assert.equal(mails(), SIGNIN_TO_MAX + 1, "not another until a minute later");
+  } finally {
+    console.log = origLog;
+  }
 });
 
 test("parallel sign-in rate limit does not 500", async () => {
@@ -2025,6 +2182,8 @@ test("failed mail webhook returns an error instead of pretending the link was se
   assert.equal(res.status, 502);
   const body = await json<{ error: string }>(res);
   assert.match(body.error, /could not send/);
+  const row = env._db.rows("rate_limits").find((r) => r.key === "signin:to:hook@example.com");
+  assert.equal(row?.count ?? 0, 0, "failed send gives the inbox slot back");
 });
 
 test("co-host invite answers the same for any email and adds nobody until they accept", async () => {

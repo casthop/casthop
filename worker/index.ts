@@ -14,6 +14,7 @@ import {
   INVITE_ACCOUNT_MAX,
   INVITE_EMAIL_MAX,
   ipBucket,
+  STUDIO_WS_IP_HEADER,
   isHostIdentity,
   isSecureRequest,
   OAUTH_COOKIE,
@@ -60,6 +61,7 @@ import {
   listReplaysForStudio,
   listClipsForStudio,
   listStudiosFor,
+  maxStudiosPerAccount,
   memberFor,
   membersOf,
   replayById,
@@ -91,10 +93,12 @@ import {
   ISO_CHUNK_MAX,
   ISO_CHUNK_MAX_BYTES,
   ISO_CHUNK_WINDOW_MS,
+  ISO_PUT_TIMEOUT_MS,
   isoChunkKey,
   isoPrefix,
   listIsoChunkKeys,
   parseChunkIndex,
+  withTimeout,
 } from "./iso";
 import type { IsoTrack } from "./types";
 import {
@@ -313,7 +317,15 @@ app.post("/api/studios", async (c) => {
   if (signinExternal(c.env)) return c.json({ error: "signin_external" }, 403);
   const body = (await c.req.json().catch(() => ({}))) as { title?: string };
   const title = asName(body.title, "Weekly product update");
-  const created = await createStudio(c.env, { ownerId: sess.account.id, title });
+  // The owner insert is the cap, so parallel POSTs cannot all pass a separate count.
+  const created = await createStudio(c.env, {
+    ownerId: sess.account.id,
+    title,
+    maxStudios: maxStudiosPerAccount(c.env.CASTHOP_MAX_STUDIOS),
+  });
+  if (created && "limited" in created) {
+    return c.json({ error: "studio limit reached" }, 429);
+  }
   if (!created) {
     return c.json({ error: "failed to create studio" }, 500);
   }
@@ -628,6 +640,8 @@ app.get("/api/studios/:id/ws", async (c) => {
   // Forward the upgrade only. The client's URL and query must not reach the action dispatcher.
   const headers = new Headers(c.req.raw.headers);
   headers.set("Upgrade", "websocket");
+  headers.delete(STUDIO_WS_IP_HEADER);
+  headers.set(STUDIO_WS_IP_HEADER, ipBucket(requestIp(c)));
   return studioStub(c.env, id).fetch(new Request(`https://studio/${id}`, { headers }));
 });
 
@@ -635,7 +649,7 @@ app.post("/api/studios/:id/token", async (c) => {
   // Guest join + host refresh. JWT is WebCrypto HMAC; workers-rs did not beat it (MEASUREMENTS.md).
   const id = c.req.param("id");
   const ip = requestIp(c);
-  if (!(await allowRate(c.env.DB, `token:ip:${ip}`, TOKEN_IP_MAX, TOKEN_IP_WINDOW_MS))) {
+  if (!(await allowRate(c.env.DB, `token:ip:${ipBucket(ip)}`, TOKEN_IP_MAX, TOKEN_IP_WINDOW_MS))) {
     return c.json({ error: "too many joins" }, 429);
   }
   const body = (await c.req.json().catch(() => ({}))) as {
@@ -932,12 +946,21 @@ app.put("/api/studios/:id/iso/:trackId/chunks/:index", async (c) => {
   // Validate, write to R2, then count: a failed put never leaves a phantom chunk.
   const check = await doAction(c.env, id, "iso-chunk", chunk);
   if (!check.ok) return new Response(check.body, { status: check.status, headers: check.headers });
+  const { nonce } = (await check.json()) as { nonce?: string };
   try {
-    await (await storeFor(c.env, id)).RECORDINGS.put(isoChunkKey(id, trackId, index), buf);
+    const store = await storeFor(c.env, id);
+    if (!nonce) {
+      await doAction(c.env, id, "iso-chunk", { ...chunk, abort: true });
+      return c.json({ error: "upload failed" }, 502);
+    }
+    await withTimeout(store.RECORDINGS.put(isoChunkKey(id, trackId, index, nonce), buf), ISO_PUT_TIMEOUT_MS);
   } catch {
+    // Don't wait for a hung put. Abort now so the request can return. The put is not
+    // cancelled, but it can only land on this attempt's nonce key, not a retry's.
+    await doAction(c.env, id, "iso-chunk", { ...chunk, nonce, abort: true });
     return c.json({ error: "upload failed" }, 502);
   }
-  const res = await doAction(c.env, id, "iso-chunk", { ...chunk, commit: true });
+  const res = await doAction(c.env, id, "iso-chunk", { ...chunk, nonce, commit: true });
   return new Response(res.body, { status: res.status, headers: res.headers });
 });
 
@@ -975,9 +998,14 @@ app.get("/api/studios/:id/recordings/iso/:trackId", async (c) => {
   if (!host) return c.json({ error: "host access required" }, 403);
   const res = await doAction(c.env, id, "iso-get", { hostKey: host.hostKey, trackId });
   if (!res.ok) return new Response(res.body, { status: res.status, headers: res.headers });
-  const data = (await res.json()) as { track: IsoTrack };
+  const data = (await res.json()) as { track: IsoTrack; nonces?: string[] };
   const store = await storeFor(c.env, id);
-  const keys = downloadChunkKeys(await listIsoChunkKeys(store.RECORDINGS, id, trackId), isoPrefix(id, trackId), data.track.chunks);
+  const keys = downloadChunkKeys(
+    await listIsoChunkKeys(store.RECORDINGS, id, trackId),
+    isoPrefix(id, trackId),
+    data.track.chunks,
+    data.nonces,
+  );
   if (!keys.length) return c.json({ error: "track not found" }, 404);
   const filename = downloadName(data.track);
   return new Response(concatChunkStream(store.RECORDINGS, keys), {
@@ -1052,7 +1080,7 @@ app.post("/api/studios/:id/cohosts", async (c) => {
     return c.json({ error: "too many invites" }, 429);
   }
   if (!(await allowRate(c.env.DB, emailKey, INVITE_EMAIL_MAX, SIGNIN_WINDOW_MS))) {
-    await refundRate(c.env.DB, acctKey);
+    await refundRate(c.env.DB, acctKey, SIGNIN_WINDOW_MS);
     return c.json({ error: "too many invites" }, 429);
   }
   await insertInvite(c.env.DB, randomId(10), id, email, Date.now());
@@ -1064,8 +1092,8 @@ app.post("/api/studios/:id/cohosts", async (c) => {
     });
   } catch (err) {
     await deleteInvite(c.env.DB, id, email);
-    await refundRate(c.env.DB, acctKey);
-    await refundRate(c.env.DB, emailKey);
+    await refundRate(c.env.DB, acctKey, SIGNIN_WINDOW_MS);
+    await refundRate(c.env.DB, emailKey, SIGNIN_WINDOW_MS);
     if (err instanceof MailSendError) return c.json({ error: "could not send invite" }, 502);
     throw err;
   }

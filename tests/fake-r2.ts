@@ -96,6 +96,8 @@ export class FakeR2 implements R2Bucket {
   listCalls = 0;
   headCalls = 0;
   failNextPut = false;
+  /** Awaited inside the next put, before it stores anything. */
+  holdNextPut: Promise<void> | null = null;
 
   async head(key: string): Promise<R2Object | null> {
     this.headCalls += 1;
@@ -116,6 +118,11 @@ export class FakeR2 implements R2Bucket {
       throw new Error("r2 put failed");
     }
     const bytes = await toBytes(value);
+    if (this.holdNextPut) {
+      const hold = this.holdNextPut;
+      this.holdNextPut = null;
+      await hold;
+    }
     const stored: Stored = {
       bytes,
       httpMetadata: options?.httpMetadata,

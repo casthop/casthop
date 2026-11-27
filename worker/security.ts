@@ -22,6 +22,10 @@ export const ABSENT_GUEST_GRACE_MS = 60_000;
 export const SIGNIN_WINDOW_MS = 15 * 60 * 1000;
 export const SIGNIN_IP_MAX = 5;
 export const SIGNIN_EMAIL_MAX = 3;
+/** Mails actually sent to one address from all clients together. After this, one more per SIGNIN_TO_GAP_MS. */
+export const SIGNIN_TO_MAX = 20;
+/** After the inbox burst cap, wait this long since the last sent mail before allowing one more. */
+export const SIGNIN_TO_GAP_MS = 60_000;
 /** Co-host invites per inviting account, and per recipient across all studios, per SIGNIN_WINDOW_MS. */
 export const INVITE_ACCOUNT_MAX = 10;
 export const INVITE_EMAIL_MAX = 2;
@@ -334,6 +338,10 @@ export function sanitizeDestinations(
 
 /** Sockets one studio keeps open. Every state write is sent to each of them. */
 export const MAX_STUDIO_SOCKETS = 256;
+/** Concurrent state sockets from one IPv4 address or IPv6 /64. The 256 cap is a backstop. */
+export const MAX_STUDIO_SOCKETS_PER_IP = 8;
+/** Set by the Worker on a socket upgrade; a client-supplied value is ignored. */
+export const STUDIO_WS_IP_HEADER = "x-casthop-ip-bucket";
 
 // Control characters are invisible but JSON-escape to six bytes each, and chat rides in every broadcast.
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/g;

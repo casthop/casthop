@@ -1,4 +1,4 @@
-import { deleteStudioRows, insertMember, insertStudioRow, studiosOfTenant } from "./db";
+import { deleteStudioRows, insertMember, insertOwnerIfUnderCap, insertStudioRow, studiosOfTenant } from "./db";
 import { hostKeyFor, randomId, sha256hex } from "./security";
 import { deleteAllUnder, scopeStore, tenantKeyPrefix } from "./tenant";
 import type { Env } from "./types";
@@ -12,16 +12,24 @@ function studioKeyPrefixes(studioId: string): string[] {
   return [`live/${studioId}/`, `clips/${studioId}/`, `replays/${studioId}/`, `iso/${studioId}/`];
 }
 
-/** Row, owner membership and Durable Object for a new studio. Null if the Durable Object refuses it. */
+/** Row, owner membership and Durable Object for a new studio. `limited` if the owner cap refused the insert. Null if the Durable Object refuses it. */
 export async function createStudio(
   env: Env,
-  input: { ownerId: string; title: string; tenantId?: string },
-): Promise<{ id: string; title: string } | null> {
+  input: { ownerId: string; title: string; tenantId?: string; maxStudios?: number },
+): Promise<{ id: string; title: string } | { limited: true } | null> {
   const id = randomId(8).toLowerCase();
   const hostKeyHash = await sha256hex(await hostKeyFor(env, id));
   const createdAt = Date.now();
   await insertStudioRow(env.DB, id, input.title, createdAt, input.ownerId, input.tenantId);
-  await insertMember(env.DB, id, input.ownerId, "owner", createdAt);
+  if (input.maxStudios !== undefined) {
+    const added = await insertOwnerIfUnderCap(env.DB, id, input.ownerId, createdAt, input.maxStudios);
+    if (!added) {
+      await deleteStudioRows(env.DB, id);
+      return { limited: true };
+    }
+  } else {
+    await insertMember(env.DB, id, input.ownerId, "owner", createdAt);
+  }
   const created = await studioStub(env, id).fetch(`https://studio/${id}?action=create`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

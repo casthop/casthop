@@ -1,71 +1,91 @@
 ---
 title: セルフホスト
-description: メディアプレーンは自分で動かし、Worker をコントロールプレーンとしてデプロイする。
+description: メディアサーバーを自分で動かし、アプリを Cloudflare Workers にデプロイします。
 group: 運用
 order: 3
 ---
 
-Casthop は、LiveKit の Twirp API でやり取りする二つの半面でできています。
+Casthop は 2 つの部分でできています。
 
-- **メディアプレーン:** LiveKit、Egress、Redis、RTMP エッジ。
-- **コントロールプレーン:** Durable Objects と D1 付きの Cloudflare Worker。
+- **メディアサーバー:** LiveKit（ブラウザ間で音声と映像を運びます）、Egress（ミックス、録画、配信を行います）、Redis（両者をつなぎます）、RTMP サーバー。自分で管理するマシンの Docker で動かします。
+- **アプリサーバー:** Durable Objects（スタジオごとに 1 つ）と D1（小さなデータベース）を使う Cloudflare Worker。スタジオの UI と API を提供します。
 
-リポジトリの [`docker-compose.yml`](https://github.com/casthop/casthop/blob/main/docker-compose.yml) が、ローカル用のメディアプレーンです。設定ファイルは [`infra/`](https://github.com/casthop/casthop/tree/main/infra) にあります。
+まず [ローカルのクイックスタート](/docs/getting-started) を動かしてください。セルフホストは、同じ構成を本物のキーと公開アドレスで動かすものです。
 
-## 1. メディアプレーン
+## 1. メディアサーバーを動かす
 
-LiveKit、Egress、Redis に加えて、RTMP エッジを動かします。エッジは MediaMTX（compose が使うもの）、nginx-rtmp、あるいは YouTube のような本番の配信先でも構いません。
+[`docker-compose.yml`](https://github.com/casthop/casthop/blob/main/docker-compose.yml) と、[`infra/`](https://github.com/casthop/casthop/tree/main/infra) の設定ファイルから始めます。ローカルでは `127.0.0.1` にバインドします。サーバーでは、LiveKit にゲストから届く必要があり、ふつうは TLS の背後の `wss://` にします。RTMP サーバーには、MediaMTX や nginx-rtmp を使えます。YouTube などの本物のサイトにだけ配信するなら、なくても構いません。
 
-## 2. 本番の API キー
+## 2. 本物の API キーを作る
 
-リポジトリに入っている公開 `devkey` ペアは、ローカル専用です。本番用のキーを作ってください:
+リポジトリには、公開テスト用のキー（`devkey`）が入っています。自分のキーを作ります。
 
 ```bash
 lk generate-keys
 ```
 
-`infra/livekit.yaml` と `infra/egress.yaml` のローカル既定値を差し替えます。
+キーとシークレットを、`infra/livekit.yaml`（`keys:` と `webhook.api_key`）と `infra/egress.yaml` に入れます。テスト用のキーを、`127.0.0.1` にない LiveKit と組み合わせて使うと、アプリは 503 を返します。これは意図した動作です。
 
-公開 `devkey` をループバック以外の LiveKit URL と組み合わせると、Worker は 503 を返します。意図した動きです。
-
-## 3. Webhooks
-
-LiveKit の `webhook.urls` を次に向けます:
-
-```
-https://<worker>/api/livekit/webhook
-```
-
-Webhook は署名付きです。Egress のクラッシュや RTMP の切断がスタジオに届き、再試行できます。Live 表示は、本当の出力（バイト数 / 尺、または短い RTMP の settle）を待ってから Live になります。
-
-## 4. Worker をデプロイする
+## 3. Cloudflare のリソースを作る
 
 ```bash
-wrangler deploy
+bunx wrangler d1 create casthop
+bunx wrangler r2 bucket create casthop-recordings
 ```
 
-秘密情報は Worker secrets に置き、git には入れないでください:
+表示された D1 の `database_id` を `wrangler.jsonc` にコピーします。テーブルは最初のリクエストで作られるので、マイグレーションの手順はありません。
+
+## 4. 変数とシークレットを設定する
+
+`wrangler.jsonc` の `vars` に、少なくとも `LIVEKIT_API_KEY`、`LIVEKIT_HTTP_URL`、`PUBLIC_LIVEKIT_URL`、`EGRESS_TEMPLATE_URL`、`PUBLIC_ORIGIN` を設定します。そのあと、シークレットを追加します。
 
 ```bash
-wrangler secret put LIVEKIT_API_SECRET
-wrangler secret put HOST_KEY_SECRET
+bunx wrangler secret put LIVEKIT_API_SECRET
+bunx wrangler secret put HOST_KEY_SECRET
 ```
 
-専用の `HOST_KEY_SECRET` を設定してください。未設定だとホストキーは LiveKit のシークレットに落ちるので、LiveKit キーを回すと既存スタジオから締め出されます。
+`HOST_KEY_SECRET` には、別のランダムな値を使ってください。設定しないと、ホストキーに LiveKit のシークレットが使われるため、あとで LiveKit のキーを変えたときに、既存のスタジオに入れなくなります。
 
-## 5. 公開オリジンとプロキシ
+サインインのメールが本物のメールサービスに届くように、`MAIL_WEBHOOK_URL` を設定します。すべての設定項目は [設定](/docs/configuration) にあります。
 
-- `PUBLIC_ORIGIN` に公開サイトの URL を置きます。マジックリンクのメール、共同ホストの招待、GitHub のコールバックに使います。未設定だとループバックの Host が使われるので、本番では必ず設定し、偽装 Host が攻撃者向けのリンクを作れないようにします。
-- リバースプロキシの後ろでは `CASTHOP_TRUST_FORWARDED=1` を付け、IP ごとのサインイン制限が本当のクライアントアドレスを見るようにします。無いと全員が一つの `local` バケットを共有します。Cloudflare は `request.cf` を付けるので、そちらでは不要です。`wrangler dev` では有効にしないでください。
+## 5. ビルドとデプロイ
 
-## 6. サインイン
+```bash
+bun install
+bun run build
+bunx wrangler deploy
+```
 
-サインインはメールのマジックリンクです。既定ではリンクは Worker のコンソールに出ます。自分のメーラーへ JSON `{ to, subject, text }` を POST するには `MAIL_WEBHOOK_URL` を設定します。GitHub OAuth は任意です。[設定](/docs/configuration) を見てください。
+`https://<your site>/api/health` を開きます。`"ok":true` と表示されます。
 
-## 7. 配信先と録画
+## 6. LiveKit にアプリを指定する
 
-配信先 URL を、本番の YouTube、LinkedIn、X インジェストへ向けます。[配信先](/docs/destinations) を見てください。任意で `casthop-post normalize` を走らせ、できた MP4 をリプレイ用に R2 へコピーできます。R2 はそのつなぎとして bound されています。録画はいまのところ Egress のボリュームに残ります。
+LiveKit の `webhook.urls` を次のように設定します。
 
-## このツリーが扱わないこと
+```
+https://<your site>/api/livekit/webhook
+```
 
-厳しい NAT の向こうのゲスト向け TURN と、R2 のリプレイビューアは未出荷です。YouTube ライブチャットの取り込みは任意（Worker secrets）で、X と LinkedIn のコメントはつながっていません。カメラのぼかし、別スレッドの Canvas2D compose、出力が出てからの Live、Egress クラッシュ時の再試行は入っています。頼る前に、自分の構成を測ってください。環境変数は [設定](/docs/configuration) です。
+webhook は、LiveKit のキーで署名されます。スタジオはこれで、Egress のクラッシュや配信の途切れを知り、再試行できます。Egress が `EGRESS_TEMPLATE_URL` を開けることも必要です。
+
+## 7. プロキシ
+
+アプリが自前のリバースプロキシの背後にある場合は、`CASTHOP_TRUST_FORWARDED=1` を設定します。サインインとゲストの上限が、本物のクライアントアドレスを見るようになります。Cloudflare では不要です。
+
+## 配信先、リプレイ、クリップ
+
+- スタジオのオーナーは、スタジオごとに、本物の YouTube、LinkedIn、X、またはほかの RTMP アドレスを入力します。[配信先](/docs/destinations) を見てください。
+- ミックスした MP4 は、Egress の出力フォルダーに保存されます。`casthop-post hls` でリプレイにし、`POST /api/studios/:id/replays` で、`visibility` を `private` か `public` にして送ります。非公開のリプレイは、オーナーと共同ホスト用です。公開のリプレイは `/watch/:id` で再生されます。
+- ライブ中に **Clip**（または C キー）を押すと、直前の 30 秒か 60 秒を保存します。クリップも、非公開と公開のルールは同じです。
+
+## 組み込みの上限
+
+- サインイン: 15 分ごとに、1 つのネットワークからリンク請求 5 回、1 つのメールにリンク 3 通まで。
+- ゲスト: 1 つのネットワーク（IPv4 アドレス 1 つ、または IPv6 の /64 1 つ）につき、1 分間に新しく追加できるゲストは最大 10 人、1 つのスタジオで保持できるゲストの枠は 16 です。スタジオが満員のときは、1 分より前に退出したゲストの枠が解放されます。
+
+## まだ含まれていないもの
+
+- **TURN。** 厳しいファイアウォールの内側にいるゲストは、接続できないことがあります。必要なら、LiveKit で自分の TURN サーバーを動かしてください。
+- **X と LinkedIn のチャット。** YouTube、Twitch、Kick のチャットは使えます。X には無料のチャット API がなく、LinkedIn にはパートナー API が必要です。
+
+頼る前に、自分の環境で計測してください。記録された数値は [`MEASUREMENTS.md`](https://github.com/casthop/casthop/blob/main/MEASUREMENTS.md) にあります。

@@ -17,7 +17,7 @@ LiveKit SFU (Go)  ────────────────────�
     │  full-quality subscribe                              │
     ▼                                                      ▼
 LiveKit Egress (custom /egress-template)             Durable Object
-    │  one transcode, N RTMP URLs                    (stage, layout,
+    │  16:9 encode + optional 9:16 encode            (stage, layout,
     ├──────────────┬──────────────┐                   chat, destinations)
     ▼              ▼              ▼
  MediaMTX       MediaMTX       MediaMTX              Cloudflare Worker
@@ -30,38 +30,38 @@ LiveKit Egress (custom /egress-template)             Durable Object
 
 ## Browser
 
-Die UI ist TypeScript. Die Media-Hot-Paths sind Rust, kompiliert nach WebAssembly in `crates/casthop-media`, ohne JS-Imports, also sicher in einem AudioWorklet.
+Die UI ist TypeScript. Die Medien-Hot-Paths sind Rust, kompiliert nach WebAssembly in `crates/casthop-media`, ohne JS-Imports, damit es in einem AudioWorklet sicher läuft.
 
-- **Audio:** RNNoise-Rauschunterdrückung und VAD/Meters laufen in einem AudioWorklet, bevor das Mikro an LiveKit published wird. `?fx=js` oder `?fx=off` zum Vergleichen.
-- **Layout und Compositing:** WASM berechnet das Layout. Der Live-Compositor ist Canvas2D auf einem eigenen Worker mit OffscreenCanvas, wenn WebCodecs da ist (`?thread=main` zwingt den alten Main-Thread-Pfad). `?compose=wasm` ist der CPU-Blit, `?compose=webgpu` der Rust-GPU-Pfad, `?compose=webgpu-ts` der TypeScript-GPU-Pfad. Canvas2D bleibt Default; GPU hat im Bench nicht gewonnen.
-- **Kameraunschärfe:** nutzt MediaPipes Selfie Segmenter. `@mediapipe/tasks-vision` und das Modell laden nur, wenn Unschärfe an ist, von diesem Origin, ohne CDN.
+- **Audio:** RNNoise-Rauschunterdrückung und VAD/Meters laufen in einem AudioWorklet, bevor das Mikrofon an LiveKit veröffentlicht wird. Mit `?fx=js` oder `?fx=off` kannst du vergleichen.
+- **Layout und Compositing:** WASM berechnet das Layout. Der Live-Compositor ist Canvas2D auf einem eigenen Worker mit OffscreenCanvas, wenn WebCodecs vorhanden ist (`?thread=main` erzwingt den alten Main-Thread-Pfad). `?compose=wasm` ist der CPU-Blit, `?compose=webgpu` der Rust-GPU-Pfad, `?compose=webgpu-ts` der TypeScript-GPU-Pfad. Canvas2D bleibt Standard, die GPU hat im Benchmark nicht gewonnen.
+- **Kamera-Unschärfe:** nutzt den MediaPipe Selfie Segmenter. `@mediapipe/tasks-vision` und sein Modell laden nur, wenn die Unschärfe an ist, von diesem Origin, ohne CDN.
 
-Der CI-Job `perf` vergleicht Compositor Main vs Worker in Chrome (`PERF=1 bun run test:perf`). Zahlen: [`MEASUREMENTS.md`](https://github.com/casthop/casthop/blob/main/MEASUREMENTS.md).
+Der CI-Job `perf` vergleicht den Compositor auf Main und auf dem Worker in Chrome (`PERF=1 bun run test:perf`). Zahlen: [`MEASUREMENTS.md`](https://github.com/casthop/casthop/blob/main/MEASUREMENTS.md).
 
 ## LiveKit bleibt der SFU
 
-LiveKit (Go) ist schon der schnelle Pfad, also ersetzt Casthop ihn nicht. Browser publishen mit WebRTC-Simulcast, Egress subscribed in voller Qualität.
+LiveKit (Go) ist schon der schnelle Weg, deshalb ersetzt Casthop es nicht. Browser senden mit WebRTC-Simulcast, und Egress abonniert in voller Qualität.
 
 ## Warum Egress-Fan-out
 
-Cloudflare Stream Live braucht ein Cloudflare-Konto mit Stream, und Stream-Speicher wird im Voraus bezahlt. Dieser Prototyp meldet sich nicht für bezahlte Dienste an. Egress transkodiert schon einmal und kann viele RTMP-URLs aus diesem einen Encode ausgeben — das ist der Self-Host-Pfad. Gehostetes Casthop könnte später trotzdem ein einzelnes RTMP in Stream schieben, wenn die Delivery-Rechnung gewinnt. Siehe [`MEASUREMENTS.md`](https://github.com/casthop/casthop/blob/main/MEASUREMENTS.md) im Repo.
+Cloudflare Stream Live braucht ein Cloudflare-Konto mit aktiviertem Stream, und Stream-Speicher wird vorab bezahlt. Dieser Prototyp meldet sich nicht für bezahlte Dienste an. Egress transkodiert ohnehin einmal und kann aus diesem einen Encode viele RTMP-URLs bedienen. Das ist der Self-Hosting-Weg. Gehostetes Casthop könnte später trotzdem ein einzelnes RTMP in Stream schicken, wenn die Auslieferungsrechnung aufgeht. Siehe [`MEASUREMENTS.md`](https://github.com/casthop/casthop/blob/main/MEASUREMENTS.md) im Repo.
 
-## Control Plane
+## Steuerungsebene
 
-Die App ist ein Hono Worker mit einem Durable Object pro Studio (Bühne, Layout, Chat, Ziele) und D1 für den Studio-Index. R2 speichert die ISO-Chunks jeder Person, hochgeladen aus dem Browser während der Show. Das gemischte MP4 landet weiter auf dem Egress-Volume. Heiße Worker-Endpoints bleiben TypeScript; ein workers-rs-Port wurde gemessen (`bun run bench:worker`) und hat bei CPU, Cold Start und Bundle-Größe nicht gewonnen.
+Die App ist ein Hono Worker mit einem Durable Object pro Studio (Bühne, Layout, Chat, Ziele) und D1 für den Studio-Index. R2 speichert HLS-Replays, Live-Clips und die ISO-Chunks einzelner Personen, die jeder Browser während einer Show hochlädt. Egress schreibt das Quell-MP4 weiterhin auf das Recordings-Volume. `casthop-post hls` verpackt es, und der Worker liefert es aus. Heiße Worker-Endpunkte bleiben TypeScript. Ein workers-rs-Port wurde gemessen (`bun run bench:worker`) und hat bei CPU, Kaltstart und Bundle-Größe nicht gewonnen.
 
 ## Ziel-Chat
 
-Solange live, fragt das Studio-Durable-Object YouTube `liveChatMessages.list` ab, wenn Worker secrets gesetzt sind (`worker/chat-ingest.ts`). Kommentare landen in der Raum-Chatliste. Hosts können einen auf das Canvas2D-Overlay pinnen. Der Poll-Cursor (`liveChatId`, Page-Token) fehlt im öffentlichen Studiostatus. X und LinkedIn werden nicht übernommen.
+Solange du live bist, liest das Studio-Durable-Object den Chat von YouTube (`liveChatMessages.list`), Twitch und Kick, wenn die Einstellungen dafür gesetzt sind (`worker/chat-ingest.ts`, `worker/chat-platforms.ts`). Kommentare landen in der Chatliste des Raums. Hosts und Co-Hosts können einen davon auf das Canvas2D-Overlay pinnen. Der YouTube-Poll-Cursor fehlt im öffentlichen Studiostatus. X und LinkedIn werden nicht gelesen.
 
-## Live-Badge
+## Live-Anzeige
 
-Die Studio-Pille ist `live` nur, wenn Egress Ausgabe produziert: Stream-Bytes oder -Dauer, oder ein kurzes Settle nach RTMP-`started_at` (LiveKit kann einen Start melden, bevor MediaMTX den Stream hat). Bis dahin bleibt die Pille auf Starten. Stirbt das Compositor-Chrome, nimmt der Heartbeat Live weg und das Studio versucht es mit Backoff erneut.
+Die Studio-Anzeige steht nur dann auf `live`, wenn Egress Ausgabe erzeugt: Stream-Bytes oder -Dauer, oder eine kurze Wartezeit nach RTMP-`started_at` (LiveKit kann einen Start melden, bevor MediaMTX den Stream hat). Bis dahin bleibt die Anzeige auf Starting. Stirbt das Compositor-Chrome, nimmt der Heartbeat Live weg, und das Studio versucht es mit Backoff erneut.
 
 ## casthop-post
 
-`crates/casthop-post` inspiziert und remuxt Aufzeichnungen. Siehe [Ziele](/docs/destinations).
+`crates/casthop-post` prüft und remuxt Aufnahmen und verpackt HLS für den R2-Replay-Viewer. `clip` kopiert die letzten N Sekunden eines verpackten Ordners. Siehe [Ziele](/docs/destinations).
 
 ## Messungen
 
-Zahlen aus dem Prototyp stehen in `MEASUREMENTS.md` im Repo. Schau sie dort nach, nicht hier — sie ändern sich mit dem Code.
+Zahlen aus dem Prototyp stehen in `MEASUREMENTS.md` im Repo. Schau dort nach statt hier, denn sie ändern sich mit dem Code.

@@ -458,9 +458,11 @@ export class FakeD1 implements D1Database {
       }
       return { results: [{ count: row.count }], changes: 1 };
     }
-    if (q === norm(Q.rateByKey)) {
+    if (q === norm(Q.refundRate)) {
       const row = this.rows("rate_limits").find((r) => r.key === binds[0]);
-      return { results: row ? [{ count: row.count, window_start: row.window_start }] : [], changes: 0 };
+      if (!row) return { results: [], changes: 0 };
+      row.count = Math.max(0, Number(row.count) - 1);
+      return { results: [], changes: 1 };
     }
     throw new Error(`unhandled sql: ${q}`);
   }

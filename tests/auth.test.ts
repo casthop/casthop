@@ -235,6 +235,8 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
   );
   assert.equal(invite.status, 200, await invite.clone().text());
   const cohostCookie = await signIn(env, "cohost@example.com");
+  const accepted = await app.request(`https://casthop.test/api/studios/${id}/cohosts/accept`, { method: "POST", headers: { Cookie: cohostCookie } }, env);
+  assert.equal(accepted.status, 200);
 
   const outsiderCookie = await signIn(env, "other@example.com");
 
@@ -588,7 +590,7 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
       path: `/api/studios/${id}/iso/missing/chunks/0`,
       init: {
         method: "PUT",
-        headers: { "Content-Type": "application/octet-stream", "X-Casthop-Identity": guestMint.identity, "X-Casthop-Guest-Secret": guestMint.guestSecret },
+        headers: { "Content-Type": "application/octet-stream", "Content-Length": "3", "X-Casthop-Identity": guestMint.identity, "X-Casthop-Guest-Secret": guestMint.guestSecret },
         body: new Uint8Array([1, 2, 3]),
       },
       expect: { owner: 404, cohost: 404, guest: 404, signedOut: 404, expired: 403, outsider: 404 },
@@ -1849,6 +1851,77 @@ test("failed mail webhook returns an error instead of pretending the link was se
   assert.match(body.error, /could not send/);
 });
 
+test("co-host invite answers the same for any email and adds nobody until they accept", async () => {
+  const env = makeEnv();
+  const ownerCookie = await signIn(env, "owner-inv@example.com");
+  const { id } = await createStudio(env, ownerCookie);
+  const existingCookie = await signIn(env, "has-account@example.com");
+  const invite = async (email: string) => {
+    const res = await app.request(
+      `https://casthop.test/api/studios/${id}/cohosts`,
+      { method: "POST", headers: { "Content-Type": "application/json", Cookie: ownerCookie }, body: JSON.stringify({ email }) },
+      env,
+    );
+    return { status: res.status, body: await res.json() };
+  };
+  const known = await invite("has-account@example.com");
+  const unknown = await invite("no-account@example.com");
+  assert.equal(known.status, unknown.status);
+  assert.deepEqual(Object.keys(known.body).sort(), Object.keys(unknown.body).sort());
+  assert.equal(JSON.stringify(known.body).includes("accountId"), false);
+  assert.deepEqual(await invite("has-account@example.com"), known, "a repeat invite looks the same");
+
+  const asGuest = await json<{ viewerRole: string; cohostInvite?: boolean }>(
+    await app.request(`https://casthop.test/api/studios/${id}`, { headers: { Cookie: existingCookie } }, env),
+  );
+  assert.equal(asGuest.viewerRole, "guest", "not a member before accepting");
+  assert.equal(asGuest.cohostInvite, true);
+  const host = await app.request(
+    `https://casthop.test/api/studios/${id}/token`,
+    { method: "POST", headers: { "Content-Type": "application/json", Cookie: existingCookie }, body: JSON.stringify({ name: "Co", role: "host" }) },
+    env,
+  );
+  assert.equal(host.status, 403);
+
+  const strangerCookie = await signIn(env, "stranger-inv@example.com");
+  const notInvited = await app.request(`https://casthop.test/api/studios/${id}/cohosts/accept`, { method: "POST", headers: { Cookie: strangerCookie } }, env);
+  assert.equal(notInvited.status, 404);
+  const signedOut = await app.request(`https://casthop.test/api/studios/${id}/cohosts/accept`, { method: "POST" }, env);
+  assert.equal(signedOut.status, 401);
+
+  const accept = await app.request(`https://casthop.test/api/studios/${id}/cohosts/accept`, { method: "POST", headers: { Cookie: existingCookie } }, env);
+  assert.equal(accept.status, 200);
+  const asCohost = await json<{ viewerRole: string }>(
+    await app.request(`https://casthop.test/api/studios/${id}`, { headers: { Cookie: existingCookie } }, env),
+  );
+  assert.equal(asCohost.viewerRole, "cohost");
+
+  const me = await json<{ id: string }>(await app.request("https://casthop.test/api/auth/me", { headers: { Cookie: existingCookie } }, env));
+  const leave = await app.request(`https://casthop.test/api/studios/${id}/cohosts/${me.id}`, { method: "DELETE", headers: { Cookie: existingCookie } }, env);
+  assert.equal(leave.status, 200, "a co-host can leave");
+  const gone = await json<{ viewerRole: string }>(
+    await app.request(`https://casthop.test/api/studios/${id}`, { headers: { Cookie: existingCookie } }, env),
+  );
+  assert.equal(gone.viewerRole, "guest");
+});
+
+test("signing up or in after an invite does not grant co-host until accepted", async () => {
+  const env = makeEnv();
+  const ownerCookie = await signIn(env, "owner-late@example.com");
+  const { id } = await createStudio(env, ownerCookie);
+  const invite = await app.request(
+    `https://casthop.test/api/studios/${id}/cohosts`,
+    { method: "POST", headers: { "Content-Type": "application/json", Cookie: ownerCookie }, body: JSON.stringify({ email: "late@example.com" }) },
+    env,
+  );
+  assert.equal(invite.status, 200);
+  for (const _ of [1, 2]) {
+    const cookie = await signIn(env, "late@example.com");
+    const view = await json<{ viewerRole: string }>(await app.request(`https://casthop.test/api/studios/${id}`, { headers: { Cookie: cookie } }, env));
+    assert.equal(view.viewerRole, "guest");
+  }
+});
+
 test("co-host invite mail is rate limited per inviting account and per recipient", async () => {
   const env = makeEnv();
   const cookie = await signIn(env, "inviter@example.com");
@@ -1871,7 +1944,6 @@ test("co-host invite mail is rate limited per inviting account and per recipient
 test("co-host invites that send no mail do not use the rate budget", async () => {
   const env = makeEnv();
   const cookie = await signIn(env, "inviter2@example.com");
-  await signIn(env, "member@example.com");
   const invite = (sid: string, email: string) =>
     app.request(
       `https://casthop.test/api/studios/${sid}/cohosts`,
@@ -1882,12 +1954,8 @@ test("co-host invites that send no mail do not use the rate budget", async () =>
   for (let i = 0; i <= INVITE_EMAIL_MAX; i++) studios.push((await createStudio(env, cookie, `Studio ${i}`)).id);
   assert.equal((await invite(studios[0]!, "same@example.com")).status, 200);
   for (let i = 0; i < INVITE_ACCOUNT_MAX + INVITE_EMAIL_MAX; i++) {
-    assert.equal((await invite(studios[0]!, "same@example.com")).status, 409, "already invited");
+    assert.equal((await invite(studios[0]!, "same@example.com")).status, 200, "already invited");
     assert.equal((await invite(studios[0]!, "inviter2@example.com")).status, 409, "already a member");
-  }
-  assert.equal((await invite(studios[0]!, "member@example.com")).status, 200, "existing account is added directly");
-  for (let i = 0; i < INVITE_ACCOUNT_MAX + INVITE_EMAIL_MAX; i++) {
-    assert.equal((await invite(studios[0]!, "member@example.com")).status, 409, "already a member");
   }
   for (let i = 1; i < INVITE_EMAIL_MAX; i++) {
     assert.equal((await invite(studios[i]!, "same@example.com")).status, 200, "recipient budget still has room");
@@ -1925,6 +1993,52 @@ test("a 429 on the recipient or a failed send does not spend the account invite 
     mailWebhookStatus = 503;
     delete env.MAIL_WEBHOOK_URL;
   }
+});
+
+test("parallel co-host invites cannot exceed the rate caps", async () => {
+  const extra = 5;
+  const env = makeEnv();
+  const cookie = await signIn(env, "burst@example.com");
+  const { id } = await createStudio(env, cookie);
+  const invite = (sid: string, email: string) =>
+    app.request(
+      `https://casthop.test/api/studios/${sid}/cohosts`,
+      { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ email }) },
+      env,
+    );
+  const accountBurst = await Promise.all(
+    Array.from({ length: INVITE_ACCOUNT_MAX + extra }, (_, i) => invite(id, `p${i}@example.com`)),
+  );
+  const accountOk = accountBurst.filter((res) => res.status === 200).length;
+  const accountLimited = accountBurst.filter((res) => res.status === 429).length;
+  assert.equal(accountOk, INVITE_ACCOUNT_MAX);
+  assert.equal(accountLimited, extra);
+  const listed = await json<{ pending: { email: string }[] }>(
+    await app.request(`https://casthop.test/api/studios/${id}/cohosts`, { headers: { Cookie: cookie } }, env),
+  );
+  assert.equal(listed.pending.length, INVITE_ACCOUNT_MAX);
+
+  const other = makeEnv();
+  const otherCookie = await signIn(other, "burst-email@example.com");
+  const studios: string[] = [];
+  for (let i = 0; i < INVITE_EMAIL_MAX + extra; i++) {
+    studios.push((await createStudio(other, otherCookie, `Burst ${i}`)).id);
+  }
+  const emailBurst = await Promise.all(
+    studios.map((sid) =>
+      app.request(
+        `https://casthop.test/api/studios/${sid}/cohosts`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Cookie: otherCookie },
+          body: JSON.stringify({ email: "same-inbox@example.com" }),
+        },
+        other,
+      ),
+    ),
+  );
+  assert.equal(emailBurst.filter((res) => res.status === 200).length, INVITE_EMAIL_MAX);
+  assert.equal(emailBurst.filter((res) => res.status === 429).length, extra);
 });
 
 test("failed co-host invite mail does not leave a stuck pending invite", async () => {
@@ -2056,6 +2170,8 @@ test("removing a co-host kicks them, expires host tokens quickly, and denies rej
   );
   assert.equal(invite.status, 200, await invite.clone().text());
   const cohostCookie = await signIn(env, "cohost-kick@example.com");
+  const firstAccept = await app.request(`https://casthop.test/api/studios/${id}/cohosts/accept`, { method: "POST", headers: { Cookie: cohostCookie } }, env);
+  assert.equal(firstAccept.status, 200);
   const cohost = await json<{ id: string }>(
     await app.request("https://casthop.test/api/auth/me", { headers: { Cookie: cohostCookie } }, env),
   );
@@ -2123,6 +2239,12 @@ test("removing a co-host kicks them, expires host tokens quickly, and denies rej
     env,
   );
   assert.equal(reinvite.status, 200, await reinvite.clone().text());
+  const accepted = await app.request(
+    `https://casthop.test/api/studios/${id}/cohosts/accept`,
+    { method: "POST", headers: { Cookie: cohostCookie } },
+    env,
+  );
+  assert.equal(accepted.status, 200, await accepted.clone().text());
   const back = await json<{ token: string; expiresIn: number }>(
     await app.request(
       `https://casthop.test/api/studios/${id}/token`,

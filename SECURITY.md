@@ -24,7 +24,7 @@ The Casthop maintainers will acknowledge the report and say whether it is in sco
 
 In scope:
 
-- Auth and session handling (magic link, GitHub OAuth, owner / co-host / guest)
+- Auth and session handling (magic link, GitHub OAuth, owner / co-host / guest, the hosted-mode sign-in handoff and signed `/api/service/*` API)
 - Guest impersonation of host, leaked stream keys, unmasked destination URLs on public GET or WebSocket `state`
 - Injection or SSRF via destination URLs, names, layout, or chat
 - Secrets reaching the browser (`LIVEKIT_API_SECRET`, host keys, mail webhook tokens, YouTube API keys / OAuth refresh tokens)
@@ -48,6 +48,7 @@ These never go in git, client bundles, or logs:
 | Stream keys / full RTMP URLs | Durable Object storage. Guests and public GET / WebSocket state see a masked suffix plus `hasKey`. Owners and co-hosts get full URLs on a signed-in GET (session cookie). |
 | `GITHUB_CLIENT_SECRET`, `MAIL_WEBHOOK_TOKEN` | Worker secrets, if you use those features. |
 | `YOUTUBE_API_KEY`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN` | Worker secrets, if you ingest YouTube Live chat. The live chat id / page token cursor is not returned to guests. |
+| `CASTHOP_EXTERNAL_AUTH_KEYS`, `CASTHOP_SERVICE_KEYS` | Worker secrets, only if you use the hosted-mode hooks. |
 
 Local defaults in `.env.example` / `.dev.vars.example` (`devkey` / `casthop_dev_secret_…`) are public and loopback-only. The Worker returns 503 if that pair is used with a non-loopback LiveKit URL. Generate real keys with `lk generate-keys` before any networked deploy.
 

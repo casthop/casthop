@@ -2357,3 +2357,143 @@ test("a 9:16 compositor that never beats is restarted then capped", async () => 
   assert.notEqual(capped.livePhase, "failed");
   assert.equal(egressStarts, capStarts);
 });
+
+async function goLivePortrait(env: Env) {
+  const { id, cookie } = await createStudio(env);
+  const studio = await json<PublicStudio>(
+    await app.request(`https://casthop.test/api/studios/${id}`, { headers: { Cookie: cookie } }, env),
+  );
+  await app.request(
+    `https://casthop.test/api/studios/${id}/destinations`,
+    {
+      method: "POST",
+      headers: liveHeaders(cookie),
+      body: JSON.stringify({
+        destinations: studio.destinations.map((d) =>
+          d.id === "custom"
+            ? { ...d, url: "rtmp://ingest.example.com/live/tiktok-key", enabled: true, aspect: "portrait" }
+            : { ...d, aspect: "landscape", enabled: d.id === "youtube" },
+        ),
+      }),
+    },
+    env,
+  );
+  const go = await json<PublicStudio>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
+      env,
+    ),
+  );
+  assert.ok(go.egressId);
+  return { id, stub: env.STUDIO.get(env.STUDIO.idFromName(id)), landscapeId: go.egressId };
+}
+
+function watchStudio(stub: { fetch(req: Request): Promise<Response> }, id: string) {
+  return stub.fetch(new Request(`https://studio/${id}?action=watch`, { method: "POST", body: "{}" }));
+}
+
+test("a watch inside the start grace does not restart a 9:16 compositor that has not beaten yet", async () => {
+  listedParticipants = [{ identity: "host" }, { identity: "EG_abc" }];
+  listedEgress = { items: [] };
+  const env = makeEnv({ CASTHOP_HEARTBEAT_MS: "5", CASTHOP_COMPOSITOR_GRACE_MS: "60000" });
+  const { id, stub, landscapeId } = await goLivePortrait(env);
+  listedEgress = {
+    items: [
+      {
+        egressId: landscapeId,
+        status: "EGRESS_ACTIVE",
+        stream_results: [{ url: YT, status: "ACTIVE", started_at: Date.now() * 1e6, bytes: 4096 }],
+      },
+    ],
+  };
+  const starts = egressStarts;
+  await new Promise((r) => setTimeout(r, 15));
+  await watchStudio(stub, id);
+  await watchStudio(stub, id);
+  assert.equal(egressStarts, starts);
+});
+
+test("overlapping 9:16 restarts start one compositor and stop strays", async () => {
+  listedParticipants = [{ identity: "host" }, { identity: "EG_abc" }];
+  listedEgress = { items: [] };
+  const env = makeEnv({ CASTHOP_HEARTBEAT_MS: "5", CASTHOP_COMPOSITOR_GRACE_MS: "0" });
+  const { id, stub, landscapeId } = await goLivePortrait(env);
+  listedEgress = {
+    items: [
+      {
+        egressId: landscapeId,
+        status: "EGRESS_ACTIVE",
+        stream_results: [{ url: YT, status: "ACTIVE", started_at: Date.now() * 1e6, bytes: 4096 }],
+      },
+      { egressId: "eg_stray", status: "EGRESS_ACTIVE" },
+    ],
+  };
+  await new Promise((r) => setTimeout(r, 15));
+  const starts = egressStarts;
+  const stops = egressStops;
+  await Promise.all([watchStudio(stub, id), watchStudio(stub, id), watchStudio(stub, id)]);
+  assert.equal(egressStarts - starts, 1);
+  assert.ok(egressStops > stops);
+});
+
+test("a dead RTMP destination never turns the header Live, then the studio fails", async () => {
+  listedParticipants = [{ identity: "host" }, { identity: "EG_abc" }];
+  listedEgress = { items: [] };
+  const env = makeEnv({ CASTHOP_BACKOFF_MS: "0" });
+  const { id, cookie } = await createStudio(env);
+  const dead = "rtmp://127.0.0.1:1999/live/dead";
+  const dests = [
+    { id: "dead", kind: "custom", label: "Dead", detail: "", url: dead, enabled: true, status: "idle", error: null },
+  ];
+  const saved = await app.request(
+    `https://casthop.test/api/studios/${id}/destinations`,
+    { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ destinations: dests }) },
+    env,
+  );
+  assert.equal(saved.status, 200, await saved.clone().text());
+  const started = await json<PublicStudio>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
+      env,
+    ),
+  );
+  assert.equal(started.livePhase, "starting");
+
+  let last: PublicStudio = started;
+  for (let i = 0; i < MAX_STREAM_RETRIES + 3; i++) {
+    // started_at is old enough to pass the settle window; the stream still failed.
+    const body = JSON.stringify({
+      event: "egress_updated",
+      egressInfo: {
+        egressId: started.egressId,
+        roomName: id,
+        status: "EGRESS_ACTIVE",
+        streamResults: [
+          { url: dead, status: "FAILED", error: "connection refused", started_at: "1700000000000000000" },
+        ],
+      },
+    });
+    const res = await app.request(
+      "https://casthop.test/api/livekit/webhook",
+      { method: "POST", headers: { Authorization: await signLivekitWebhook(env, body) }, body },
+      env,
+    );
+    assert.equal(res.status, 200, await res.clone().text());
+    last = await json<PublicStudio>(res);
+    assert.notEqual(last.livePhase, "live");
+    assert.equal(last.live, false);
+    if (i === 0) {
+      // The first failed poll retries; it must not end the go-live.
+      assert.notEqual(last.livePhase, "failed");
+      assert.equal(last.destinations.find((d) => d.id === "dead")?.status, "retrying");
+    }
+    if (last.livePhase === "failed") {
+      assert.ok(i > 0, "failed only after retries");
+      break;
+    }
+  }
+  assert.equal(last.livePhase, "failed");
+  assert.equal(last.destinations.find((d) => d.id === "dead")?.status, "failed");
+});

@@ -1,29 +1,46 @@
 ---
 title: Gäste
-description: Wie Gäste per Link ins Studio kommen, und was der Host tun muss.
+description: Wie Gäste und Co-Hosts einem Studio beitreten und was jede Person tun kann.
 group: Start
 order: 2
 ---
 
-Gäste kommen über einen Link. Sie brauchen kein Konto.
+Gäste kommen über einen Link. Sie brauchen weder ein Konto noch eine Installation.
 
-## So läuft’s
+## So kommt ein Gast ins Studio
 
-1. Der Host öffnet ein Studio und kopiert den Gastlink.
-2. Der Gast öffnet den Link im Browser und gibt einen Namen ein.
-3. Der Gast wartet hinter der Bühne. Der Host sieht ihn, aber er ist noch nicht im Stream.
-4. Der Host holt ihn auf die Bühne. Bis zu sechs gleichzeitig.
+1. Der Host öffnet ein Studio und klickt auf **Invite guest**, um den Link zu kopieren.
+2. Der Gast öffnet den Link, gibt einen Namen ein und prüft Kamera und Mikrofon.
+3. Der Gast wartet hinter der Bühne. Der Host sieht ihn, aber er ist nicht im Stream.
+4. Der Host holt ihn auf die Bühne. Bis zu sechs Leute können gleichzeitig auf der Bühne sein.
 
 ![Der Beitrittsbildschirm für Gäste mit einem grünen Testbild.](/guest.png)
 
 *Das grüne Bild stammt von einer simulierten Kamera in einer Testaufnahme, nicht von einem echten Gast.*
 
+## Co-Hosts
+
+Ein Co-Host kann das Studio gemeinsam mit dem Eigentümer leiten: Gäste auf die Bühne holen, das Layout ändern, live gehen und Chat anpinnen.
+
+1. Der Eigentümer klickt auf **Invite co-host** und gibt eine E-Mail-Adresse ein.
+2. Die Person bekommt eine E-Mail mit dem Studiolink. Der Eigentümer sieht dieselbe Antwort, egal ob es zu der Adresse ein Konto gibt.
+3. Die Person meldet sich mit dieser E-Mail-Adresse an, öffnet den Link und klickt auf **Accept and join as co-host**. Bis sie zugestimmt hat, ist sie kein Co-Host.
+
+Ein Co-Host kann ein Studio jederzeit verlassen.
+
 ## Wer darf was
 
-- **Hosten braucht ein Konto.** Der Host meldet sich per E-Mail-Magic-Link an, oder GitHub, wenn du das eingerichtet hast. Der Eigentümer eines Studios und jeder Co-Host, den er einlädt, kann es steuern.
-- **Gäste können den Host nicht nachahmen.** Identitäten vergibt der Worker, und jede Aktion wird auf dem Server geprüft.
-- **Gäste sehen nie Stream-Keys.** Der öffentliche Studiostatus enthält nur ein maskiertes Suffix jeder Ziel-URL. Siehe [Ziele](/docs/destinations).
+- **Hosten braucht ein Konto.** Der Eigentümer und Co-Hosts melden sich per E-Mail-Link an, oder mit GitHub, wenn es eingerichtet ist.
+- **Gäste können nicht als Host auftreten.** Der Server entscheidet, wer wer ist, und prüft jede Aktion.
+- **Gäste sehen nie Stream-Keys.** Sie sehen nur die letzten paar Zeichen jeder Adresse. Siehe [Ziele](/docs/destinations).
+- **Nur Leute auf der Bühne können ihre eigene Spur aufnehmen.** Ist **Separate recordings** an, nehmen Host, Co-Hosts und Gäste auf der Bühne jeweils in ihrem Browser auf. Gäste, die hinter der Bühne warten, können das nicht.
 
-## Wenn ein Gast nicht verbindet
+## Gäste-Limits
 
-TURN für Gäste hinter striktem NAT ist nicht gebaut. Ein Gast in einem restriktiven Netz kann vorerst scheitern.
+Damit niemand ein Studio mit falschen Gästen füllt, kann jedes Netz (eine IPv4-Adresse oder ein IPv6-/64-Block) bis zu 10 neue Gäste pro Minute hinzufügen und bis zu 16 Gästeplätze in einem Studio belegen. Ist ein Studio voll, verlieren Gäste, die länger als eine Minute weg sind, ihren Platz.
+
+Denk daran, wenn viele echte Gäste im selben Büronetz sitzen.
+
+## Wenn ein Gast nicht verbinden kann
+
+TURN ist noch nicht dabei. TURN ist ein Relay-Server für Netze, die direktes Video blockieren. Ein Gast in einem strengen Büro- oder Hotelnetz kann scheitern. Bitte ihn, ein anderes Netz zu probieren, oder betreib mit LiveKit einen eigenen TURN-Server.

@@ -83,6 +83,15 @@ test("a studio caps sockets from one network below the room cap", async () => {
   assert.equal(accepted(), 1);
 });
 
+test("the per-network cap does not apply when the client IP is unknown", async () => {
+  const { ctx, accepted } = ctxWithSockets(MAX_STUDIO_SOCKETS_PER_IP, { local: MAX_STUDIO_SOCKETS_PER_IP });
+  const room = new StudioDurableObject(ctx, env);
+  await create(room);
+  const res = await room.fetch(upgrade("local"));
+  assert.equal(res.status, 101);
+  assert.equal(accepted(), 1);
+});
+
 test("chat text and names drop control characters", async () => {
   assert.equal(asChatText("\u0001".repeat(400)), "");
   assert.equal(asChatText("hi\u0000there\n"), "hi there");

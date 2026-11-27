@@ -148,7 +148,9 @@ export class StudioDurableObject {
       if (!state) return json({ error: "Studio not found" }, 404);
       if (this.ctx.getWebSockets().length >= MAX_STUDIO_SOCKETS) return json({ error: "too many connections" }, 503);
       const bucket = (request.headers.get(STUDIO_WS_IP_HEADER) ?? "").trim().slice(0, 64) || "unknown";
-      if (this.ctx.getWebSockets(bucket).length >= MAX_STUDIO_SOCKETS_PER_IP) {
+      // "local" is every client when the Worker has no real IP (dev, or self-hosted
+      // without CASTHOP_TRUST_FORWARDED). Do not let that shared bucket lock the room at 8.
+      if (bucket !== "local" && this.ctx.getWebSockets(bucket).length >= MAX_STUDIO_SOCKETS_PER_IP) {
         return json({ error: "too many connections from this network" }, 429);
       }
       const pair = new WebSocketPair();

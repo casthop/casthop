@@ -19,8 +19,10 @@ import {
   MAX_REPLAY_OBJECTS,
   MAX_REPLAYS_PER_STUDIO,
   playlistError,
+  putReplayFiles,
   replayObjectKey,
 } from "../worker/replays.ts";
+import { parseHlsSegments, putLiveHlsFile } from "../worker/clips.ts";
 import { DEV_API_KEY, DEV_API_SECRET, SESSION_COOKIE } from "../worker/security.ts";
 import type { Env, PublicReplay } from "../worker/types.ts";
 import { FakeD1 } from "./fake-d1.ts";
@@ -178,6 +180,54 @@ before(() => {
 
 after(() => {
   globalThis.fetch = realFetch;
+});
+
+test("playlist check refuses every form hls.js would read as a remote URI", () => {
+  const head = '#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:4\n#EXT-X-MAP:URI="init.mp4"\n';
+  const bad = [
+    `${head}#EXTINF:4.0,\nseg0.m4s\n#EXT-X-INDEPENDENT-SEGMENTS\rhttps://evil.test/x.m4s\n`,
+    `${head}#EXTINF:4.0,\nseg0.m4s\n#EXT-X-INDEPENDENT-SEGMENTS\u2028https://evil.test/x.m4s\n`,
+    `${head}#EXTINF:4.0 https://evil.test/x.m4s\nseg0.m4s\n`,
+    '#EXTM3U\n#EXT-X-MAP:URI=https://evil.test/init.mp4\n#EXTINF:4.0,\nseg0.m4s\n',
+    '#EXTM3U\n#EXT-X-MAP:URI ="https://evil.test/init.mp4"\n#EXTINF:4.0,\nseg0.m4s\n',
+    `${head}#EXT-X-DATERANGE:ID="ad",CLASS="com.apple.hls.interstitials",START-DATE="2026-01-01T00:00:00Z",X-ASSET-LIST="https://evil.test/a.json"\n#EXTINF:4.0,\nseg0.m4s\n`,
+    `${head}#EXTINF:4.0,\nv.m3u8\n`,
+  ];
+  for (const text of bad) assert.notEqual(playlistError(text), null, JSON.stringify(text));
+
+  const ffmpegVod = [
+    "#EXTM3U",
+    "#EXT-X-VERSION:7",
+    "#EXT-X-TARGETDURATION:4",
+    "#EXT-X-MEDIA-SEQUENCE:0",
+    "#EXT-X-PLAYLIST-TYPE:VOD",
+    "#EXT-X-INDEPENDENT-SEGMENTS",
+    '#EXT-X-MAP:URI="init.mp4"',
+    "#EXTINF:4.004000,",
+    "seg0.m4s",
+    "#EXTINF:3.996000,",
+    "seg1.m4s",
+    "#EXT-X-ENDLIST",
+    "",
+  ].join("\n");
+  assert.equal(playlistError(ffmpegVod), null);
+  assert.equal(playlistError(HLS_PLAYLIST), null);
+  assert.equal(playlistError(HLS_PLAYLIST.replaceAll("\n", "\r\n")), null);
+});
+
+test("only index.m3u8 may be stored as a playlist", async () => {
+  const env = { RECORDINGS: new FakeR2() };
+  const nested = new TextEncoder().encode("#EXTM3U\n#EXTINF:4.0,\nhttps://evil.test/x.m4s\n");
+  await assert.rejects(
+    putReplayFiles(env, "stu", "rep", [{ name: "v.m3u8", bytes: nested }]),
+    /invalid filename/,
+  );
+  await assert.rejects(putLiveHlsFile(env, "stu", "v.m3u8", nested), /invalid filename/);
+});
+
+test("clip playlists keep only a numeric EXT-X-VERSION", () => {
+  assert.equal(parseHlsSegments("#EXTM3U\n#EXT-X-VERSION:6\rhttps://evil.test/x.m4s\n#EXTINF:4.0,\nseg0.m4s\n").version, "7");
+  assert.equal(parseHlsSegments("#EXTM3U\n#EXT-X-VERSION:6\n#EXTINF:4.0,\nseg0.m4s\n").version, "6");
 });
 
 test("playlist helper rejects traversal and remote URIs", () => {

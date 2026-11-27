@@ -2358,6 +2358,85 @@ test("a 9:16 compositor that never beats is restarted then capped", async () => 
   assert.equal(egressStarts, capStarts);
 });
 
+async function goLivePortrait(env: Env) {
+  const { id, cookie } = await createStudio(env);
+  const studio = await json<PublicStudio>(
+    await app.request(`https://casthop.test/api/studios/${id}`, { headers: { Cookie: cookie } }, env),
+  );
+  await app.request(
+    `https://casthop.test/api/studios/${id}/destinations`,
+    {
+      method: "POST",
+      headers: liveHeaders(cookie),
+      body: JSON.stringify({
+        destinations: studio.destinations.map((d) =>
+          d.id === "custom"
+            ? { ...d, url: "rtmp://ingest.example.com/live/tiktok-key", enabled: true, aspect: "portrait" }
+            : { ...d, aspect: "landscape", enabled: d.id === "youtube" },
+        ),
+      }),
+    },
+    env,
+  );
+  const go = await json<PublicStudio>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/live`,
+      { method: "POST", headers: liveHeaders(cookie), body: JSON.stringify({ live: true }) },
+      env,
+    ),
+  );
+  assert.ok(go.egressId);
+  return { id, stub: env.STUDIO.get(env.STUDIO.idFromName(id)), landscapeId: go.egressId };
+}
+
+function watchStudio(stub: { fetch(req: Request): Promise<Response> }, id: string) {
+  return stub.fetch(new Request(`https://studio/${id}?action=watch`, { method: "POST", body: "{}" }));
+}
+
+test("a watch inside the start grace does not restart a 9:16 compositor that has not beaten yet", async () => {
+  listedParticipants = [{ identity: "host" }, { identity: "EG_abc" }];
+  listedEgress = { items: [] };
+  const env = makeEnv({ CASTHOP_HEARTBEAT_MS: "5", CASTHOP_COMPOSITOR_GRACE_MS: "60000" });
+  const { id, stub, landscapeId } = await goLivePortrait(env);
+  listedEgress = {
+    items: [
+      {
+        egressId: landscapeId,
+        status: "EGRESS_ACTIVE",
+        stream_results: [{ url: YT, status: "ACTIVE", started_at: Date.now() * 1e6, bytes: 4096 }],
+      },
+    ],
+  };
+  const starts = egressStarts;
+  await new Promise((r) => setTimeout(r, 15));
+  await watchStudio(stub, id);
+  await watchStudio(stub, id);
+  assert.equal(egressStarts, starts);
+});
+
+test("overlapping 9:16 restarts start one compositor and stop strays", async () => {
+  listedParticipants = [{ identity: "host" }, { identity: "EG_abc" }];
+  listedEgress = { items: [] };
+  const env = makeEnv({ CASTHOP_HEARTBEAT_MS: "5", CASTHOP_COMPOSITOR_GRACE_MS: "0" });
+  const { id, stub, landscapeId } = await goLivePortrait(env);
+  listedEgress = {
+    items: [
+      {
+        egressId: landscapeId,
+        status: "EGRESS_ACTIVE",
+        stream_results: [{ url: YT, status: "ACTIVE", started_at: Date.now() * 1e6, bytes: 4096 }],
+      },
+      { egressId: "eg_stray", status: "EGRESS_ACTIVE" },
+    ],
+  };
+  await new Promise((r) => setTimeout(r, 15));
+  const starts = egressStarts;
+  const stops = egressStops;
+  await Promise.all([watchStudio(stub, id), watchStudio(stub, id), watchStudio(stub, id)]);
+  assert.equal(egressStarts - starts, 1);
+  assert.ok(egressStops > stops);
+});
+
 test("a dead RTMP destination never turns the header Live, then the studio fails", async () => {
   listedParticipants = [{ identity: "host" }, { identity: "EG_abc" }];
   listedEgress = { items: [] };

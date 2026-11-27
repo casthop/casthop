@@ -169,7 +169,12 @@ export class StudioDurableObject {
         isoTracks: [],
         bannerTitle: body.title,
         bannerSubtitle: "Building in public, episode 1",
-        destinations: defaultDestinations(this.env),
+        // RTMP_* are deployment-wide. A real ingest URL carries the operator's
+        // stream key, and any account can create a studio, so only local
+        // stand-ins are copied in. Owners add real URLs per studio.
+        destinations: defaultDestinations(this.env).map((d) =>
+          !d.url || isLoopbackUrl(d.url) ? d : { ...d, url: "", enabled: false },
+        ),
         participants: [],
         chat: [],
         pinnedChat: null,

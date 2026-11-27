@@ -16,6 +16,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 - Egress MP4 recording of the composite.
 - While live, a Clip button (and C) saves the last 30 or 60 seconds from the program HLS buffer. Clips list next to replays on the home studio list with download links, and follow the same private/public rules.
 - Studio chat in the room. Optional YouTube Live chat ingest while live (`liveChatMessages.list`); hosts can pin a comment onto the compositor overlay. X and LinkedIn comments are not wired.
+- Twitch and Kick chat in the same panel while live. Set `TWITCH_CHANNEL` and/or `KICK_CHATROOM_ID`; unset hides them. X chat is not supported yet because X has no free chat API.
 - Camera background blur (MediaPipe Selfie Segmenter, on-device, lazy load).
 - Rust/WASM RNNoise in an AudioWorklet; WASM layout; Canvas2D compositor as the live default.
 - Off-thread program compose (Worker + OffscreenCanvas) when WebCodecs is present.

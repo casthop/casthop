@@ -141,7 +141,20 @@ test("a parser that throws is contained", async () => {
   assert.equal(hub.connected("twitch"), true);
 });
 
-test("close drops every socket", async () => {
+test("a hello that throws closes the socket and backs off", async () => {
+  const sockets: ReturnType<typeof fakeSocket>[] = [];
+  const bad = { ...twitchAdapter, hello: () => { throw new Error("boom"); } };
+  const hub = new PlatformHub({ TWITCH_CHANNEL: "c" }, () => undefined, async () => { const s = fakeSocket(); sockets.push(s); return s; }, [bad]);
+  assert.equal(await hub.tick(0), 2_000);
+  assert.equal(sockets.length, 1);
+  assert.equal(sockets[0]?.closed, true);
+  assert.equal(hub.connected("twitch"), false);
+  // Retry opens exactly one new socket.
+  await hub.tick(2_000);
+  assert.equal(sockets.length, 2);
+});
+
+test("close drops every socket",async () => {
   const sockets: ReturnType<typeof fakeSocket>[] = [];
   const hub = new PlatformHub({ TWITCH_CHANNEL: "c", KICK_CHATROOM_ID: "1" }, () => undefined, async () => { const s = fakeSocket(); sockets.push(s); return s; });
   await hub.tick(0);

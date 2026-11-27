@@ -249,16 +249,25 @@ export class PlatformHub {
   }
 
   private async connect(adapter: PlatformAdapter, link: Link, now: number): Promise<void> {
+    let sock: ChatSocket | undefined;
     try {
-      const sock = await this.open(adapter.url);
-      link.socket = sock;
-      sock.onmessage = (frame) => this.receive(adapter, link, sock, frame);
-      sock.onclose = () => {
-        if (link.socket === sock) this.fail(link, Date.now());
+      sock = await this.open(adapter.url);
+      const opened = sock;
+      link.socket = opened;
+      opened.onmessage = (frame) => this.receive(adapter, link, opened, frame);
+      opened.onclose = () => {
+        if (link.socket === opened) this.fail(link, Date.now());
       };
-      for (const line of adapter.hello(this.env)) sock.send(line);
+      for (const line of adapter.hello(this.env)) opened.send(line);
     } catch (err) {
       console.warn(`${adapter.id} chat connect`, err);
+      // Unlink first so a synchronous onclose does not count a second failure.
+      link.socket = null;
+      try {
+        sock?.close();
+      } catch {
+        /* already closed */
+      }
       this.fail(link, now);
     }
   }

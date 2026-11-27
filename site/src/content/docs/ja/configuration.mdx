@@ -79,6 +79,17 @@ docker compose 用に `.env.example` を `.env` へ、Worker 用に `.dev.vars.e
 
 API キーにライブチャットか動画 ID を足すか、OAuth リフレッシュの 3 点が必要です。ポーリングは API の `pollingIntervalMillis` に従います。X の API は有料プラン、LinkedIn のコメントはパートナー API が要り、それらの配信先は取り込みません。
 
+## Twitch と Kick のチャット
+
+配信中、これらのコメントは同じチャットパネルに表示されます。未設定なら表示されません。
+
+| 名前 | 用途 | ローカルの既定値 |
+|---|---|---|
+| `TWITCH_CHANNEL` | 読み取る Twitch チャンネル名。 | unset |
+| `KICK_CHATROOM_ID` | 読み取る Kick のチャットルーム ID（数字）。 | unset |
+
+X のチャットは、無料のチャット API がないため、まだ対応していません。
+
 ## ストリームキー
 
 ストリームキーは環境変数ではありません。Durable Object のストレージにあり、リポジトリには入りません。公開 API が返すのは `rtmp://…/xxxx` のようなマスクした末尾と、`hasKey` フラグだけです。

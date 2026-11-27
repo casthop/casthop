@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { app, StudioDurableObject } from "../worker/index.ts";
 import { GUEST_TOKEN_TTL_SEC, HOST_TOKEN_TTL_SEC } from "../worker/livekit.ts";
-import { DEV_API_KEY, DEV_API_SECRET, HOST_IDENTITY, SESSION_COOKIE } from "../worker/security.ts";
+import { DEV_API_KEY, DEV_API_SECRET, GUEST_MINT_PER_SOURCE, HOST_IDENTITY, SESSION_COOKIE } from "../worker/security.ts";
 import type { Env, PublicClip, PublicReplay, PublicStudio, StudioRecord } from "../worker/types.ts";
 import { insertClip } from "../worker/db.ts";
 import { clipObjectKey } from "../worker/clips.ts";
@@ -11,11 +11,12 @@ import { FakeD1 } from "./fake-d1.ts";
 import { FakeR2 } from "./fake-r2.ts";
 import { hlsFiles } from "./replay-fixture.ts";
 
-const YT = "rtmp://ingest.example.com/live/super-secret-youtube-key";
-const LI = "rtmp://ingest.example.com/live/super-secret-linkedin-key";
-const X = "rtmp://ingest.example.com/live/super-secret-x-key";
+const YT = "rtmp://127.0.0.1:1935/live/super-secret-youtube-key";
+const LI = "rtmp://127.0.0.1:1935/live/super-secret-linkedin-key";
+const X = "rtmp://127.0.0.1:1935/live/super-secret-x-key";
 
 let egressStarts = 0;
+const egressStartBodies: string[] = [];
 let egressStops = 0;
 let mailWebhookStatus = 503;
 const livekitRemoved: string[] = [];
@@ -181,6 +182,7 @@ before(() => {
     }
     if (url.includes("StartRoomCompositeEgress")) {
       egressStarts += 1;
+      egressStartBodies.push(typeof init?.body === "string" ? init.body : "");
       return new Response(JSON.stringify({ egress_id: "eg_test" }), { status: 200 });
     }
     if (url.includes("StopEgress")) {
@@ -470,10 +472,22 @@ test("authorization matrix: owner / co-host / guest / signed-out / expired", asy
       },
     },
     {
-      name: "GET studio ws",
+      name: "GET studio ws without upgrade",
       path: `/api/studios/${id}/ws`,
       init: {},
-      expect: { owner: 200, cohost: 200, guest: 200, signedOut: 200, expired: 200, outsider: 200 },
+      expect: { owner: 426, cohost: 426, guest: 426, signedOut: 426, expired: 426, outsider: 426 },
+    },
+    {
+      name: "GET studio ws ?action=watch",
+      path: `/api/studios/${id}/ws?action=watch`,
+      init: {},
+      expect: { owner: 426, cohost: 426, guest: 426, signedOut: 426, expired: 426, outsider: 426 },
+    },
+    {
+      name: "GET studio ws ?action=webhook",
+      path: `/api/studios/${id}/ws?action=webhook`,
+      init: {},
+      expect: { owner: 426, cohost: 426, guest: 426, signedOut: 426, expired: 426, outsider: 426 },
     },
     {
       name: "POST token host",
@@ -1080,6 +1094,92 @@ test("H2: default LiveKit keys are refused off loopback", async () => {
   assert.equal(res.status, 503);
   const body = await json<{ error: string }>(res);
   assert.match(body.error, /devkey/);
+});
+
+test("guest join budget is shared out per network, not taken by one requester", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "ada@example.com");
+  const { id } = await createStudio(env, cookie);
+  const mint = (ip: string) =>
+    app.request(
+      `https://casthop.test/api/studios/${id}/token`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Forwarded-For": ip },
+        body: JSON.stringify({ name: "Guest", role: "guest" }),
+      },
+      env,
+    );
+  for (let i = 0; i < GUEST_MINT_PER_SOURCE; i++) assert.equal((await mint("2001:db8:7:7::1")).status, 200);
+  assert.equal((await mint("2001:db8:7:7::abcd")).status, 429, "same /64, same share");
+  assert.equal((await mint("203.0.113.9")).status, 200);
+});
+
+test("a new studio never gets the operator's real RTMP ingest URLs", async () => {
+  const operator = {
+    RTMP_YOUTUBE: "rtmp://a.ingest.example.com/live2/operator-youtube-key",
+    RTMP_LINKEDIN: "rtmps://li.ingest.example.com:443/live/operator-linkedin-key",
+    RTMP_X: "rtmp://x.ingest.example.com:1935/x/operator-x-key",
+  };
+  const env = makeEnv(operator);
+  const cookie = await signIn(env, "stranger@example.com");
+  const { id } = await createStudio(env, cookie);
+
+  const res = await app.request(`https://casthop.test/api/studios/${id}`, { headers: { Cookie: cookie } }, env);
+  assert.equal(res.status, 200);
+  const s = await json<PublicStudio & { viewerRole: string }>(res);
+  assert.equal(s.viewerRole, "owner");
+  assert.equal(JSON.stringify(s).includes("operator-"), false);
+  for (const kind of ["youtube", "linkedin", "x"]) {
+    const d = s.destinations.find((x) => x.id === kind);
+    assert.equal(d?.url, "", kind);
+    assert.equal(d?.enabled, false, kind);
+  }
+
+  const before = egressStartBodies.length;
+  const go = await app.request(
+    `https://casthop.test/api/studios/${id}/live`,
+    { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ live: true }) },
+    env,
+  );
+  assert.equal(go.status, 200, await go.clone().text());
+  for (const body of egressStartBodies.slice(before)) assert.equal(body.includes("operator-"), false);
+});
+
+test("the ws route forwards only the upgrade, never the client's query, to the studio", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "ada@example.com");
+  const { id } = await createStudio(env, cookie);
+  const real = env.STUDIO;
+  const seen: Request[] = [];
+  env.STUDIO = {
+    idFromName: (name: string) => real.idFromName(name),
+    get: () => ({
+      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+        seen.push(input instanceof Request && init === undefined ? input : new Request(input, init));
+        return new Response(null, { status: 200 });
+      },
+    }),
+  } as unknown as DurableObjectNamespace;
+  const res = await app.request(`https://casthop.test/api/studios/${id}/ws?action=watch`, { headers: { Upgrade: "WebSocket" } }, env);
+  assert.equal(res.status, 200);
+  assert.equal(seen.length, 1);
+  assert.equal(new URL(seen[0]!.url).search, "");
+  assert.equal(seen[0]!.method, "GET");
+  assert.equal(seen[0]!.headers.get("Upgrade"), "websocket");
+});
+
+test("the studio refuses actions that do not come as POST or PUT", async () => {
+  const env = makeEnv();
+  const cookie = await signIn(env, "ada@example.com");
+  const { id } = await createStudio(env, cookie);
+  const stub = env.STUDIO.get(env.STUDIO.idFromName(id));
+  for (const action of ["watch", "webhook", "stage"]) {
+    const res = await stub.fetch(new Request(`https://studio/${id}?action=${action}`));
+    assert.equal(res.status, 400, action);
+  }
+  const plain = await stub.fetch(new Request(`https://studio/${id}`));
+  assert.equal(plain.status, 200);
 });
 
 test("host destination POST without url keeps the stored stream key", async () => {

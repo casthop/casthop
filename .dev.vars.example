@@ -16,6 +16,8 @@ LIVEKIT_API_SECRET=casthop_dev_secret_not_for_production_use_32b
 LIVEKIT_HTTP_URL=http://127.0.0.1:7880
 # LiveKit WebSocket URL browsers connect to.
 PUBLIC_LIVEKIT_URL=ws://127.0.0.1:7880
+# Local MediaMTX stand-ins. New studios copy these only when they are loopback;
+# owners set real ingest URLs per studio.
 # Default YouTube destination (local MediaMTX stand-in).
 RTMP_YOUTUBE=rtmp://127.0.0.1:1935/live/youtube
 # Default LinkedIn destination (local MediaMTX stand-in).

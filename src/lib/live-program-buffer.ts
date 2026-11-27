@@ -1,3 +1,5 @@
+import { seg } from "./path-segment";
+
 const SEGMENT_MS = 4_000;
 const MAX_BUFFER_MS = 64_000;
 
@@ -65,7 +67,7 @@ export function playlistFor(segs: LiveSeg[], init: string): string {
 
 export async function putLiveFile(studioId: string, token: string, name: string, body: Blob | string, contentType: string): Promise<void> {
   const payload = typeof body === "string" ? new Blob([body], { type: contentType }) : body;
-  const res = await fetch(`/api/studios/${studioId}/live-hls/${name}`, {
+  const res = await fetch(`/api/studios/${seg(studioId)}/live-hls/${seg(name)}`, {
     method: "PUT",
     credentials: "omit",
     headers: {

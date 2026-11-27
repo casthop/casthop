@@ -10,6 +10,7 @@ import type {
   StudioRecord,
   ViewerRole,
 } from "../../worker/types";
+import { seg } from "./path-segment";
 
 export type { PublicClip, PublicReplay, PublicStudio, PublicDestination, RecordingList, ReplayVisibility, StudioMember, StudioRecord, ViewerRole };
 
@@ -69,12 +70,14 @@ export function createStudio(title: string) {
   });
 }
 
-export function getStudio(id: string) {
-  return api<StudioView>(`/api/studios/${id}`);
+// Wrappers that build a path with `seg` are async so an invalid id rejects
+// instead of throwing before the caller has a promise to `.catch`.
+export async function getStudio(id: string) {
+  return api<StudioView>(`/api/studios/${seg(id)}`);
 }
 
-export function sendEgressBeat(id: string, token: string, egressId: string) {
-  return api<{ ok: true }>(`/api/studios/${id}/egress-beat`, {
+export async function sendEgressBeat(id: string, token: string, egressId: string) {
+  return api<{ ok: true }>(`/api/studios/${seg(id)}/egress-beat`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify({ egressId }),
@@ -96,7 +99,7 @@ export function getHealth() {
   return api<{ ok: boolean; livekit: { ok: boolean } }>("/api/health");
 }
 
-export function mintToken(
+export async function mintToken(
   id: string,
   body: { name: string; role: "host" | "guest"; identity?: string; guestSecret?: string },
 ) {
@@ -109,125 +112,125 @@ export function mintToken(
     canPublish: boolean;
     expiresIn: number;
     guestSecret?: string;
-  }>(`/api/studios/${id}/token`, { method: "POST", body: JSON.stringify(body) });
+  }>(`/api/studios/${seg(id)}/token`, { method: "POST", body: JSON.stringify(body) });
 }
 
 export type StageResult = PublicStudio & { warning?: string };
 
-export function setStage(id: string, identity: string, on: boolean) {
-  return api<StageResult>(`/api/studios/${id}/stage`, {
+export async function setStage(id: string, identity: string, on: boolean) {
+  return api<StageResult>(`/api/studios/${seg(id)}/stage`, {
     method: "POST",
     body: JSON.stringify({ identity, on }),
   });
 }
 
-export function setLayout(id: string, layout: LayoutId) {
-  return api<PublicStudio>(`/api/studios/${id}/layout`, {
+export async function setLayout(id: string, layout: LayoutId) {
+  return api<PublicStudio>(`/api/studios/${seg(id)}/layout`, {
     method: "POST",
     body: JSON.stringify({ layout }),
   });
 }
 
-export function setDestinations(id: string, destinations: PublicDestination[]) {
-  return api<PublicStudio>(`/api/studios/${id}/destinations`, {
+export async function setDestinations(id: string, destinations: PublicDestination[]) {
+  return api<PublicStudio>(`/api/studios/${seg(id)}/destinations`, {
     method: "POST",
     body: JSON.stringify({ destinations }),
   });
 }
 
-export function setBanner(id: string, patch: { title?: string; bannerTitle?: string; bannerSubtitle?: string }) {
-  return api<PublicStudio>(`/api/studios/${id}/banner`, {
+export async function setBanner(id: string, patch: { title?: string; bannerTitle?: string; bannerSubtitle?: string }) {
+  return api<PublicStudio>(`/api/studios/${seg(id)}/banner`, {
     method: "POST",
     body: JSON.stringify(patch),
   });
 }
 
-export function setLive(id: string, live: boolean) {
-  return api<PublicStudio>(`/api/studios/${id}/live`, {
+export async function setLive(id: string, live: boolean) {
+  return api<PublicStudio>(`/api/studios/${seg(id)}/live`, {
     method: "POST",
     body: JSON.stringify({ live }),
   });
 }
 
-export function setSeparateRecordings(id: string, separateRecordings: boolean) {
-  return api<PublicStudio>(`/api/studios/${id}/iso-pref`, {
+export async function setSeparateRecordings(id: string, separateRecordings: boolean) {
+  return api<PublicStudio>(`/api/studios/${seg(id)}/iso-pref`, {
     method: "POST",
     body: JSON.stringify({ separateRecordings }),
   });
 }
 
-export function listRecordings(id: string) {
-  return api<RecordingList>(`/api/studios/${id}/recordings`);
+export async function listRecordings(id: string) {
+  return api<RecordingList>(`/api/studios/${seg(id)}/recordings`);
 }
 
 export function isoDownloadPath(studioId: string, trackId: string): string {
-  return `/api/studios/${studioId}/recordings/iso/${trackId}`;
+  return `/api/studios/${seg(studioId)}/recordings/iso/${seg(trackId)}`;
 }
 
-export function sendChat(
+export async function sendChat(
   id: string,
   body: { text: string; identity?: string; guestSecret?: string },
 ) {
-  return api<PublicStudio>(`/api/studios/${id}/chat`, {
+  return api<PublicStudio>(`/api/studios/${seg(id)}/chat`, {
     method: "POST",
     body: JSON.stringify(body),
   });
 }
 
-export function pinChat(id: string, chatId: string | null) {
-  return api<PublicStudio>(`/api/studios/${id}/pin`, {
+export async function pinChat(id: string, chatId: string | null) {
+  return api<PublicStudio>(`/api/studios/${seg(id)}/pin`, {
     method: "POST",
     body: JSON.stringify({ chatId }),
   });
 }
 
-export function listCohosts(id: string) {
-  return api<{ members: StudioMember[]; pending: { id: string; email: string }[] }>(`/api/studios/${id}/cohosts`);
+export async function listCohosts(id: string) {
+  return api<{ members: StudioMember[]; pending: { id: string; email: string }[] }>(`/api/studios/${seg(id)}/cohosts`);
 }
 
-export function inviteCohost(id: string, email: string) {
-  return api<{ ok: true; pending: true; email: string }>(`/api/studios/${id}/cohosts`, {
+export async function inviteCohost(id: string, email: string) {
+  return api<{ ok: true; pending: true; email: string }>(`/api/studios/${seg(id)}/cohosts`, {
     method: "POST",
     body: JSON.stringify({ email }),
   });
 }
 
-export function acceptCohostInvite(id: string) {
-  return api<{ ok: true }>(`/api/studios/${id}/cohosts/accept`, { method: "POST" });
+export async function acceptCohostInvite(id: string) {
+  return api<{ ok: true }>(`/api/studios/${seg(id)}/cohosts/accept`, { method: "POST" });
 }
 
-export function removeCohost(id: string, accountId: string) {
-  return api<{ ok: true }>(`/api/studios/${id}/cohosts/${accountId}`, { method: "DELETE" });
+export async function removeCohost(id: string, accountId: string) {
+  return api<{ ok: true }>(`/api/studios/${seg(id)}/cohosts/${seg(accountId)}`, { method: "DELETE" });
 }
 
-export function setReplayVisibility(studioId: string, replayId: string, visibility: ReplayVisibility) {
-  return api<PublicReplay>(`/api/studios/${studioId}/replays/${replayId}`, {
+export async function setReplayVisibility(studioId: string, replayId: string, visibility: ReplayVisibility) {
+  return api<PublicReplay>(`/api/studios/${seg(studioId)}/replays/${seg(replayId)}`, {
     method: "PATCH",
     body: JSON.stringify({ visibility }),
   });
 }
 
-export function getReplay(replayId: string) {
-  return api<PublicReplay>(`/api/replays/${replayId}`);
+export async function getReplay(replayId: string) {
+  return api<PublicReplay>(`/api/replays/${seg(replayId)}`);
 }
 
-export function createClip(studioId: string, seconds: 30 | 60) {
-  return api<PublicClip>(`/api/studios/${studioId}/clips`, {
+export async function createClip(studioId: string, seconds: 30 | 60) {
+  return api<PublicClip>(`/api/studios/${seg(studioId)}/clips`, {
     method: "POST",
     body: JSON.stringify({ seconds }),
   });
 }
 
-export function listClips(studioId: string) {
-  return api<{ clips: PublicClip[] }>(`/api/studios/${studioId}/clips`);
+export async function listClips(studioId: string) {
+  return api<{ clips: PublicClip[] }>(`/api/studios/${seg(studioId)}/clips`);
 }
 
-export function getClip(clipId: string) {
-  return api<PublicClip>(`/api/clips/${clipId}`);
+export async function getClip(clipId: string) {
+  return api<PublicClip>(`/api/clips/${seg(clipId)}`);
 }
 
-export function setClipVisibility(studioId: string, clipId: string, visibility: ReplayVisibility) {
-  return api<PublicClip>(`/api/studios/${studioId}/clips/${clipId}`, {
+export async function setClipVisibility(studioId: string, clipId: string, visibility: ReplayVisibility) {
+  return api<PublicClip>(`/api/studios/${seg(studioId)}/clips/${seg(clipId)}`, {
     method: "PATCH",
     body: JSON.stringify({ visibility }),
   });

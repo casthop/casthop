@@ -273,11 +273,15 @@ export class PlatformHub {
   }
 
   private receive(adapter: PlatformAdapter, link: Link, sock: ChatSocket, frame: string): void {
-    link.failures = 0; // the server is talking, so the next drop starts at the short delay
     try {
       const parsed = adapter.parse(frame);
       for (const line of parsed.reply) sock.send(line);
-      if (parsed.messages.length) this.onMessages(parsed.messages);
+      if (parsed.messages.length) {
+        // Only real chat proves the link works. A greeting followed by a drop (bad login,
+        // rate limit) must keep growing the backoff.
+        link.failures = 0;
+        this.onMessages(parsed.messages);
+      }
     } catch (err) {
       console.warn(`${adapter.id} chat frame`, err);
     }

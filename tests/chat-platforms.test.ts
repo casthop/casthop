@@ -154,6 +154,27 @@ test("a hello that throws closes the socket and backs off", async () => {
   assert.equal(sockets.length, 2);
 });
 
+test("greeting then drop keeps growing the backoff until real chat arrives", async () => {
+  const sockets: ReturnType<typeof fakeSocket>[] = [];
+  const hub = new PlatformHub({ TWITCH_CHANNEL: "c" }, () => undefined, async () => { const s = fakeSocket(); sockets.push(s); return s; });
+  const far = Date.now() + 10 * 60_000;
+  const dropAfter = async (frame: string, attempt: number): Promise<number> => {
+    await hub.tick(far * attempt);
+    sockets.at(-1)?.onmessage?.(frame);
+    sockets.at(-1)?.onclose?.();
+    const retryAt = await hub.tick(0);
+    return (retryAt ?? 0) - Date.now();
+  };
+  const greeting = ":tmi.twitch.tv 001 justinfan1 :Welcome\r\n";
+  const delays = [await dropAfter(greeting, 1), await dropAfter(greeting, 2), await dropAfter(greeting, 3)];
+  [2_000, 4_000, 8_000].forEach((want, i) => {
+    assert.ok((delays[i] ?? 0) > want - 500 && (delays[i] ?? 0) <= want, `drop ${i + 1}: ${delays[i]}`);
+  });
+  // A real chat message resets it.
+  const reset = await dropAfter("@id=t1 :a!a@a PRIVMSG #c :hi", 4);
+  assert.ok(reset > 1_500 && reset <= 2_000, `after chat: ${reset}`);
+});
+
 test("close drops every socket",async () => {
   const sockets: ReturnType<typeof fakeSocket>[] = [];
   const hub = new PlatformHub({ TWITCH_CHANNEL: "c", KICK_CHATROOM_ID: "1" }, () => undefined, async () => { const s = fakeSocket(); sockets.push(s); return s; });

@@ -34,7 +34,7 @@ export async function startIsoTrack(
   auth: IsoAuth,
   body: { sessionId: string; kind: "camera" | "screen"; mimeType: string; startedAt: number },
 ): Promise<{ id: string }> {
-  const data = await postJson<{ track: { id: string } }>(`/api/studios/${studioId}/iso`, {
+  const data = await postJson<{ track: { id: string } }>(`/api/studios/${encodeURIComponent(studioId)}/iso`, {
     identity: auth.identity,
     guestSecret: auth.guestSecret,
     name: auth.name,
@@ -72,7 +72,7 @@ export async function uploadIsoChunk(
     "X-Casthop-Identity": auth.identity,
   };
   if (auth.guestSecret) headers["X-Casthop-Guest-Secret"] = auth.guestSecret;
-  const res = await fetch(`/api/studios/${studioId}/iso/${trackId}/chunks/${index}`, {
+  const res = await fetch(`/api/studios/${encodeURIComponent(studioId)}/iso/${trackId}/chunks/${index}`, {
     method: "PUT",
     credentials: "same-origin",
     headers,
@@ -85,7 +85,7 @@ export async function uploadIsoChunk(
 }
 
 export async function completeIsoTrack(studioId: string, trackId: string, auth: IsoAuth): Promise<void> {
-  await postJson(`/api/studios/${studioId}/iso/${trackId}/complete`, {
+  await postJson(`/api/studios/${encodeURIComponent(studioId)}/iso/${trackId}/complete`, {
     identity: auth.identity,
     guestSecret: auth.guestSecret,
   });

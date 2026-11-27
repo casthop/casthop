@@ -65,7 +65,7 @@ export function playlistFor(segs: LiveSeg[], init: string): string {
 
 export async function putLiveFile(studioId: string, token: string, name: string, body: Blob | string, contentType: string): Promise<void> {
   const payload = typeof body === "string" ? new Blob([body], { type: contentType }) : body;
-  const res = await fetch(`/api/studios/${studioId}/live-hls/${name}`, {
+  const res = await fetch(`/api/studios/${encodeURIComponent(studioId)}/live-hls/${name}`, {
     method: "PUT",
     credentials: "omit",
     headers: {

@@ -311,7 +311,7 @@ export function Studio() {
     const connect = () => {
       if (closed) return;
       const proto = location.protocol === "https:" ? "wss" : "ws";
-      ws = new WebSocket(`${proto}://${location.host}/api/studios/${id}/ws`);
+      ws = new WebSocket(`${proto}://${location.host}/api/studios/${encodeURIComponent(id)}/ws`);
       ws.onmessage = (ev) => {
         const msg = JSON.parse(ev.data) as { type: string; state?: PublicStudio };
         if (msg.type === "state" && msg.state) apply(msg.state);

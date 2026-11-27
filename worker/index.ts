@@ -937,11 +937,14 @@ app.put("/api/studios/:id/iso/:trackId/chunks/:index", async (c) => {
   const { nonce } = (await check.json()) as { nonce?: string };
   try {
     const store = await storeFor(c.env, id);
-    await withTimeout(store.RECORDINGS.put(isoChunkKey(id, trackId, index), buf), ISO_PUT_TIMEOUT_MS);
+    if (!nonce) {
+      await doAction(c.env, id, "iso-chunk", { ...chunk, abort: true });
+      return c.json({ error: "upload failed" }, 502);
+    }
+    await withTimeout(store.RECORDINGS.put(isoChunkKey(id, trackId, index, nonce), buf), ISO_PUT_TIMEOUT_MS);
   } catch {
-    // Don't wait for a hung put. Abort now so the request can return; the reservation TTL
-    // (longer than the put timeout) covers a request that dies before abort, so a late write
-    // cannot land after a retry takes the index.
+    // Don't wait for a hung put. Abort now so the request can return. The put is not
+    // cancelled, but it can only land on this attempt's nonce key, not a retry's.
     await doAction(c.env, id, "iso-chunk", { ...chunk, nonce, abort: true });
     return c.json({ error: "upload failed" }, 502);
   }
@@ -983,9 +986,14 @@ app.get("/api/studios/:id/recordings/iso/:trackId", async (c) => {
   if (!host) return c.json({ error: "host access required" }, 403);
   const res = await doAction(c.env, id, "iso-get", { hostKey: host.hostKey, trackId });
   if (!res.ok) return new Response(res.body, { status: res.status, headers: res.headers });
-  const data = (await res.json()) as { track: IsoTrack };
+  const data = (await res.json()) as { track: IsoTrack; nonces?: string[] };
   const store = await storeFor(c.env, id);
-  const keys = downloadChunkKeys(await listIsoChunkKeys(store.RECORDINGS, id, trackId), isoPrefix(id, trackId), data.track.chunks);
+  const keys = downloadChunkKeys(
+    await listIsoChunkKeys(store.RECORDINGS, id, trackId),
+    isoPrefix(id, trackId),
+    data.track.chunks,
+    data.nonces,
+  );
   if (!keys.length) return c.json({ error: "track not found" }, 404);
   const filename = downloadName(data.track);
   return new Response(concatChunkStream(store.RECORDINGS, keys), {

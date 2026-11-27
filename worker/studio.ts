@@ -373,6 +373,7 @@ export class StudioDurableObject {
         } catch {
           /* list no longer points at these objects */
         }
+        await this.deleteIsoNonces(droppedId);
       }
       return json({ track });
     }
@@ -401,10 +402,13 @@ export class StudioDurableObject {
         if (!held || held.index !== index || held.nonce !== nonce || held.bytes !== bytes) {
           return json({ error: "chunk out of order" }, 409);
         }
-        track.pending = undefined;
         if (body.commit === true) {
+          await this.appendIsoNonce(trackId, index, nonce);
+          track.pending = undefined;
           track.bytes += bytes;
           track.chunks = index + 1;
+        } else {
+          track.pending = undefined;
         }
         await this.putState(state);
         return json({ track });
@@ -444,7 +448,8 @@ export class StudioDurableObject {
       const trackId = typeof body.trackId === "string" ? body.trackId : "";
       const track = (state.isoTracks ?? []).find((row) => row.id === trackId);
       if (!track) return json({ error: "track not found" }, 404);
-      return json({ track });
+      const nonces = await this.isoNoncesFor(trackId, track.chunks);
+      return json({ track, nonces });
     }
 
     if (action === "egress-beat") {
@@ -1804,6 +1809,45 @@ export class StudioDurableObject {
     }
     this.mintHits.n += 1;
     return this.mintHits.n <= TOKEN_MINT_MAX;
+  }
+
+  private isoNonceKey(trackId: string, shard: number): string {
+    return `iso-nonce:${trackId}:${shard}`;
+  }
+
+  /** Packed separately from studio state so a long recording cannot blow the 128 KiB state cap. */
+  private static readonly ISO_NONCE_SHARD = 2000;
+
+  private async appendIsoNonce(trackId: string, index: number, nonce: string): Promise<void> {
+    const shard = Math.floor(index / StudioDurableObject.ISO_NONCE_SHARD);
+    const slot = index % StudioDurableObject.ISO_NONCE_SHARD;
+    const key = this.isoNonceKey(trackId, shard);
+    const list = ((await this.ctx.storage.get<string[]>(key)) ?? []).slice();
+    list[slot] = nonce;
+    await this.ctx.storage.put(key, list);
+  }
+
+  private async isoNoncesFor(trackId: string, chunks: number): Promise<string[]> {
+    const out: string[] = [];
+    if (chunks <= 0) return out;
+    const shards = Math.ceil(chunks / StudioDurableObject.ISO_NONCE_SHARD);
+    for (let s = 0; s < shards; s++) {
+      const list = (await this.ctx.storage.get<string[]>(this.isoNonceKey(trackId, s))) ?? [];
+      const start = s * StudioDurableObject.ISO_NONCE_SHARD;
+      for (let i = 0; i < StudioDurableObject.ISO_NONCE_SHARD && start + i < chunks; i++) {
+        out[start + i] = list[i] ?? "";
+      }
+    }
+    return out;
+  }
+
+  private async deleteIsoNonces(trackId: string): Promise<void> {
+    for (let s = 0; s < 32; s++) {
+      const key = this.isoNonceKey(trackId, s);
+      const row = await this.ctx.storage.get(key);
+      if (row == null) break;
+      await this.ctx.storage.delete(key);
+    }
   }
 
   private async getState(): Promise<StudioState | null> {

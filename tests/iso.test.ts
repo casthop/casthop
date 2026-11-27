@@ -22,6 +22,7 @@ import {
   listIsoChunkKeys,
   mixedFilename,
   parseChunkIndex,
+  parseChunkObject,
 } from "../worker/iso.ts";
 import { IsoHttpError, isoUploadRetryable, pickRecorderMime } from "../src/lib/iso-recorder.ts";
 import { DEV_API_KEY, DEV_API_SECRET, HOST_IDENTITY, SESSION_COOKIE, publicState } from "../worker/security.ts";
@@ -41,6 +42,9 @@ function fakeCtx(): DurableObjectState {
       get: async (key: string) => store.get(key),
       put: async (key: string, value: unknown) => {
         store.set(key, value);
+      },
+      delete: async (key: string | string[]) => {
+        for (const k of Array.isArray(key) ? key : [key]) store.delete(k);
       },
     },
     getWebSockets: () => [],
@@ -95,6 +99,12 @@ function makeEnv(): Env & { _r2: FakeR2 } {
 
 async function json<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
+}
+
+async function downloadedIso(env: Env, id: string, trackId: string, cookie: string): Promise<Uint8Array> {
+  const res = await app.request(`https://casthop.test/api/studios/${id}/recordings/iso/${trackId}`, { headers: { Cookie: cookie } }, env);
+  if (!res.ok) throw new Error(`download ${res.status}: ${await res.text()}`);
+  return new Uint8Array(await res.arrayBuffer());
 }
 
 function headerCookies(res: Response): string[] {
@@ -240,6 +250,25 @@ test("R2 chunk keys sort and concat in order", async () => {
   }
   const out = new TextDecoder().decode(Buffer.concat(parts.map((p) => Buffer.from(p))));
   assert.equal(out, "AABB");
+});
+
+test("download skips a late put that landed under an old reservation nonce", async () => {
+  const prefix = isoPrefix("stu", "trk");
+  const late = isoChunkKey("stu", "trk", 0, "oldnonce");
+  const kept = isoChunkKey("stu", "trk", 0, "newnonce");
+  const bare = isoChunkKey("stu", "trk", 0);
+  const keys = [late, kept, isoChunkKey("stu", "trk", 99)];
+  assert.equal(parseChunkObject("000000-newnonce")?.nonce, "newnonce");
+  assert.deepEqual(downloadChunkKeys(keys, prefix, 1, ["newnonce"]), [kept]);
+  assert.deepEqual(downloadChunkKeys(keys, prefix, 1, ["oldnonce"]), [late]);
+  assert.deepEqual(downloadChunkKeys(keys, prefix, 1), [], "unknown nonce does not pick a rival key");
+  assert.deepEqual(downloadChunkKeys([bare, late], prefix, 1), [bare]);
+  const r2 = new FakeR2();
+  const bucket = r2 as unknown as R2Bucket;
+  await bucket.put(late, new TextEncoder().encode("A"));
+  await bucket.put(kept, new TextEncoder().encode("BB"));
+  const listed = await listIsoChunkKeys(bucket, "stu", "trk");
+  assert.ok(listed.includes(late) && listed.includes(kept));
 });
 
 test("pickRecorderMime uses the first supported type", () => {
@@ -462,10 +491,19 @@ test("host can enable ISO, each person uploads chunks, host downloads concat", a
   await env._r2.put(isoChunkKey(id, hostTrack.track.id, 99), new TextEncoder().encode("NOPE"));
   const prefix = isoPrefix(id, hostTrack.track.id);
   const listedKeys = await listIsoChunkKeys(env.RECORDINGS, id, hostTrack.track.id);
-  assert.deepEqual(downloadChunkKeys(listedKeys, prefix, 2), [
-    isoChunkKey(id, hostTrack.track.id, 0),
-    isoChunkKey(id, hostTrack.track.id, 1),
-  ]);
+  assert.ok(listedKeys.some((k) => parseChunkObject(k.slice(prefix.length))?.index === 99));
+  const firstTwo = listedKeys.filter((k) => {
+    const parsed = parseChunkObject(k.slice(prefix.length));
+    return parsed !== null && parsed.index < 2;
+  });
+  assert.equal(firstTwo.length, 2);
+  assert.deepEqual(
+    downloadChunkKeys(listedKeys, prefix, 2),
+    [],
+    "without committed nonces a late or extra object is not used",
+  );
+  const nonces = firstTwo.map((k) => parseChunkObject(k.slice(prefix.length))?.nonce);
+  assert.deepEqual(downloadChunkKeys(listedKeys, prefix, 2, nonces), firstTwo);
 
   const dl = await app.request(
     `https://casthop.test/api/studios/${id}/recordings/iso/${hostTrack.track.id}`,
@@ -729,9 +767,9 @@ test("a second upload to a chunk index in flight cannot store uncounted bytes", 
   const list = await json<RecordingList>(
     await app.request(`https://casthop.test/api/studios/${id}/recordings`, { headers: { Cookie: cookie } }, env),
   );
-  const stored = await env._r2.get(isoChunkKey(id, track.id, 0));
+  const stored = await downloadedIso(env, id, track.id, cookie);
   assert.equal(list.tracks[0]?.bytes, 1);
-  assert.equal(stored?.size, list.tracks[0]?.bytes, "stored bytes match counted bytes");
+  assert.equal(stored.byteLength, list.tracks[0]?.bytes, "stored bytes match counted bytes");
 });
 
 test("a reservation left by a dead request is taken over after the TTL", async () => {
@@ -820,7 +858,10 @@ test("a hung R2 put aborts the reservation without waiting for the put to settle
   const realSetTimeout = globalThis.setTimeout;
   globalThis.setTimeout = ((handler: TimerHandler, ms?: number, ...args: unknown[]) =>
     realSetTimeout(handler as (...a: unknown[]) => void, ms === ISO_PUT_TIMEOUT_MS ? 20 : (ms ?? 0), ...args)) as typeof setTimeout;
-  env._r2.holdNextPut = new Promise<void>(() => {});
+  let releaseHung!: () => void;
+  env._r2.holdNextPut = new Promise<void>((resolve) => {
+    releaseHung = resolve;
+  });
   try {
     const hung = put("A");
     const settled = await Promise.race([
@@ -833,9 +874,15 @@ test("a hung R2 put aborts the reservation without waiting for the put to settle
     const list = await json<RecordingList>(
       await app.request(`https://casthop.test/api/studios/${id}/recordings`, { headers: { Cookie: cookie } }, env),
     );
-    const stored = await env._r2.get(isoChunkKey(id, track.id, 0));
+    const stored = await downloadedIso(env, id, track.id, cookie);
     assert.equal(list.tracks[0]?.bytes, 2);
-    assert.equal(stored?.size, 2, "retry bytes match counted bytes");
+    assert.equal(stored.byteLength, 2, "retry bytes match counted bytes");
+    assert.equal(new TextDecoder().decode(stored), "BB");
+    // The first put can still land after abort; it must not replace the retry.
+    releaseHung();
+    await new Promise((resolve) => realSetTimeout(resolve, 20));
+    const afterLate = await downloadedIso(env, id, track.id, cookie);
+    assert.equal(new TextDecoder().decode(afterLate), "BB", "a late hung put cannot overwrite the retry");
   } finally {
     globalThis.setTimeout = realSetTimeout;
   }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { app, StudioDurableObject } from "../worker/index.ts";
-import { GUEST_TOKEN_TTL_SEC, HOST_TOKEN_TTL_SEC } from "../worker/livekit.ts";
+import { GUEST_STAGE_TOKEN_TTL_SEC, GUEST_TOKEN_TTL_SEC, HOST_TOKEN_TTL_SEC, signLivekitWebhook } from "../worker/livekit.ts";
 import { DEV_API_KEY, DEV_API_SECRET, GUEST_MINT_PER_SOURCE, HOST_IDENTITY, INVITE_ACCOUNT_MAX, INVITE_EMAIL_MAX, SESSION_COOKIE } from "../worker/security.ts";
 import type { Env, PublicClip, PublicReplay, PublicStudio, StudioRecord } from "../worker/types.ts";
 import { DEFAULT_MAX_STUDIOS, insertClip, maxStudiosPerAccount, ownedStudioCount } from "../worker/db.ts";
@@ -20,6 +20,7 @@ const egressStartBodies: string[] = [];
 let egressStops = 0;
 let mailWebhookStatus = 503;
 const livekitRemoved: string[] = [];
+const publishUpdates: { identity?: string; permission?: { can_publish?: boolean } }[] = [];
 const realFetch = globalThis.fetch;
 let githubEmails: { email: string; primary?: boolean; verified?: boolean }[] = [
   { email: "octo@example.com", primary: true, verified: true },
@@ -200,6 +201,7 @@ before(() => {
       return new Response("{}", { status: 200 });
     }
     if (url.includes("UpdateParticipant")) {
+      if (typeof init?.body === "string") publishUpdates.push(JSON.parse(init.body) as (typeof publishUpdates)[number]);
       if (updateParticipantStatus === 200) return new Response("{}", { status: 200 });
       return new Response(updateParticipantError, { status: updateParticipantStatus });
     }
@@ -1130,6 +1132,84 @@ test("parallel studio creates cannot pass the per-account cap", async () => {
   const accountId = String(env._db.rows("accounts")[0]?.id);
   assert.equal(await ownedStudioCount(env.DB, accountId), 3);
   assert.equal(env._db.rows("studios").length, 3);
+});
+
+test("an on-stage guest token is short-lived, and a rejoin re-applies stage and removal", async () => {
+  const env = makeEnv();
+  const ownerCookie = await signIn(env, "grants-owner@example.com");
+  const { id } = await createStudio(env, ownerCookie);
+  const mint = (body: Record<string, unknown>) =>
+    app.request(
+      `https://casthop.test/api/studios/${id}/token`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Ada", role: "guest", ...body }) },
+      env,
+    );
+  const first = await json<{ identity: string; guestSecret: string; token: string; expiresIn: number }>(await mint({}));
+  assert.equal(first.expiresIn, GUEST_TOKEN_TTL_SEC);
+  const stage = (on: boolean) =>
+    app.request(
+      `https://casthop.test/api/studios/${id}/stage`,
+      { method: "POST", headers: { "Content-Type": "application/json", Cookie: ownerCookie }, body: JSON.stringify({ identity: first.identity, on }) },
+      env,
+    );
+  assert.equal((await stage(true)).status, 200);
+  const onStage = await json<{ token: string; expiresIn: number; canPublish: boolean }>(
+    await mint({ identity: first.identity, guestSecret: first.guestSecret }),
+  );
+  assert.equal(onStage.canPublish, true);
+  assert.equal(onStage.expiresIn, GUEST_STAGE_TOKEN_TTL_SEC);
+  assertTtl(onStage.token, GUEST_STAGE_TOKEN_TTL_SEC);
+  assert.equal((await stage(false)).status, 200);
+
+  const joined = async (identity: string, canPublish = false) => {
+    const participant = canPublish ? { identity, permission: { canPublish: true } } : { identity };
+    const body = JSON.stringify({ event: "participant_joined", room: { name: id }, participant });
+    const res = await app.request(
+      "https://casthop.test/api/livekit/webhook",
+      { method: "POST", headers: { Authorization: await signLivekitWebhook(env, body) }, body },
+      env,
+    );
+    assert.equal(res.status, 200, await res.clone().text());
+  };
+  publishUpdates.length = 0;
+  await joined(first.identity);
+  assert.equal(publishUpdates.length, 0, "a guest who joins without publish needs nothing undone (and must not race a stage-on)");
+  await joined(first.identity, true);
+  assert.ok(
+    publishUpdates.some((u) => u.identity === first.identity && u.permission?.can_publish === false),
+    "a guest off stage who rejoins with an older publish token loses publish again",
+  );
+
+  // A guest put on stage while their join webhook is in flight keeps publish.
+  assert.equal((await stage(true)).status, 200);
+  publishUpdates.length = 0;
+  await joined(first.identity, true);
+  assert.equal(
+    publishUpdates.some((u) => u.identity === first.identity && u.permission?.can_publish === false),
+    false,
+  );
+  assert.equal((await stage(false)).status, 200);
+
+  await app.request(
+    `https://casthop.test/api/studios/${id}/cohosts`,
+    { method: "POST", headers: { "Content-Type": "application/json", Cookie: ownerCookie }, body: JSON.stringify({ email: "grants-co@example.com" }) },
+    env,
+  );
+  const coCookie = await signIn(env, "grants-co@example.com");
+  const co = await json<{ id: string }>(await app.request("https://casthop.test/api/auth/me", { headers: { Cookie: coCookie } }, env));
+  await app.request(`https://casthop.test/api/studios/${id}/cohosts/accept`, { method: "POST", headers: { Cookie: coCookie } }, env);
+  const coToken = await json<{ identity: string }>(
+    await app.request(
+      `https://casthop.test/api/studios/${id}/token`,
+      { method: "POST", headers: { "Content-Type": "application/json", Cookie: coCookie }, body: JSON.stringify({ name: "Co", role: "host" }) },
+      env,
+    ),
+  );
+  const removed = await app.request(`https://casthop.test/api/studios/${id}/cohosts/${co.id}`, { method: "DELETE", headers: { Cookie: ownerCookie } }, env);
+  assert.equal(removed.status, 200);
+  livekitRemoved.length = 0;
+  await joined(coToken.identity);
+  assert.ok(livekitRemoved.includes(coToken.identity), "a removed co-host who rejoins is removed again");
 });
 
 test("cookie writes from another origin on the same site are refused", async () => {

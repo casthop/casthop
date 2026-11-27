@@ -420,8 +420,14 @@ export function Studio() {
           /* ignore */
         }
       });
-      async function refreshHostToken() {
-        const next = await mintToken(id, { name: nameRef.current, role: "host" });
+      async function refreshToken() {
+        const guestSecret = host ? undefined : loadSession(id)?.guestSecret;
+        const next = await mintToken(id, {
+          name: nameRef.current,
+          role: host ? "host" : "guest",
+          identity: guestSecret ? identityRef.current : undefined,
+          guestSecret,
+        });
         scheduleRefresh(next.expiresIn);
         return next;
       }
@@ -429,7 +435,7 @@ export function Studio() {
         window.clearTimeout(refreshTimer);
         const waitMs = Math.max(30_000, (expiresIn - 120) * 1000);
         refreshTimer = window.setTimeout(() => {
-          void refreshHostToken().catch((err) => {
+          void refreshToken().catch((err) => {
             if (cancelled) return;
             setError(err instanceof Error ? err.message : t("errRefresh"));
             current?.disconnect();
@@ -437,10 +443,10 @@ export function Studio() {
         }, waitMs);
       }
       lk.on(RoomEvent.Disconnected, () => {
-        if (cancelled || !isHostRef.current) return;
+        if (cancelled) return;
         void (async () => {
           try {
-            const next = await refreshHostToken();
+            const next = await refreshToken();
             if (cancelled) return;
             await lk.connect(next.url, next.token);
             if (cancelled) {
@@ -465,7 +471,7 @@ export function Studio() {
       setRoom(lk);
       bump();
       if (minted.canPublish) await publishLocal(lk);
-      if (host) scheduleRefresh(minted.expiresIn);
+      scheduleRefresh(minted.expiresIn);
     })().catch((err) => setError(err instanceof Error ? err.message : t("errConnect")));
     return () => {
       cancelled = true;

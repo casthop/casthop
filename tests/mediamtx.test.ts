@@ -16,3 +16,11 @@ test("dev MediaMTX turns MoQ off so 8892/8893 are not on all interfaces", () => 
   assert.match(yml, /^rtmpAddress:\s*127\.0\.0\.1:1935\s*$/m);
   assert.match(compose, /infra\/mediamtx\.yml:\/mediamtx\.yml/);
 });
+
+test("dev MediaMTX HLS and playback allow no browser origin", () => {
+  // The MediaMTX 1.21 default is ["*"], which lets any page in the developer's browser read them.
+  assert.match(yml, /^hlsAllowOrigins:\s*\[\]\s*$/m);
+  assert.match(yml, /^playbackAllowOrigins:\s*\[\]\s*$/m);
+  assert.match(yml, /^hlsAddress:\s*127\.0\.0\.1:8888\s*$/m);
+  assert.match(yml, /^playbackAddress:\s*127\.0\.0\.1:9996\s*$/m);
+});

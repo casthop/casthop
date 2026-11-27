@@ -59,6 +59,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 - Stream keys and full destination URLs are withheld from guests and public GET / WebSocket state.
 - Published LiveKit `devkey` is refused unless LiveKit is loopback.
+- Two uploads to the same ISO chunk can no longer store bytes the per-track and per-session caps never counted. The first upload reserves the chunk; a second one gets a retryable 429 until it lands. Each attempt writes a key that includes its reservation nonce, so a hung or late R2 put cannot overwrite a retry.
 - Sign-in and token rate limits count an IPv6 /64 as one client instead of each address in it. One address gets 20 sign-in mails every 15 minutes from all clients together, then at most one more per minute, so a burst cannot lock the owner out.
 - One account can own at most 20 studios (`CASTHOP_MAX_STUDIOS`), and the studio list returns the 200 newest. Sign-up is open, and per-studio recording and Egress limits did not bound one account.
 - A guest's publish token lasts 10 minutes instead of 6 hours (the studio renews it before it expires and on reconnect, for guests as well as hosts), and when someone joins the LiveKit room the studio re-applies its own decision: a removed co-host or guest is removed again, and a guest who is not on stage loses publish permission.

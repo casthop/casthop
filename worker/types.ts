@@ -86,6 +86,8 @@ export type IsoTrack = {
   bytes: number;
   chunks: number;
   complete: boolean;
+  /** The one upload allowed to write and commit the next chunk. */
+  pending?: { index: number; bytes: number; nonce: string; at: number };
 };
 
 export type RecordingList = {

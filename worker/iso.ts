@@ -8,6 +8,24 @@ export const ISO_SESSION_MAX_BYTES = 10 * 1024 * 1024 * 1024;
 export const ISO_CHUNK_WINDOW_MS = 60_000;
 /** Camera + screen at a 2 s timeslice is 60 PUTs/min; extra headroom is for retries. */
 export const ISO_CHUNK_MAX = 180;
+/** Hard cap on one chunk's R2 put. The reservation is aborted when it fires; the put is not cancelled, so each attempt writes a key that includes its nonce. */
+export const ISO_PUT_TIMEOUT_MS = 15_000;
+
+/** Takeover bound for a request that died before abort. */
+export const ISO_RESERVATION_TTL_MS = 60_000;
+
+/** Rejects if `work` takes longer than `ms`; the caller then aborts its reservation. */
+export async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("put timed out")), ms);
+  });
+  try {
+    return await Promise.race([work, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 /** Camera + screen, plus a remount, per person per live. */
 export const ISO_TRACKS_PER_IDENTITY = 4;
 /** Per live session, and the max listed history after dropping the oldest. */
@@ -42,8 +60,18 @@ export function isoPrefix(studioId: string, trackId: string): string {
   return `iso/${studioId}/${trackId}/`;
 }
 
-export function isoChunkKey(studioId: string, trackId: string, index: number): string {
-  return `${isoPrefix(studioId, trackId)}${String(index).padStart(6, "0")}`;
+export function isoChunkKey(studioId: string, trackId: string, index: number, nonce?: string): string {
+  const base = `${isoPrefix(studioId, trackId)}${String(index).padStart(6, "0")}`;
+  return nonce ? `${base}-${nonce}` : base;
+}
+
+/** Index (and optional reservation nonce) from the object name after the track prefix. */
+export function parseChunkObject(rest: string): { index: number; nonce?: string } | null {
+  const m = rest.match(/^(\d{6})(?:-([A-Za-z0-9]+))?$/);
+  if (!m) return null;
+  const index = Number(m[1]);
+  if (!Number.isInteger(index) || index < 0 || index >= ISO_MAX_CHUNKS) return null;
+  return m[2] ? { index, nonce: m[2] } : { index };
 }
 
 export function parseChunkIndex(raw: string): number | null {
@@ -79,17 +107,33 @@ export function chunkKeysFromList(objects: { key: string }[], prefix: string): s
     .map((o) => o.key)
     .filter((key) => {
       if (!key.startsWith(prefix)) return false;
-      return /^\d{6}$/.test(key.slice(prefix.length));
+      return parseChunkObject(key.slice(prefix.length)) !== null;
     })
     .sort();
 }
 
-/** Only the indexes the Durable Object accepted, so extra objects in the prefix cannot join the file. */
-export function downloadChunkKeys(keys: string[], prefix: string, chunks: number): string[] {
-  return keys.filter((key) => {
-    const n = parseChunkIndex(key.slice(prefix.length));
-    return n !== null && n < chunks;
-  });
+/** Only the indexes the Durable Object accepted, so a late put to an old nonce cannot join the file. */
+export function downloadChunkKeys(
+  keys: string[],
+  prefix: string,
+  chunks: number,
+  nonces?: (string | undefined)[],
+): string[] {
+  const out: string[] = [];
+  const set = new Set(keys);
+  for (let i = 0; i < chunks; i++) {
+    const nonce = nonces?.[i];
+    const named = nonce ? isoChunkKeyFromParts(prefix, i, nonce) : undefined;
+    const bare = isoChunkKeyFromParts(prefix, i);
+    if (named && set.has(named)) out.push(named);
+    else if (!nonce && set.has(bare)) out.push(bare);
+  }
+  return out;
+}
+
+function isoChunkKeyFromParts(prefix: string, index: number, nonce?: string): string {
+  const base = `${prefix}${String(index).padStart(6, "0")}`;
+  return nonce ? `${base}-${nonce}` : base;
 }
 
 export async function listIsoChunkKeys(bucket: ObjectStore, studioId: string, trackId: string): Promise<string[]> {

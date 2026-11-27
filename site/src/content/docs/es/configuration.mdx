@@ -1,95 +1,173 @@
 ---
 title: Configuración
-description: Variables de entorno para docker compose y el Worker, con sus valores locales.
+description: Cada opción que lee Casthop, qué hace y cuándo conviene cambiarla.
 group: Operar
 order: 4
 ---
 
-Copia `.env.example` a `.env` para docker compose, y `.dev.vars.example` a `.dev.vars` para el Worker. En producción, define los valores del Worker como Worker secrets o vars. Ambos archivos de ejemplo listan cada variable que lee la app, con un comentario de una línea.
+Casthop lee su configuración de dos archivos:
 
-<p class="note">El valor <code>casthop_dev_secret_…</code> de los archivos de ejemplo es un valor local documentado. Es público, así que no vale para producción. Genera tus propias claves con <code>lk generate-keys</code>.</p>
+- **`.env`** es para Docker Compose (los servidores de medios). Parte de `.env.example`.
+- **`.dev.vars`** es para el servidor de la app (el Cloudflare Worker) cuando corres `bun run dev`. Parte de `.dev.vars.example`.
+
+En un servidor real, define los valores de la app como variables del Worker, y los secretos con `wrangler secret put NAME`. Nunca subas valores reales a git.
+
+Para una prueba local no necesitas cambiar nada. Los valores por defecto funcionan.
+
+<p class="note">Los valores <code>devkey</code> y <code>casthop_dev_secret_…</code> de los archivos de ejemplo son claves de prueba públicas. Casthop las rechaza a menos que LiveKit esté en <code>127.0.0.1</code>. Crea las tuyas con <code>lk generate-keys</code> antes de poner algo en una red.</p>
 
 ## LiveKit
 
-| Nombre | Función | Valor local |
-|---|---|---|
-| `LIVEKIT_API_KEY` | Clave de la API de LiveKit. | `devkey` |
-| `LIVEKIT_API_SECRET` | Secreto de la API de LiveKit. Guárdalo en Worker secrets y no lo envíes al navegador. | el valor local documentado, no para producción |
-| `LIVEKIT_HTTP_URL` | Dónde alcanza el Worker a LiveKit. | `http://127.0.0.1:7880` |
-| `PUBLIC_LIVEKIT_URL` | La URL de LiveKit a la que se conectan los navegadores. | `ws://127.0.0.1:7880` |
+LiveKit es el servidor que lleva el audio y el video entre navegadores.
 
-El Worker responde 503 si se usa `devkey` con una URL de LiveKit que no sea loopback. `CASTHOP_ALLOW_DEV_KEYS=1` lo omite y existe solo para pruebas.
+| Nombre | Qué hace | Cuándo cambiarlo | Por defecto |
+|---|---|---|---|
+| `LIVEKIT_API_KEY` | Clave que usa la app para hablar con LiveKit. | En cualquier servidor real. Usa tu propia clave. | `devkey` |
+| `LIVEKIT_API_SECRET` | Secreto que acompaña a la clave. Nunca se envía a los navegadores. | En cualquier servidor real. Guárdalo como Worker secret. | valor de prueba público |
+| `LIVEKIT_HTTP_URL` | Dónde el servidor de la app llega a LiveKit. | Cuando LiveKit corre en otro host. | `http://127.0.0.1:7880` |
+| `PUBLIC_LIVEKIT_URL` | Dónde los navegadores llegan a LiveKit. Tus invitados deben poder alcanzarlo. | En cualquier servidor real, por ejemplo `wss://livekit.example.com`. | `ws://127.0.0.1:7880` |
 
-## Egress
+## Grabación y mezcla
 
-| Nombre | Función | Valor local |
-|---|---|---|
-| `EGRESS_OUTPUT_DIR` | Ruta dentro del contenedor de egress. Compose monta `./data/recordings` aquí. No es una var del Worker. | `/out` |
-| `EGRESS_TEMPLATE_URL` | La página del compositor que abre Egress. | `http://127.0.0.1:5173/egress-template` |
+Egress es el servicio de LiveKit que abre una página oculta del estudio, mezcla el escenario en un solo video, lo graba y lo envía.
 
-## Destinos
+| Nombre | Qué hace | Cuándo cambiarlo | Por defecto |
+|---|---|---|---|
+| `EGRESS_TEMPLATE_URL` | La página del estudio que Egress abre para mezclar el video. | En un servidor real: `https://<your site>/egress-template`. | `http://127.0.0.1:5173/egress-template` |
+| `EGRESS_OUTPUT_DIR` | Carpeta dentro del contenedor de Egress donde se guardan las grabaciones. Solo Docker, la app no la lee. | Pocas veces. Compose monta aquí `./data/recordings`. | `/out` |
 
-| Nombre | Función | Valor local |
-|---|---|---|
-| `RTMP_YOUTUBE` | Destino por defecto de YouTube. | `rtmp://127.0.0.1:1935/live/youtube` |
-| `RTMP_LINKEDIN` | Destino por defecto de LinkedIn. | `rtmp://127.0.0.1:1935/live/linkedin` |
-| `RTMP_X` | Destino por defecto de X. | `rtmp://127.0.0.1:1935/live/x` |
+## Destinos por defecto
 
-Son sustitutos locales de MediaMTX. Los estudios nuevos solo los copian si apuntan a loopback: cualquier cuenta puede crear un estudio, así que una URL de ingest real aquí le daría tu clave de stream a cada dueño. Los dueños ponen las URLs de ingest reales por estudio en el panel de destinos.
+Un destino es una dirección de streaming (URL RTMP), como la de ingesta de YouTube.
 
-## Worker
+| Nombre | Qué hace | Cuándo cambiarlo | Por defecto |
+|---|---|---|---|
+| `RTMP_YOUTUBE` | Dirección de YouTube por defecto para los estudios nuevos. | Solo para apuntar a otro servidor de prueba local. | `rtmp://127.0.0.1:1935/live/youtube` |
+| `RTMP_LINKEDIN` | Dirección de LinkedIn por defecto. | Igual que arriba. | `rtmp://127.0.0.1:1935/live/linkedin` |
+| `RTMP_X` | Dirección de X por defecto. | Igual que arriba. | `rtmp://127.0.0.1:1935/live/x` |
 
-| Nombre | Función | Valor local |
-|---|---|---|
-| `HOST_KEY_SECRET` | HMAC aparte para las host keys del Worker al Durable Object. Cae a `LIVEKIT_API_SECRET` si no está definido. Defínelo en producción. | unset |
-| `PUBLIC_ORIGIN` | URL pública del sitio para el correo del magic link, invitaciones de coanfitrión y GitHub OAuth. | unset (se usa el Host de loopback) |
-| `CASTHOP_TRUST_FORWARDED` | Pon `1` para confiar en `CF-Connecting-IP` y `X-Forwarded-For` detrás de un reverse proxy. | unset |
-| `CASTHOP_ALLOW_DEV_KEYS` | Permite el par de claves de desarrollo publicado con un LiveKit que no sea loopback. Solo pruebas. | unset |
+Los estudios nuevos las copian solo cuando apuntan a `127.0.0.1`. No pongas aquí una stream key real. Cualquier cuenta puede crear un estudio, así que la clave llegaría a todos. Los dueños escriben sus direcciones reales por estudio, en el panel **Destinations**.
 
-## Sobrescribir tiempos
+## Servidor y seguridad
 
-Opcional. Sin valor, rigen los del código en `worker/egress.ts`. Las pruebas ponen algunos a `0` o a unos milisegundos.
+| Nombre | Qué hace | Cuándo cambiarlo | Por defecto |
+|---|---|---|---|
+| `PUBLIC_ORIGIN` | La dirección pública de tu sitio, usada en los correos de inicio de sesión, las invitaciones de coanfitrión y el callback de GitHub. | Siempre en un servidor real, por ejemplo `https://studio.example.com`. Sin ella, el inicio de sesión falla fuera de `127.0.0.1`. | sin definir |
+| `HOST_KEY_SECRET` | Secreto aparte para las host keys dentro de la app. Si falta, usa `LIVEKIT_API_SECRET`. | Siempre en un servidor real, para que cambiar las claves de LiveKit después no deje fuera a los estudios. | sin definir |
+| `CASTHOP_TRUST_FORWARDED` | `1` confía en la dirección del cliente de `X-Forwarded-For` y `CF-Connecting-IP`. El inicio de sesión y los límites de invitados usan esa dirección. | Solo detrás de tu propio reverse proxy (nginx, Caddy). No hace falta en Cloudflare. Nunca con `bun run dev`. | sin definir |
+| `CASTHOP_DEV_LOGIN` | `1` devuelve el enlace de inicio de sesión en la respuesta al navegador, no solo en la terminal. Funciona solo en `127.0.0.1`. | Para pruebas e2e, `bun run measure` y `/internal/probe`. Nunca en un servidor. | sin definir |
+| `CASTHOP_ALLOW_DEV_KEYS` | `1` permite las claves de prueba públicas con un LiveKit que no está en `127.0.0.1`. | Solo para pruebas. | sin definir |
 
-| Nombre | Función | Valor |
-|---|---|---|
-| `CASTHOP_EMPTY_GRACE_MS` | Terminar la transmisión cuando el estudio lleva vacío este tiempo. | `45000` |
-| `CASTHOP_COMPOSITOR_GRACE_MS` | Esperar a que el Chrome del compositor entre tras StartRoomComposite. | `15000` |
-| `CASTHOP_RECOVERY_MS` | Dejar de reiniciar un compositor muerto; el anfitrión puede Reintentar. | `30000` |
-| `CASTHOP_HEARTBEAT_MS` | El beat del compositor caduca después de esto (la página publica cada 1 s). | `3000` |
-| `CASTHOP_BACKOFF_MS` | Sobrescribir el backoff de reintento RTMP. Unset = 1 s, 2 s, 4 s, 8 s, 16 s, 30 s. `0` para pruebas. | unset |
+`X_LOCAL_EXPLORER=true` en tu shell (no en `.dev.vars`) activa el explorador local de datos en `bun run dev`. Viene apagado por defecto.
 
 ## Inicio de sesión
 
-| Nombre | Función | Valor local |
+Los anfitriones inician sesión con un enlace por correo. Los invitados nunca lo necesitan.
+
+| Nombre | Qué hace | Cuándo cambiarlo | Por defecto |
+|---|---|---|---|
+| `MAIL_WEBHOOK_URL` | Casthop envía aquí por POST un JSON `{ to, subject, text }` por cada correo. | En un servidor real, apuntando a tu servicio de correo. Sin definir, los correos se imprimen en la terminal. | sin definir |
+| `MAIL_WEBHOOK_TOKEN` | Se envía como `Authorization: Bearer <token>` en cada llamada al webhook, para que tu servicio de correo pueda verificarlo. | Si tu webhook de correo requiere autenticación. | sin definir |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Activa "Sign in with GitHub". Crea una OAuth app en GitHub con el callback `<PUBLIC_ORIGIN>/api/auth/github/callback`. | Si quieres inicio de sesión con GitHub. Sin definir, el botón se oculta. | sin definir |
+
+## Chat de los sitios de streaming
+
+Mientras estás en vivo, los comentarios de estos sitios aparecen en el chat del estudio. Los anfitriones y coanfitriones pueden fijar uno en el video. Sin definir, la función queda oculta. No se rompe nada.
+
+| Nombre | Qué hace | Por defecto |
 |---|---|---|
-| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | GitHub OAuth opcional. Sin valor, el botón de GitHub se oculta. | unset |
-| `MAIL_WEBHOOK_URL` | Opcional. Casthop hace POST de JSON `{ to, subject, text }`. Sin valor, el magic link va a la consola del Worker. | unset |
-| `MAIL_WEBHOOK_TOKEN` | Token opcional para el webhook de correo. | unset |
+| `YOUTUBE_API_KEY` | Clave de la YouTube Data API para leer el chat en vivo público. | sin definir |
+| `YOUTUBE_LIVE_CHAT_ID` | Lee directamente este chat en vivo. Úsalo con la clave de API. | sin definir |
+| `YOUTUBE_VIDEO_ID` | Encuentra el chat en vivo a partir de este video. Úsalo con la clave de API. | sin definir |
+| `YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN` | En lugar de un id, encuentra tu propia transmisión activa. | sin definir |
+| `TWITCH_CHANNEL` | Nombre del canal de Twitch que se lee. No requiere iniciar sesión. | sin definir |
+| `KICK_CHATROOM_ID` | Número de la sala de chat de Kick que se lee. | sin definir |
 
-## Chat en vivo de YouTube
+Para YouTube, define la clave de API más un id, o los tres valores de OAuth. El chat de X no está soportado porque X no tiene una API de chat gratuita. Los comentarios de LinkedIn no están soportados.
 
-Los comentarios de la transmisión de YouTube aparecen en el panel de chat del estudio mientras el programa está en vivo. El anfitrión puede fijar uno en el overlay del compositor. Sin credenciales, esto se oculta; el estudio no falla.
+## Tiempos
 
-| Nombre | Función | Valor local |
+No deberías necesitarlos. Las pruebas ponen algunos en `0`.
+
+| Nombre | Qué hace | Por defecto |
 |---|---|---|
-| `YOUTUBE_API_KEY` | Clave de YouTube Data API para `liveChatMessages.list` público. | unset |
-| `YOUTUBE_LIVE_CHAT_ID` | Saltar la búsqueda y sondear este live chat. | unset |
-| `YOUTUBE_VIDEO_ID` | Resolver `activeLiveChatId` a partir de un video. | unset |
-| `YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN` | Encontrar la transmisión activa del dueño (`liveBroadcasts.list?mine=true`). | unset |
+| `CASTHOP_EMPTY_GRACE_MS` | Termina el stream después de que el estudio lleve vacío este tiempo. | `45000` (45 s) |
+| `CASTHOP_COMPOSITOR_GRACE_MS` | Cuánto esperar a que la página de mezcla se una después de iniciar. | `15000` |
+| `CASTHOP_RECOVERY_MS` | Deja de reintentar un mezclador caído después de este tiempo. El anfitrión puede presionar Retry. | `30000` |
+| `CASTHOP_HEARTBEAT_MS` | Da por muerta la página de mezcla después de tanto silencio. Avisa cada segundo. | `3000` |
+| `CASTHOP_BACKOFF_MS` | Espera entre reintentos del stream. Sin definir son 1, 2, 4, 8, 16 y luego 30 s. | sin definir |
 
-Hace falta una API key más un live chat o video id, o el trío de refresh OAuth. El sondeo usa el `pollingIntervalMillis` de la API. La API de X pide un plan de pago, y los comentarios de LinkedIn piden API de partner; esos destinos no se ingieren.
+## Bindings de Cloudflare
 
-## Chat de Twitch y Kick
+Se definen en `wrangler.jsonc`, no como variables.
 
-Mientras estás en vivo, estos comentarios aparecen en el mismo panel de chat. Sin valor, quedan ocultos.
+| Binding | Qué es |
+|---|---|
+| `DB` | Base de datos D1 para cuentas, sesiones y la lista de estudios. Las tablas se crean en la primera petición. |
+| `STUDIO` | Un Durable Object por estudio: escenario, layout, chat y destinos. |
+| `RECORDINGS` | Bucket de R2 para repeticiones, clips y pistas por persona. |
 
-| Nombre | Función | Valor local |
-|---|---|---|
-| `TWITCH_CHANNEL` | Nombre del canal de Twitch a leer. | unset |
-| `KICK_CHATROOM_ID` | Id numérico del chatroom de Kick a leer. | unset |
+## Stream keys
 
-El chat de X aún no es compatible porque X no tiene una API de chat gratuita.
+Las stream keys no son opciones de configuración. Se guardan por estudio en el almacenamiento de Durable Object. Los invitados y las páginas públicas solo ven los últimos caracteres, más una marca `hasKey`.
 
-## Claves de stream
+## Modo alojado (opcional)
 
-Las claves de stream no son variables de entorno. Viven en el almacenamiento del Durable Object, nunca en el repo. La API pública solo devuelve un sufijo enmascarado como `rtmp://…/xxxx`, más una flag `hasKey`.
+Viene una versión alojada de Casthop. Estos hooks permiten que un servicio aparte corra Casthop para muchos equipos. No los necesitas para hacer self-hosting. Cada uno está apagado a menos que se defina su variable, y si no defines ninguna, nada cambia.
+
+Un tenant id es el id del equipo de un cliente en ese servicio. Los estudios creados a través de la API del servicio lo llevan, y sus archivos se guardan bajo `t/<tenantId>/`.
+
+| Nombre | Qué hace |
+|---|---|
+| `CASTHOP_EXTERNAL_AUTH_KEYS` | Lista separada por comas de `kid:secret` (secret de 32+ caracteres). Activa `GET /api/auth/external`. Si no, responde 404. |
+| `CASTHOP_EXTERNAL_AUTH_ISSUER` | Obligatorio junto con las claves. El `iss` del token debe ser igual. |
+| `CASTHOP_SIGNIN` | `external` desactiva el inicio de sesión por correo y GitHub, y la creación de estudios desde la app (ambos responden 403 `signin_external`). Los estudios vienen entonces de la API del servicio, así que cada uno tiene un tenant. Las sesiones existentes y los enlaces de invitado siguen funcionando. `/api/config` devuelve `signin: "external"`. |
+| `CASTHOP_SERVICE_KEYS` | Lista separada por comas de `kid:secret` (secret de 32+ caracteres). Activa la API firmada `/api/service/*`. Si no, esas rutas responden 404. |
+
+### Traspaso de inicio de sesión
+
+`GET /api/auth/external?token=<jwt>&next=<path>` inicia la sesión del usuario y redirige a `next`. `next` debe empezar con una sola `/` (sin `//`, sin barra invertida). Cualquier otra cosa va a `/`.
+
+El token es un JWS compacto, HS256, con el header `{"alg":"HS256","typ":"JWT","kid":"<kid>"}`.
+
+| Claim | Regla |
+|---|---|
+| `iss` | Igual a `CASTHOP_EXTERNAL_AUTH_ISSUER`. |
+| `aud` | `casthop`. |
+| `sub` | Id del usuario externo, un string. |
+| `email` | Correo válido. La cuenta se busca o se crea con él, y se aplican las invitaciones pendientes. |
+| `exp` | Segundos Unix, en el futuro y a no más de 120 s desde ahora. |
+| `iat` | Segundos Unix. |
+| `jti` | String de 128 caracteres o menos. De un solo uso. |
+| `name` | Opcional. |
+| `tenant` | Opcional. Si está presente, debe ser un tenant id válido. |
+
+### API del servicio
+
+Cada petición a `/api/service/*` lleva estos headers:
+
+| Header | Valor |
+|---|---|
+| `X-Casthop-Key-Id` | El `kid`. |
+| `X-Casthop-Timestamp` | Segundos Unix. Debe estar a menos de 300 s del reloj del Worker. |
+| `X-Casthop-Nonce` | De 16 a 64 caracteres de `A-Za-z0-9_-`. Se usa una sola vez. |
+| `X-Casthop-Signature` | HMAC-SHA256 en hexadecimal minúscula. |
+
+La firma es el HMAC-SHA256 de este string, con el secret como clave:
+
+```text
+${timestamp}\n${nonce}\n${METHOD}\n${pathname+search}\n${sha256hex(body)}
+```
+
+`body` es el cuerpo crudo de la petición, o el string vacío si no hay. Una firma incorrecta, un timestamp vencido, una clave desconocida o un nonce reutilizado devuelve 401 `{"error":"bad_signature"}`.
+
+| Ruta | Qué hace |
+|---|---|
+| `POST /api/service/studios` | Cuerpo `{tenantId, ownerEmail, ownerName?, name?}`. Crea un estudio para el tenant. Devuelve 201 `{studio:{id,name,tenantId,ownerId}}`. |
+| `GET /api/service/tenants/:tenantId/studios` | Devuelve `{studios:[{id,name,ownerId,createdAt}]}`. |
+| `DELETE /api/service/studios/:id?tenantId=…` | Termina la salida en vivo y borra el estado, las filas y los archivos del estudio. 404 si no pertenece a ese tenant. Devuelve `{deleted:true}`. |
+| `DELETE /api/service/tenants/:tenantId` | Hace lo mismo con cada estudio del tenant y luego elimina todo bajo `t/<tenantId>/`. Devuelve `{deleted:n}`. |
+
+Estas rutas nunca borran cuentas.
+
+Un tenant id coincide con `^[a-z0-9][a-z0-9_-]{0,62}$`. Los archivos de un estudio con tenant id se guardan bajo `t/<tenantId>/` en el bucket de grabaciones. Los estudios sin él conservan sus claves.

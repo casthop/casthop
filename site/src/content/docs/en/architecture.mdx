@@ -52,7 +52,7 @@ The app is a Hono Worker with one Durable Object per studio (stage, layout, chat
 
 ## Destination chat
 
-While live, the studio Durable Object polls YouTube `liveChatMessages.list` if Worker secrets are set (`worker/chat-ingest.ts`). Comments join the in-room chat list. Hosts can pin one onto the Canvas2D overlay. The poll cursor (`liveChatId`, page token) is omitted from public studio state. X and LinkedIn are not ingested.
+While live, the studio Durable Object reads YouTube (`liveChatMessages.list`), Twitch and Kick chat when their settings are present (`worker/chat-ingest.ts`, `worker/chat-platforms.ts`). Comments join the in-room chat list. Hosts and co-hosts can pin one onto the Canvas2D overlay. The YouTube poll cursor is left out of public studio state. X and LinkedIn are not read.
 
 ## Live badge
 

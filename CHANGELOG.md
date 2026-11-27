@@ -31,6 +31,11 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 ### Fixed
 
+- Clips are always cut from the 16:9 program. A 9:16 destination no longer writes the clip buffer, so clips stop coming out 720x1280.
+- Go live with a 9:16 destination no longer starts the portrait compositor several times in a few seconds. It now gets the same start grace as 16:9, only one portrait start or restart runs at a time, and a restart stops any leftover portrait compositor so two never publish to the same RTMP URL.
+- Kick chat was broken after Kick left Pusher. It now uses Kick's public Centrifugo feed and reconnects with a fresh guest token when the old one expires.
+- Opening `/studio/:id` as a signed-in co-host invitee now shows the Accept prompt, as the invite email says. It used to show only the guest gate. After accepting, the studio opens as a co-host. Accepting from the guest join page still works.
+- The header no longer says Live when every destination has failed to connect. A failed stream no longer counts as output, even with a start time, so the header stays Starting while destinations retry and turns to Live failed once they all fail.
 - A studio whose Go live failed stops polling YouTube chat and closes Twitch and Kick chat until a host presses Retry or End. It used to keep calling YouTube every few seconds, even after everyone left.
 - Go live while End is still stopping the stream now gets "still stopping" instead of starting a compositor the stop never sees. End also stops any compositor the studio recorded while it was stopping, so nothing keeps streaming while the studio shows Not live.
 - The background egress check no longer undoes a host action that lands while it waits on LiveKit. Taking a guest off stage, turning off a destination, or stopping the stream used to be reverted, and a stopped stream could restart.
@@ -43,6 +48,7 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 
 ### Changed
 
+- Docs rewritten for new users: step-by-step quick start with expected results, troubleshooting, plain-word configuration with when to change each setting, and self-hosting steps for D1, R2, build and deploy.
 - Host studio UI matches the approved dark booth: Geist, a right icon rail, Go live in the top bar, and destination switches in the Go live dialog.
 - JS toolchain is Bun (not npm). Vite 8, TypeScript 7, React 19.
 - Live pill is `live` only when Egress output is flowing (bytes/duration, or a short settle after RTMP has had time to publish). Starting is shown until then.
@@ -53,6 +59,8 @@ Working browser live studio (v0). Control plane is a Cloudflare Worker with Dura
 - Stream keys and full destination URLs are withheld from guests and public GET / WebSocket state.
 - Published LiveKit `devkey` is refused unless LiveKit is loopback.
 - Sign-in and token rate limits count an IPv6 /64 as one client instead of each address in it, and one address gets at most 20 sign-in mails every 15 minutes from all clients together.
+- RTMP destinations are refused when the host is an internal address in any spelling (IPv4-mapped IPv6, NAT64, decimal, hex, octal or shortened IPv4), a multicast or special-use range, a single-label name, or a name under `.localhost`, `.local`, `.internal`, `.home.arpa`, `.localdomain` or `.lan`.
+- ISO chunk uploads need a Content-Length of at most 8 MiB and are refused before the body is read. A streamed upload with no length used to be buffered in full first.
 - Inviting a co-host gives the same answer whether or not the email has an account, and no longer returns that person's account id or name. Existing accounts get the invite mail and become co-hosts when they accept on the studio link or next sign in, not straight away. A co-host can leave a studio.
 - Replay, clip and live playlists are checked against the tags casthop and ffmpeg write, and only `index.m3u8` may be a playlist. Lone CR line breaks, text after an `#EXTINF` duration, unquoted `URI=`, interstitials and nested playlists used to get past the check and make viewers' players fetch outside URLs.
 - The magic-link response includes the dev sign-in link only when `CASTHOP_DEV_LOGIN=1` is set. Under `bun run dev` the Host header and client IP the old check used are controlled by the client. CI sets the flag; set it in `.dev.vars` to run e2e or `bun run measure` locally.

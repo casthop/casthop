@@ -902,8 +902,10 @@ app.put("/api/studios/:id/iso/:trackId/chunks/:index", async (c) => {
   if (index === null) return c.json({ error: "chunk required" }, 400);
   const who = await isoCaller(c, id);
   if (who instanceof Response) return who;
-  const declared = Number(c.req.header("content-length") ?? "0");
-  if (declared > ISO_CHUNK_MAX_BYTES) return c.json({ error: "chunk too large" }, 413);
+  // Refuse before reading: without a declared length the body would be buffered whole.
+  if (contentLengthOver(c.req.header("content-length"), ISO_CHUNK_MAX_BYTES)) {
+    return c.json({ error: "chunk too large or missing Content-Length" }, 413);
+  }
   if (!(await allowRate(c.env.DB, `iso:${id}:${who.identity}`, ISO_CHUNK_MAX, ISO_CHUNK_WINDOW_MS))) {
     return c.json({ error: "too many uploads" }, 429);
   }

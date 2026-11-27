@@ -1,29 +1,46 @@
 ---
 title: Invitados
-description: Cómo los invitados entran a un estudio desde un enlace, y qué tiene que hacer el anfitrión.
+description: Cómo entran los invitados y coanfitriones a un estudio, y qué puede hacer cada persona.
 group: Empezar
 order: 2
 ---
 
-Los invitados entran con un enlace. No necesitan cuenta.
+Los invitados entran desde un enlace. No necesitan cuenta ni instalar nada.
 
-## Cómo funciona
+## Cómo entra un invitado
 
-1. El anfitrión abre un estudio y copia el enlace de invitado.
-2. El invitado abre el enlace en el navegador e introduce un nombre.
-3. El invitado espera entre bastidores. El anfitrión lo ve, pero aún no está en la transmisión.
-4. El anfitrión lo agrega a escena. Caben hasta seis a la vez.
+1. El anfitrión abre un estudio y hace clic en **Invite guest** para copiar el enlace.
+2. El invitado abre el enlace, escribe su nombre y revisa la cámara y el micrófono.
+3. El invitado espera en el backstage. El anfitrión puede verlo, pero no sale en el stream.
+4. El anfitrión lo sube al escenario. Pueden estar hasta seis personas en el escenario al mismo tiempo.
 
-![La pantalla de entrada del invitado con una imagen de prueba verde.](/guest.png)
+![The guest join screen with a green test picture.](/guest.png)
 
-*La imagen verde es una cámara falsa en una captura de prueba, no un invitado de verdad.*
+*La imagen verde es una cámara falsa en una captura de prueba, no un invitado real.*
 
-## Quién puede qué
+## Coanfitriones
 
-- **Presentar exige una cuenta.** El anfitrión entra con un magic link por correo, o GitHub si lo configuraste. El dueño del estudio y cualquier coanfitrión que invite pueden controlarlo.
-- **Los invitados no se hacen pasar por el anfitrión.** Las identidades las asigna el Worker, y cada acción se comprueba en el servidor.
-- **Los invitados nunca ven claves de stream.** El estado público del estudio solo incluye un sufijo enmascarado de cada URL de destino. Mira [Destinos](/docs/destinations).
+Un coanfitrión puede manejar el estudio junto con el dueño: subir invitados al escenario, cambiar el layout, salir en vivo y fijar mensajes del chat.
 
-## Si un invitado no conecta
+1. El dueño hace clic en **Invite co-host** y escribe un correo.
+2. La persona recibe un correo con el enlace del estudio. El dueño ve la misma respuesta sin importar si ese correo tiene cuenta o no.
+3. La persona inicia sesión con ese correo, abre el enlace y hace clic en **Accept and join as co-host**. Mientras no acepte, no es coanfitrión.
 
-TURN para invitados detrás de NAT estricto aún no está. En una red restrictiva, el invitado puede fallar por ahora.
+Un coanfitrión puede salir de un estudio cuando quiera.
+
+## Quién puede hacer qué
+
+- **Ser anfitrión requiere una cuenta.** El dueño y los coanfitriones inician sesión con un enlace por correo, o con GitHub si está configurado.
+- **Los invitados no pueden actuar como anfitrión.** El servidor decide quién es quién y revisa cada acción.
+- **Los invitados nunca ven las stream keys.** Solo ven los últimos caracteres de cada dirección. Mira [Destinos](/docs/destinations).
+- **Solo quienes están en el escenario pueden grabar su propia pista.** Con **Separate recordings** activado, el anfitrión, los coanfitriones y los invitados en el escenario graban cada uno en su navegador. Los invitados que esperan en el backstage no.
+
+## Límites para invitados
+
+Para evitar que una persona llene un estudio con invitados falsos, cada red (una dirección IPv4, o un bloque IPv6 /64) puede sumar hasta 10 invitados nuevos por minuto y ocupar hasta 16 lugares de invitado en un estudio. Cuando el estudio está lleno, los invitados que llevan más de un minuto ausentes pierden su lugar.
+
+Tenlo en cuenta si muchos invitados reales comparten la red de una misma oficina.
+
+## Si un invitado no puede conectarse
+
+TURN todavía no está incluido. TURN es un servidor de relevo para redes que bloquean el video directo. Un invitado en una red estricta de oficina u hotel puede fallar al conectarse. Pídele que pruebe con otra red, o monta tu propio servidor TURN con LiveKit.

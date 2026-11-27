@@ -1,71 +1,91 @@
 ---
 title: Self-hosting
-description: Rode o plano de mídia você mesmo e publique o Worker como plano de controle.
+description: Rode os servidores de mídia por conta própria e publique o app no Cloudflare Workers.
 group: Operar
 order: 3
 ---
 
-O Casthop tem duas metades que conversam pela API Twirp do LiveKit.
+O Casthop tem duas partes:
 
-- **Plano de mídia:** LiveKit, Egress, Redis e uma borda RTMP.
-- **Plano de controle:** um Cloudflare Worker com Durable Objects e D1.
+- **Servidores de mídia:** LiveKit (leva áudio e vídeo entre os navegadores), Egress (mixa, grava e transmite), Redis (deixa os dois conversarem) e um servidor RTMP. Eles rodam no Docker, em uma máquina que você controla.
+- **Servidor do app:** um Cloudflare Worker com Durable Objects (um por estúdio) e D1 (um banco de dados pequeno). Ele serve a interface do estúdio e a API.
 
-O [`docker-compose.yml`](https://github.com/casthop/casthop/blob/main/docker-compose.yml) do repositório é o plano de mídia para uso local. Os arquivos de configuração ficam em [`infra/`](https://github.com/casthop/casthop/tree/main/infra).
+Faça o [início rápido local](/docs/getting-started) funcionar primeiro. Self-hosting é a mesma configuração, com chaves de verdade e endereços públicos.
 
-## 1. Plano de mídia
+## 1. Rode os servidores de mídia
 
-Suba LiveKit, Egress e Redis, mais uma borda RTMP. A borda pode ser MediaMTX (o que o compose usa), nginx-rtmp, ou um destino de verdade como YouTube.
+Comece pelo [`docker-compose.yml`](https://github.com/casthop/casthop/blob/main/docker-compose.yml) e pelos arquivos de configuração em [`infra/`](https://github.com/casthop/casthop/tree/main/infra). Localmente eles escutam em `127.0.0.1`. Em um servidor, o LiveKit precisa estar acessível para seus convidados, geralmente como `wss://` atrás de TLS. O servidor RTMP pode ser o MediaMTX, o nginx-rtmp, ou nenhum, se você só transmite para o YouTube e outros sites reais.
 
-## 2. Chaves de API de verdade
+## 2. Crie chaves de API de verdade
 
-O repositório traz o par `devkey` publicado só para uso local. Gere chaves reais:
+O repositório traz chaves públicas de teste (`devkey`). Crie as suas:
 
 ```bash
 lk generate-keys
 ```
 
-Troque os padrões locais em `infra/livekit.yaml` e `infra/egress.yaml`.
+Coloque a chave e o segredo em `infra/livekit.yaml` (`keys:` e `webhook.api_key`) e em `infra/egress.yaml`. O app responde 503 se as chaves de teste forem usadas com um LiveKit que não esteja em `127.0.0.1`. Isso é de propósito.
 
-O Worker responde 503 se o `devkey` publicado for usado com uma URL do LiveKit que não seja loopback. É de propósito.
-
-## 3. Webhooks
-
-Aponte `webhook.urls` do LiveKit para:
-
-```
-https://<worker>/api/livekit/webhook
-```
-
-Os webhooks são assinados. É assim que crash do Egress e queda de RTMP chegam ao estúdio para ele tentar de novo. O indicador Ao vivo espera saída de verdade (bytes/duração ou uma breve espera do RTMP) antes de aparecer.
-
-## 4. Publicar o Worker
+## 3. Crie os recursos da Cloudflare
 
 ```bash
-wrangler deploy
+bunx wrangler d1 create casthop
+bunx wrangler r2 bucket create casthop-recordings
 ```
 
-Coloque segredos em Worker secrets, nunca no git:
+Copie o `database_id` do D1 que aparece para o `wrangler.jsonc`. As tabelas são criadas na primeira requisição, então não há passo de migração.
+
+## 4. Defina as variáveis e os segredos
+
+No `wrangler.jsonc`, em `vars`, defina pelo menos `LIVEKIT_API_KEY`, `LIVEKIT_HTTP_URL`, `PUBLIC_LIVEKIT_URL`, `EGRESS_TEMPLATE_URL` e `PUBLIC_ORIGIN`. Depois adicione os segredos:
 
 ```bash
-wrangler secret put LIVEKIT_API_SECRET
-wrangler secret put HOST_KEY_SECRET
+bunx wrangler secret put LIVEKIT_API_SECRET
+bunx wrangler secret put HOST_KEY_SECRET
 ```
 
-Defina um `HOST_KEY_SECRET` dedicado. Sem ele, as host keys caem no segredo do LiveKit; rotacionar as chaves do LiveKit trancaria os estúdios já existentes.
+Use um valor aleatório separado para `HOST_KEY_SECRET`. Sem ele, as chaves de anfitrião usam o segredo do LiveKit, e trocar as chaves do LiveKit depois bloquearia você nos estúdios existentes.
 
-## 5. Origem pública e proxies
+Defina `MAIL_WEBHOOK_URL` para que os e-mails de login cheguem a um serviço de e-mail de verdade. Todas as configurações estão em [Configuração](/docs/configuration).
 
-- Defina `PUBLIC_ORIGIN` com a URL pública do site. Entra no e-mail do magic link, nos convites de coapresentador e no callback do GitHub. Se ficar vazio, usa o Host de loopback; em produção, defina o valor para que um Host forjado não gere links para um atacante.
-- Atrás de um reverse proxy, defina `CASTHOP_TRUST_FORWARDED=1` para os limites de login por IP usarem o endereço real do cliente. Sem isso, todo mundo compartilha um bucket `local`. O Cloudflare seta `request.cf`, então você não precisa disso lá. Não ligue no `wrangler dev`.
+## 5. Compile e publique
 
-## 6. Login
+```bash
+bun install
+bun run build
+bunx wrangler deploy
+```
 
-O login é um magic link por e-mail. Por padrão o link vai para o console do Worker. Defina `MAIL_WEBHOOK_URL` para POST de JSON `{ to, subject, text }` no seu mailer. GitHub OAuth é opcional. Veja [Configuração](/docs/configuration).
+Abra `https://<your site>/api/health`. Você deve ver `"ok":true`.
 
-## 7. Destinos e gravações
+## 6. Aponte o LiveKit para o app
 
-Aponte as URLs de destino para ingest de verdade do YouTube, LinkedIn e X. Veja [Destinos](/docs/destinations). Opcionalmente, rode `casthop-post normalize` e copie os MP4 prontos para o R2, para replay. O R2 está bound como encaixe para isso. Por enquanto as gravações ficam no volume do Egress.
+Defina `webhook.urls` do LiveKit como:
 
-## O que esta árvore não cobre
+```
+https://<your site>/api/livekit/webhook
+```
 
-TURN para convidados atrás de NAT restrito e um viewer de replay no R2 não estão no produto. Ingest de chat ao vivo do YouTube é opcional (Worker secrets); comentários do X e do LinkedIn não estão ligados. Desfoque de câmera, composição Canvas2D fora da thread principal, Ao vivo só quando há saída e nova tentativa após queda do Egress estão incluídos. Meça o seu setup antes de depender dele. Variáveis de ambiente: [Configuração](/docs/configuration).
+Os webhooks são assinados com a sua chave do LiveKit. É assim que o estúdio fica sabendo que o Egress caiu ou que uma transmissão foi interrompida, para tentar de novo. O Egress também precisa conseguir abrir `EGRESS_TEMPLATE_URL`.
+
+## 7. Proxies
+
+Se o app fica atrás do seu próprio proxy reverso, defina `CASTHOP_TRUST_FORWARDED=1` para que o login e os limites de convidados enxerguem o endereço real do cliente. Na Cloudflare, você não precisa disso.
+
+## Destinos, replays e clipes
+
+- Os donos dos estúdios digitam endereços reais de YouTube, LinkedIn, X ou outros RTMP em cada estúdio. Veja [Destinos](/docs/destinations).
+- O MP4 mixado vai para a pasta de saída do Egress. Transforme-o em replay com `casthop-post hls` e depois use `POST /api/studios/:id/replays` com `visibility` definido como `private` ou `public`. Replays privados são para o dono e os co-anfitriões. Os públicos tocam em `/watch/:id`.
+- Durante a transmissão, **Clip** (ou a tecla C) salva os últimos 30 ou 60 segundos. Os clipes seguem as mesmas regras de privado e público.
+
+## Limites embutidos
+
+- Login: a cada 15 minutos, 5 pedidos de link por rede e 3 links por e-mail.
+- Convidados: cada rede (um endereço IPv4 ou um IPv6 /64) pode adicionar até 10 convidados novos por minuto e ocupar 16 vagas de convidado em um estúdio. Convidados que saíram há mais de um minuto liberam a vaga quando o estúdio está cheio.
+
+## Ainda não incluído
+
+- **TURN.** Convidados atrás de firewalls restritos podem não conectar. Rode seu próprio servidor TURN com o LiveKit se precisar.
+- **Chat do X e do LinkedIn.** O chat do YouTube, da Twitch e do Kick funciona. O X não tem API de chat gratuita, e o LinkedIn exige uma API de parceiro.
+
+Meça a sua própria configuração antes de confiar nela. Os números registrados estão em [`MEASUREMENTS.md`](https://github.com/casthop/casthop/blob/main/MEASUREMENTS.md).

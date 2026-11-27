@@ -1,58 +1,83 @@
 ---
 title: Ziele
-description: RTMP-Ziele, lokale Platzhalter, Status, Aufzeichnungen und wer volle URLs sieht.
+description: Wohin dein Stream geht, die lokalen Testserver, Live-Status, Aufnahmen, Replays und Clips.
 group: Betrieb
 order: 5
 ---
 
-Ein Ziel ist eine RTMP-URL. Jedes Ziel wählt **16:9** (das Programm) oder **9:16** (ein zweites, gestapeltes Composite). Ziele mit demselben Format teilen sich einen Egress-Transcode.
+Ein Ziel ist eine Streaming-Adresse (eine RTMP- oder RTMPS-URL), zum Beispiel die Ingest-URL, die YouTube dir gibt. Casthop mischt die Bühne einmal und sendet sie an jedes Ziel, das du einschaltest.
 
-## Lokale Platzhalter
+## Breit und hochkant
 
-Von Haus aus sind die Ziele MediaMTX-Platzhalter für YouTube, LinkedIn und X:
+Jedes Ziel ist entweder **16:9** (das normale breite Video) oder **9:16** (ein hohes Video mit gestapelten Kameras, für TikTok, YouTube Shorts oder Instagram Reels). Ziele mit demselben Format teilen sich einen Encode. Hochkant bekommt auf dem Server einen eigenen Encode, Gäste schicken ihre Kamera also trotzdem nur einmal.
 
-| Ziel | Ingest | Ansehen |
+9:16 braucht die Casthop-Mischseite (`EGRESS_TEMPLATE_URL`), die dafür gesetzt sein muss.
+
+## Lokale Testserver
+
+Von Haus aus zeigen die Ziele auf MediaMTX auf deinem Rechner, der für YouTube, LinkedIn und X einspringt:
+
+| Ziel | Adresse | Prüfen |
 |---|---|---|
 | YouTube-Platzhalter | `rtmp://127.0.0.1:1935/live/youtube` | `ffprobe rtmp://127.0.0.1:1935/live/youtube` |
-| LinkedIn-Platzhalter | `rtmp://127.0.0.1:1935/live/linkedin` | dasselbe, `/live/linkedin` |
-| X-Platzhalter | `rtmp://127.0.0.1:1935/live/x` | dasselbe, `/live/x` |
+| LinkedIn-Platzhalter | `rtmp://127.0.0.1:1935/live/linkedin` | dasselbe, mit `/live/linkedin` |
+| X-Platzhalter | `rtmp://127.0.0.1:1935/live/x` | dasselbe, mit `/live/x` |
 
 ## Echte Ziele
 
-Für Produktion trägt jeder Studio-Owner echte YouTube-, LinkedIn- und X-Ingest-URLs im Ziele-Panel ein. Die `RTMP_*`-Vorgaben übernehmen neue Studios nur, wenn sie auf Loopback zeigen; echte Stream-Keys gehören dort nicht hin. Casthop prüft Ziele: von Clients werden nur `rtmp:`-URLs akzeptiert, private Netze (RFC 1918) werden abgelehnt.
+Jeder Studio-Eigentümer trägt echte Adressen im Panel **Destinations** ein, bis zu 16 pro Studio. Casthop akzeptiert nur `rtmp:`- und `rtmps:`-Adressen und lehnt Adressen aus privaten Netzen wie `10.x` oder `192.168.x` ab.
 
-## Status, Live und Recovery
+Trag keine echten Stream-Keys in die `RTMP_*`-Einstellungen ein. Neue Studios übernehmen sie nur, wenn sie auf `127.0.0.1` zeigen.
 
-Jede Zielzeile zeigt den eigenen RTMP-Status (`connecting`, `live`, `retrying`, `failed`). Die Live-Anzeige im Studio bleibt auf „Startet…“, bis Egress Ausgabe liefert: Stream-Bytes oder -Dauer, oder eine kurze Wartezeit nach RTMP-`started_at`. Sie springt nicht auf Live, nur weil der Compositor-Prozess existiert.
+## Status und Wiederherstellung
 
-Fällt Egress oder ein Stream aus, versucht das Studio es mit Backoff erneut. Das hängt an signierten LiveKit-Webhooks, siehe [Self-Hosting](/docs/self-hosting).
+Jedes Ziel zeigt seinen eigenen Status: `connecting`, `live`, `retrying` oder `failed`. Die Anzeige im Studio bleibt auf **Starting**, bis wirklich Video fließt, und zeigt dann **Live**.
 
-## Aufzeichnungen
+Stürzt der Mixer ab oder bricht ein Stream weg, versucht das Studio es selbst erneut und wartet jedes Mal länger. Auf einem Server braucht das den LiveKit-Webhook, siehe [Self-Hosting](/docs/self-hosting).
+
+## Aufnahmen
 
 | Wo | Was |
 |---|---|
-| `data/recordings/` | Egress-MP4 des Composites. |
-| `data/rtmp/` | MediaMTX-fMP4 vom lokalen RTMP-Edge. |
-| `RECORDINGS` (R2) | WebM-Spuren pro Person, wenn Getrennte Aufnahmen an ist. Der Host lädt sie im Panel Aufnahmen herunter. |
+| `data/recordings/` | MP4 der gemischten Show, von Egress geschrieben. |
+| `data/rtmp/` | Das, was das lokale MediaMTX empfangen hat. |
+| `RECORDINGS` (R2) | Spuren pro Person, wenn **Separate recordings** an ist. |
 
-Eine Aufnahme mit dem Rust-Helper inspizieren:
+Um zu prüfen, ob eine Aufnahme Ton hat: `bash scripts/check-silent-audio.sh data/recordings/<file>.mp4`.
+
+## Separate Aufnahmen (Spuren pro Person)
+
+Schalte **Separate recordings** im Go-live-Dialog ein, bevor du live gehst. Jede Person auf der Bühne nimmt dann ihre eigene Kamera und ihr Mikrofon im Browser auf und lädt sie während der Show in 2-Sekunden-Stücken hoch. Ein geschlossener Tab verliert nur das letzte Stück. Nur Leute auf der Bühne nehmen auf. Gäste hinter der Bühne nicht.
+
+Öffne nach der Show **Recordings** im Studio, um jede Spur herunterzuladen. Die Dateien sind WebM, oder MP4 von Safari.
+
+## Replays
+
+Mach aus dem gemischten MP4 mit dem Rust-Helper ein Replay:
 
 ```bash
 cargo run -p casthop-post -- inspect data/recordings/<file>.mp4
+cargo run -p casthop-post -- hls data/recordings/<file>.mp4 /tmp/replay-hls
 ```
 
-Um zu prüfen, dass eine Aufnahme nicht still ist: `bash scripts/check-silent-audio.sh data/recordings/<file>.mp4`.
+Lade es dann als Eigentümer oder Co-Host angemeldet mit `POST /api/studios/:id/replays` hoch und setze `visibility` auf `private` oder `public`. Private Replays erscheinen nur in deiner Studioliste. Öffentliche Replays laufen unter `/watch/:id`.
+
+## Clips
+
+Drück während du live bist **Clip** (oder die Taste C), um die letzten 30 oder 60 Sekunden zu speichern. Clips erscheinen neben den Replays mit einem Download-Link und folgen denselben Regeln für privat und öffentlich.
 
 ## Chat
 
-Leute im Studio können Kommentare in den Raum schicken. Solange die Show live ist, kann Casthop außerdem YouTube-Live-Chat abfragen (`liveChatMessages.list`) und diese Kommentare ins selbe Panel mischen. Hosts und Co-Hosts können einen Kommentar auf das Compositor-Overlay pinnen (Canvas2D-Stapel aus Bauchbinden). Polling nutzt das `pollingIntervalMillis` der API. Ohne Credentials bleibt YouTube-Ingest versteckt; das Studio bricht nicht ab.
+Leute im Studio können miteinander chatten. Solange du live bist, können Kommentare von YouTube, Twitch und Kick im selben Panel erscheinen. Hosts und Co-Hosts können einen Kommentar ins Video pinnen.
 
-Braucht Worker secrets: `YOUTUBE_API_KEY` plus `YOUTUBE_LIVE_CHAT_ID` oder `YOUTUBE_VIDEO_ID`, oder das OAuth-Refresh-Trio (`YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET`, `YOUTUBE_OAUTH_REFRESH_TOKEN`), das die aktive Sendung des Owners nachschlägt. Siehe [Konfiguration](/docs/configuration).
+- **YouTube:** setz `YOUTUBE_API_KEY` plus `YOUTUBE_LIVE_CHAT_ID` oder `YOUTUBE_VIDEO_ID`, oder die drei `YOUTUBE_OAUTH_*`-Werte, um deine eigene aktive Sendung zu finden.
+- **Twitch:** setz `TWITCH_CHANNEL` auf den Kanalnamen.
+- **Kick:** setz `KICK_CHATROOM_ID` auf die Chatroom-Nummer.
 
-Die X-API braucht eine bezahlte Stufe. LinkedIn-Live-Kommentare brauchen eine Partner-API. Beides ist nicht verdrahtet. Es gibt kein VOD / Replay des Ziel-Chats; Polling läuft nur, solange das Studio live ist. Der YouTube-Page-Token-Cursor bleibt im Durable-Object-Speicher und geht nie an Gäste oder öffentlichen GET- / WebSocket-State.
+Ohne Wert bleibt die Quelle versteckt. Nichts geht kaputt. Kommentare werden nur gelesen, solange du live bist, und nicht mit dem Replay gespeichert. X-Chat wird nicht unterstützt, weil X keine kostenlose Chat-API hat. LinkedIn-Kommentare brauchen eine Partner-API und werden nicht unterstützt. Siehe [Konfiguration](/docs/configuration).
 
 ## Wer sieht was
 
-- **Eigentümer und Co-Hosts** bekommen volle Ziel-URLs, wenn sie angemeldet sind (Session-Cookie).
-- **Gäste und öffentliche Requests** bekommen nur ein maskiertes Suffix und ein `hasKey`-Flag. Das gilt für `GET /api/studios/:id` und den WebSocket-`state`-Frame.
+- **Eigentümer und Co-Hosts** bekommen die vollständigen Ziel-URLs, wenn sie angemeldet sind (Session-Cookie).
+- **Gäste und öffentliche Anfragen** bekommen nur ein maskiertes Suffix und ein `hasKey`-Flag. Das gilt für `GET /api/studios/:id` und den WebSocket-`state`-Frame.
 - Stream-Keys liegen im Durable-Object-Speicher, nicht im Repo.

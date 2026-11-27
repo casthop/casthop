@@ -35,7 +35,7 @@ The Worker returns 503 if `devkey` is used with a non-loopback LiveKit URL. `CAS
 | `RTMP_LINKEDIN` | Default LinkedIn destination. | `rtmp://127.0.0.1:1935/live/linkedin` |
 | `RTMP_X` | Default X destination. | `rtmp://127.0.0.1:1935/live/x` |
 
-These are local MediaMTX stand-ins. Replace them with real ingest URLs when you have them, and do not commit real stream keys.
+These are local MediaMTX stand-ins. New studios copy them only when they point at loopback: any account can create a studio, so a real ingest URL here would hand your stream key to every owner. Owners enter real ingest URLs per studio in the Destinations panel.
 
 ## Worker
 

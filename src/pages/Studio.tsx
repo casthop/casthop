@@ -15,6 +15,7 @@ import { LanguageSwitcher, useI18n, type MessageKey } from "../i18n";
 import {
   createClip,
   getConfig,
+  acceptCohostInvite,
   getStudio,
   inviteCohost,
   listCohosts,
@@ -201,6 +202,8 @@ export function Studio() {
   const [studio, setStudio] = useState<StudioView | null>(() => (shot ? shotStudio(shot) : null));
   const isHost = studio?.viewerRole === "owner" || studio?.viewerRole === "cohost";
   const [entry, setEntry] = useState<"pending" | "ok" | "gate">(shot ? "ok" : "pending");
+  const [cohostInvite, setCohostInvite] = useState(false);
+  const [accepting, setAccepting] = useState(false);
   const [entryId, setEntryId] = useState(id);
   if (entryId !== id) {
     setEntryId(id);
@@ -329,6 +332,7 @@ export function Studio() {
     getStudio(id)
       .then((s) => {
         apply(s, s.viewerRole);
+        setCohostInvite(Boolean(s.cohostInvite));
         setEntry(canConnectToStudio(s.viewerRole, loadSession(id)) ? "ok" : "gate");
       })
       .catch((err) => setError(err.message));
@@ -953,6 +957,45 @@ export function Studio() {
 
   function togglePanel(next: PanelId) {
     setPanel((cur) => (cur === next ? null : next));
+  }
+
+  async function onAcceptCohost() {
+    setAccepting(true);
+    setError("");
+    try {
+      await acceptCohostInvite(id);
+      const s = await getStudio(id);
+      setStudio((prev) => mergeStudio(prev, s, s.viewerRole));
+      setCohostInvite(false);
+      setEntry(canConnectToStudio(s.viewerRole, loadSession(id)) ? "ok" : "gate");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("cohostInviteFailed"));
+    } finally {
+      setAccepting(false);
+    }
+  }
+
+  if (entry === "gate" && cohostInvite) {
+    return (
+      <div className="studio">
+        <StudioTop title={studio?.title ?? t("studioFallback")} live={false} timer="" />
+        <div className="scrim">
+          <div className="dlg gate-dlg">
+            <p className="lead">{t("cohostInviteNote")}</p>
+            {error ? (
+              <p className="lead" role="alert">
+                {error}
+              </p>
+            ) : null}
+            <footer>
+              <button className="btn primary" type="button" disabled={accepting} onClick={() => void onAcceptCohost()}>
+                {t("cohostInviteAccept")}
+              </button>
+            </footer>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (entry === "gate") {

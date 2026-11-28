@@ -17,8 +17,9 @@ Casthop is an open-source live studio that runs in the browser, and you can run 
 - **Recording, replays and clips.** The mixed show is saved as an MP4. Publish it as a private or public replay. While live, Clip saves the last 30 or 60 seconds.
 - **Per-person tracks.** Turn on Separate recordings and each person on stage records their own audio and video in their browser.
 - **Chat.** Studio chat, plus YouTube, Twitch and Kick comments while live. Pin one onto the video.
+- **Live captions.** English, off by default. Each speaker is transcribed on their own device and only text reaches the studio. Show them on the stream or keep them off it; a `captions.vtt` is saved for the show.
 
-Not done yet: TURN for guests on strict networks, X and LinkedIn chat, and live captions.
+Not done yet: TURN for guests on strict networks, and X and LinkedIn chat.
 
 How it is built: LiveKit, Egress, Redis and an RTMP server for media, and a Cloudflare Worker with Durable Objects and D1 for the app. The audio and video hot paths are Rust compiled to WebAssembly. See [Architecture](site/src/content/docs/en/architecture.mdx).
 

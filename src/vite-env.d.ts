@@ -1,5 +1,13 @@
 /// <reference types="vite/client" />
 
+interface ImportMetaEnv {
+  /** Self-host the on-device caption runtime and model. See docs, "Live captions". */
+  readonly VITE_CAPTION_RUNTIME_URL?: string;
+  readonly VITE_CAPTION_RUNTIME_BASE?: string;
+  readonly VITE_CAPTION_MODEL_BASE?: string;
+  readonly VITE_CAPTION_MODEL?: string;
+}
+
 interface Window {
   __BENCH__?: unknown;
   __PERF__?: unknown;

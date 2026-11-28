@@ -110,6 +110,31 @@ These are set in `wrangler.jsonc`, not as variables.
 | `STUDIO` | One Durable Object per studio: stage, layout, chat and destinations. |
 | `RECORDINGS` | R2 bucket for replays, clips and per-person tracks. |
 
+## Live captions
+
+Off by default. The host turns them on in Settings. Each person on stage is transcribed in their own browser (English only for now) and only the text goes to the studio. No audio is sent to any service, and the browser Web Speech API is not used.
+
+The runtime and model load only after captions are turned on, inside a Web Worker. They are not in the repo. Put them in `public/captions/` so they are served from your own origin:
+
+```
+public/captions/transformers.min.js            # @huggingface/transformers web build (ES module)
+public/captions/ort-wasm-simd-threaded*.{mjs,wasm}   # onnxruntime-web files that ship with it
+public/captions/models/whisper-tiny.en/        # onnx-community/whisper-tiny.en (config, tokenizer, onnx/)
+```
+
+To host them somewhere else, set these at build time (the host needs CORS):
+
+| Name | Purpose | Default |
+|---|---|---|
+| `VITE_CAPTION_RUNTIME_URL` | Module URL of the runtime. | `/captions/transformers.min.js` |
+| `VITE_CAPTION_RUNTIME_BASE` | Folder with the onnxruntime `.wasm` files. | `/captions/` |
+| `VITE_CAPTION_MODEL_BASE` | Folder that holds the model directory. | `/captions/models/` |
+| `VITE_CAPTION_MODEL` | Model directory name. | `whisper-tiny.en` |
+
+If the files are missing or the device cannot run the model (no Worker, AudioWorklet or WebAssembly), that person sees a short message and the studio keeps working. A WebGPU browser is faster; others use WASM.
+
+With **Show on stream** on, the latest line is drawn on the program. With it off, captions stay out of the video. Either way the lines are saved, and the host downloads `captions.vtt` from the Recordings panel after the show.
+
 ## Stream keys
 
 Stream keys are not settings. They are saved per studio in Durable Object storage. Guests and public pages only see the last few characters, plus a `hasKey` flag.

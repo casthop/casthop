@@ -18,6 +18,7 @@ let mode: LayoutMode = "grid";
 let title = "Casthop";
 let subtitle = "live";
 let pin: { name: string; text: string } | null = null;
+let caption: { name: string; text: string } | null = null;
 let writer: WritableStreamDefaultWriter<VideoFrame> | null = null;
 let busy = false;
 let timer = 0;
@@ -63,6 +64,7 @@ async function composeOnce(): Promise<void> {
     title,
     subtitle,
     pin,
+    caption,
     canvas,
     width: canvas.width,
     height: canvas.height,
@@ -179,6 +181,7 @@ self.onmessage = (ev: MessageEvent<ComposeWorkerIn>) => {
     title = msg.title;
     subtitle = msg.subtitle;
     pin = msg.pin ?? null;
+    caption = msg.caption ?? null;
     return;
   }
   if (msg.type === "snapshot") {

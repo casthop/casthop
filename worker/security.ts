@@ -1,3 +1,4 @@
+import { defaultCaptions } from "./captions";
 import { livePhaseOf } from "./egress";
 import { destAspectOf, type DestAspect, type Destination, type DestStatus, type Env, type PublicDestination, type PublicStudio, type StudioState } from "./types";
 
@@ -195,6 +196,9 @@ export function publicState(state: StudioState, opts: { includeUrls: boolean }):
     participants: state.participants,
     chat: state.chat,
     pinnedChat: state.pinnedChat ?? null,
+    captions: state.captions ?? defaultCaptions(),
+    // Not burned in means not on the stream, so not in public state either.
+    captionLine: state.captions?.on && state.captions.burn ? (state.captionLine ?? null) : null,
     createdAt: state.createdAt,
     separateRecordings: Boolean(state.separateRecordings),
     isoSessionId: state.isoSessionId ?? null,

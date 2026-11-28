@@ -213,6 +213,18 @@ export const en = {
   errClip: "Could not save clip",
   errIso: "Could not update recordings",
   errIsoUpload: "Could not upload your recording",
+  captions: "Live captions",
+  captionsLead: "Speech becomes text in each person's own browser. No audio is sent anywhere.",
+  captionsOn: "Turn on live captions",
+  captionsOff: "Turn off live captions",
+  captionsBurn: "Show on stream",
+  captionsBurnLead: "Off keeps captions out of the video and saves them for the recording.",
+  captionsBurnOn: "Show captions on the stream",
+  captionsBurnOff: "Hide captions from the stream",
+  captionsFile: "Captions (VTT)",
+  captionsFileHint: "{n} lines",
+  errCaptions: "Captions do not work on this device",
+  errCaptionsSave: "Could not update captions",
 } as const;
 
 export type MessageKey = keyof typeof en;

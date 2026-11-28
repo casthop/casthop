@@ -2,6 +2,7 @@ import type { ComposeBackend } from "./compose-backend";
 import type { LayoutMode } from "./wasm";
 
 export type ComposePin = { name: string; text: string };
+export type ComposeCaption = { name: string; text: string };
 
 export type ComposeWorkerIn =
   | {
@@ -15,7 +16,7 @@ export type ComposeWorkerIn =
     }
   | { type: "add"; id: string; readable: ReadableStream<VideoFrame> }
   | { type: "remove"; id: string }
-  | { type: "meta"; mode: LayoutMode; title: string; subtitle: string; pin?: ComposePin | null }
+  | { type: "meta"; mode: LayoutMode; title: string; subtitle: string; pin?: ComposePin | null; caption?: ComposeCaption | null }
   | { type: "snapshot" }
   | { type: "stop" };
 

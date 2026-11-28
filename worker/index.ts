@@ -904,6 +904,44 @@ app.post("/api/studios/:id/iso-pref", async (c) => {
   return new Response(res.body, { status: res.status, headers: res.headers });
 });
 
+app.post("/api/studios/:id/captions", async (c) => {
+  const id = c.req.param("id");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (!host) return c.json({ error: "host access required" }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as { on?: unknown; burn?: unknown };
+  const res = await doAction(c.env, id, "captions-pref", { on: body.on, burn: body.burn, hostKey: host.hostKey });
+  return new Response(res.body, { status: res.status, headers: res.headers });
+});
+
+// Text only. Each browser transcribes its own mic and sends the words, never audio.
+app.post("/api/studios/:id/captions/text", async (c) => {
+  const id = c.req.param("id");
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const who = await isoCaller(c, id, body);
+  if (who instanceof Response) return who;
+  const res = await doAction(c.env, id, "caption", {
+    text: body.text,
+    durationMs: body.durationMs,
+    ageMs: body.ageMs,
+    identity: who.identity,
+    guestSecret: who.guestSecret,
+    hostKey: who.hostKey,
+  });
+  return new Response(res.body, { status: res.status, headers: res.headers });
+});
+
+app.get("/api/studios/:id/recordings/captions.vtt", async (c) => {
+  const id = c.req.param("id");
+  const sess = await loadSession(c);
+  attachSessionCookie(c, sess?.cookie);
+  const host = await hostAuth(c.env, id, sess?.account);
+  if (!host) return c.json({ error: "host access required" }, 403);
+  const res = await doAction(c.env, id, "captions-get", { hostKey: host.hostKey });
+  return new Response(res.body, { status: res.status, headers: res.headers });
+});
+
 app.post("/api/studios/:id/iso", async (c) => {
   const id = c.req.param("id");
   const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;

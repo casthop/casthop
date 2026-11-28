@@ -215,6 +215,18 @@ const es: Messages = {
   errClip: "No se pudo guardar el clip",
   errIso: "No se pudieron actualizar las grabaciones",
   errIsoUpload: "No se pudo subir tu grabación",
+  captions: "Subtítulos en vivo",
+  captionsLead: "La voz se convierte en texto en el navegador de cada persona. No se envía audio a ningún sitio.",
+  captionsOn: "Activar subtítulos en vivo",
+  captionsOff: "Desactivar subtítulos en vivo",
+  captionsBurn: "Mostrar en el directo",
+  captionsBurnLead: "Desactivado: los subtítulos no salen en el vídeo y se guardan con la grabación.",
+  captionsBurnOn: "Mostrar subtítulos en el directo",
+  captionsBurnOff: "Ocultar subtítulos del directo",
+  captionsFile: "Subtítulos (VTT)",
+  captionsFileHint: "{n} líneas",
+  errCaptions: "Los subtítulos no funcionan en este dispositivo",
+  errCaptionsSave: "No se pudieron actualizar los subtítulos",
 };
 
 export default es;

@@ -67,6 +67,8 @@ export function shotStudio(shot: ShotState): StudioView {
       ? { id: "c2", name: "pedro.dev", text: "Will you share the repo link?", source: "youtube" }
       : null,
     createdAt: at,
+    captions: { on: false, burn: false },
+    captionLine: null,
     separateRecordings: false,
     isoSessionId: null,
   };

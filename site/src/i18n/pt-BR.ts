@@ -21,7 +21,7 @@ const ptBR: SiteMessages = {
   heroRepo: "Abrir o repositório",
   heroDocs: "Ler a documentação",
   heroAlt:
-    "O estúdio do apresentador no Casthop: uma cabine escura com palco para duas pessoas, um convidado nos bastidores e o botão branco Transmitir ao vivo.",
+    "O estúdio do apresentador no Casthop antes de entrar ao vivo: uma cabine escura, um palco para duas pessoas com prévias de câmera e o botão branco Transmitir ao vivo.",
 
   featuresTitle: "O que já funciona",
   feature1Title: "Uma transcodificação, vários destinos.",

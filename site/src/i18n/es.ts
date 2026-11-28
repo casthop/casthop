@@ -21,7 +21,7 @@ const es: SiteMessages = {
   heroRepo: "Abrir el repositorio",
   heroDocs: "Leer la documentación",
   heroAlt:
-    "El estudio del anfitrión en Casthop: una cabina oscura con escenario para dos, un invitado entre bastidores y el botón blanco Transmitir en vivo.",
+    "El estudio del anfitrión en Casthop antes de transmitir: una cabina oscura, un escenario para dos con vistas previas de cámara y el botón blanco Transmitir en vivo.",
 
   featuresTitle: "Qué hace hoy",
   feature1Title: "Una transcodificación, varios destinos.",

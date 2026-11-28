@@ -21,7 +21,7 @@ const de: SiteMessages = {
   heroRepo: "Repo öffnen",
   heroDocs: "Dokumentation lesen",
   heroAlt:
-    "Das Casthop-Hoststudio: eine dunkle Kabine mit einer Bühne für zwei Personen, ein Gast hinter der Bühne und ein weißer „Live gehen“-Button.",
+    "Das Casthop-Hoststudio vor dem Livestream: eine dunkle Kabine, eine Bühne für zwei Personen mit Kameravorschauen und ein weißer „Live gehen“-Button.",
 
   featuresTitle: "Was es heute kann",
   feature1Title: "Ein Encode, mehrere Ziele.",

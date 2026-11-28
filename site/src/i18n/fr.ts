@@ -21,7 +21,7 @@ const fr: SiteMessages = {
   heroRepo: "Ouvrir le dépôt",
   heroDocs: "Lire la documentation",
   heroAlt:
-    "Le studio hôte Casthop : une cabine sombre, une scène à deux, un invité en coulisses et le bouton blanc Passer en direct.",
+    "Le studio hôte Casthop avant le passage en direct : une cabine sombre, une scène à deux avec aperçus caméra, et le bouton blanc Passer en direct.",
 
   featuresTitle: "Ce qui marche aujourd’hui",
   feature1Title: "Un seul encodage, plusieurs destinations.",

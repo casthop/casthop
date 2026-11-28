@@ -19,7 +19,7 @@ export const en = {
   heroRepo: "Open the repo",
   heroDocs: "Read the docs",
   heroAlt:
-    "The Casthop host studio: a dark booth with a two-person stage, backstage guest, and a white Go live button.",
+    "The Casthop host studio before going live: a dark booth, a two-person stage with camera previews, and a white Go live button.",
 
   featuresTitle: "What it does today",
   feature1Title: "One encode, several destinations.",

@@ -15,7 +15,7 @@ bun run preview   # serve dist/ locally
 - UI copy lives in `src/i18n/` (English is the source). Docs live in `src/content/docs/<locale>/*.mdx`. Frontmatter: `title`, `description`, `group`, `order`.
 - The docs sidebar, "On this page" rail and Ctrl/Cmd-K search are built from those files. The search index is inlined in each docs page, so it works offline.
 - Fonts (Instrument Serif, Geist) are self-hosted through `@fontsource`. No runtime requests to third parties.
-- `public/studio.png` and `public/guest.png` are copies of `docs/screenshots/` in the repo root.
+- `public/studio.png` and `public/guest.png` are copies of `docs/screenshots/` in the repo root. `public/studio-2x.png` is the same studio shot at 2540×1520 for the home-page hero on high-DPI screens.
 
 ## Deploy
 

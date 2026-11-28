@@ -21,7 +21,7 @@ const ja: SiteMessages = {
   heroRepo: "リポジトリを開く",
   heroDocs: "ドキュメントを読む",
   heroAlt:
-    "Casthop のホストスタジオ。暗いブースに2人のステージ、控室のゲスト、白いライブ配信ボタン。",
+    "ライブ配信前の Casthop ホストスタジオ。暗いブース、カメラプレビューのある2人のステージ、白いライブ配信ボタン。",
 
   featuresTitle: "いまできること",
   feature1Title: "1回のエンコードで、複数の配信先へ。",
